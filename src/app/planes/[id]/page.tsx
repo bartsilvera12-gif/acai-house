@@ -71,8 +71,9 @@ function PlanDetailContent() {
   const params       = useParams();
   const router       = useRouter();
   const searchParams = useSearchParams();
+  if (!params) return null;
   const id           = parseInt(params.id as string, 10);
-  const editMode     = searchParams.get("edit") === "1";
+  const editMode     = searchParams?.get("edit") === "1";
 
   const [plan,      setPlan]      = useState<Plan | null>(null);
   const [editing,   setEditing]   = useState(editMode);

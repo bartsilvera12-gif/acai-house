@@ -45,6 +45,7 @@ function formatFecha(iso: string) {
 export default function EditProspectoPage() {
   const params = useParams();
   const router = useRouter();
+  if (!params) return null;
   const id     = parseInt(params.id as string);
 
   const [prospecto, setProspecto] = useState<Prospecto | null>(null);

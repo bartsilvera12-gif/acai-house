@@ -25,7 +25,7 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 function NuevoClienteForm() {
   const router       = useRouter();
   const searchParams = useSearchParams();
-  const fromCrmId    = searchParams.get("from_crm");
+  const fromCrmId    = searchParams?.get("from_crm");
 
   const [crmBanner,  setCrmBanner]  = useState<string | null>(null);
   const [error,      setError]      = useState<string | null>(null);

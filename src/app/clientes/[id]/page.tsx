@@ -74,7 +74,8 @@ function PlaceholderTab({ icon, title, desc }: { icon: string; title: string; de
 export default function ClienteDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const id     = params.id as string;
+  if (!params) return null;
+  const id = params.id as string;
 
   const [cliente,   setCliente]   = useState<Cliente | null>(null);
   const [notFound,  setNotFound]  = useState(false);

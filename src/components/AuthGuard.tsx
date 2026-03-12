@@ -12,7 +12,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (PUBLIC_ROUTES.includes(pathname)) {
+    if (pathname && PUBLIC_ROUTES.includes(pathname)) {
       setLoading(false);
       return;
     }
@@ -28,7 +28,7 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
     checkAuth();
   }, [pathname, router]);
 
-  if (loading && !PUBLIC_ROUTES.includes(pathname)) {
+  if (loading && !(pathname && PUBLIC_ROUTES.includes(pathname))) {
     return (
       <div className="flex items-center justify-center min-h-screen text-sm text-gray-400">
         Cargando…

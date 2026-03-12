@@ -102,10 +102,10 @@ function getBase(): Usuario[] {
   }
   // Migración: campos nuevos ausentes en datos viejos
   return stored.map((u) => ({
-    ips:   false,
-    nivel: "usuario" as const,
-    area:  "administracion" as const,
     ...u,
+    ips:   u.ips ?? false,
+    nivel: u.nivel ?? "usuario",
+    area:  u.area ?? "administracion",
   }));
 }
 

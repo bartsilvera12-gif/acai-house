@@ -59,7 +59,8 @@ function BadgeTipo({ tipo }: { tipo: TipoGestion }) {
 export default function TipificacionPage() {
   const params = useParams();
   const router = useRouter();
-  const id     = parseInt(params.id as string);
+  if (!params) return null;
+  const id = parseInt(params.id as string);
 
   const [cliente,        setCliente]        = useState<Cliente | null>(null);
   const [notFound,       setNotFound]       = useState(false);
@@ -78,17 +79,17 @@ export default function TipificacionPage() {
 
   const [error, setError] = useState<string | null>(null);
 
-  function cargar() {
-    const c = getCliente(String(id));
+  async function cargar() {
+    const c = await getCliente(String(id));
     if (!c) { setNotFound(true); return; }
     setCliente(c);
-    const tips = getTipificaciones(String(id));
+    const tips = getTipificaciones(id);
     // Ordenar más recientes primero
     setTipificaciones([...tips].sort((a, b) => b.fecha.localeCompare(a.fecha)));
   }
 
   useEffect(() => {
-    if (!isNaN(id)) cargar();
+    if (!isNaN(id)) void cargar();
     else setNotFound(true);
   }, [id]);
 

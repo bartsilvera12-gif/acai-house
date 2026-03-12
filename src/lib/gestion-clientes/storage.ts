@@ -87,9 +87,10 @@ function getFacturasBase(): Factura[] {
   return stored.length > 0 ? stored : [...FACTURAS_MOCK];
 }
 
-export function getFacturas(clienteId?: number): Factura[] {
+export function getFacturas(clienteId?: number | string): Factura[] {
   const base = getFacturasBase();
-  return clienteId != null ? base.filter((f) => f.cliente_id === clienteId) : base;
+  if (clienteId == null) return base;
+  return base.filter((f) => f.cliente_id === clienteId || String(f.cliente_id) === clienteId);
 }
 
 // ─── Tipificaciones ───────────────────────────────────────────────────────────
