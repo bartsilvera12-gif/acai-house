@@ -1,0 +1,241 @@
+"use client";
+
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import { getClientes, clienteNombre } from "@/lib/clientes/storage";
+import type { Cliente } from "@/lib/clientes/types";
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function formatFecha(iso: string) {
+  try {
+    const d = new Date(iso);
+    return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
+  } catch { return ""; }
+}
+
+// ── Badges ────────────────────────────────────────────────────────────────────
+
+function BadgeEstado({ estado }: { estado: Cliente["estado"] }) {
+  return (
+    <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full ${
+      estado === "activo"
+        ? "bg-green-100 text-green-700"
+        : "bg-gray-100 text-gray-500"
+    }`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${estado === "activo" ? "bg-green-500" : "bg-gray-400"}`} />
+      {estado === "activo" ? "Activo" : "Inactivo"}
+    </span>
+  );
+}
+
+function BadgeOrigen({ origen }: { origen: Cliente["origen"] }) {
+  const cfg = {
+    CRM:    "bg-violet-100 text-violet-700",
+    VENTA:  "bg-blue-100 text-blue-700",
+    MANUAL: "bg-gray-100 text-gray-600",
+  };
+  return (
+    <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${cfg[origen]}`}>
+      {origen}
+    </span>
+  );
+}
+
+// ── Componente principal ──────────────────────────────────────────────────────
+
+export default function ClientesPage() {
+  const [clientes,    setClientes]    = useState<Cliente[]>([]);
+  const [cargando,    setCargando]    = useState(true);
+  const [busqueda,    setBusqueda]    = useState("");
+  const [filtroEstado, setFiltroEstado] = useState<"" | "activo" | "inactivo">("");
+  const [filtroOrigen, setFiltroOrigen] = useState<"" | "CRM" | "VENTA" | "MANUAL">("");
+  const [filtroTipo,   setFiltroTipo]   = useState<"" | "empresa" | "persona">("");
+
+  useEffect(() => {
+    getClientes().then((data) => {
+      setClientes(data);
+      setCargando(false);
+    });
+  }, []);
+
+  const filtrados = clientes.filter((c) => {
+    const nombre = clienteNombre(c).toLowerCase();
+    const q      = busqueda.toLowerCase();
+    if (q) {
+      const match =
+        nombre.includes(q) ||
+        (c.codigo_cliente ?? "").toLowerCase().includes(q) ||
+        (c.email          ?? "").toLowerCase().includes(q) ||
+        (c.telefono       ?? "").toLowerCase().includes(q) ||
+        (c.ruc            ?? "").toLowerCase().includes(q) ||
+        (c.ciudad         ?? "").toLowerCase().includes(q);
+      if (!match) return false;
+    }
+    if (filtroEstado && c.estado  !== filtroEstado) return false;
+    if (filtroOrigen && c.origen  !== filtroOrigen) return false;
+    if (filtroTipo   && c.tipo_cliente !== filtroTipo) return false;
+    return true;
+  });
+
+  const hayFiltros = busqueda || filtroEstado || filtroOrigen || filtroTipo;
+
+  return (
+    <div className="space-y-6">
+
+      {/* Header */}
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-800">Clientes</h1>
+          <p className="text-gray-500 text-sm mt-1">Base de clientes activos de la empresa</p>
+        </div>
+        <Link
+          href="/clientes/nuevo"
+          className="flex items-center gap-1.5 bg-gray-900 text-white px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-gray-700 transition-colors shrink-0"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+            <path d="M10.75 4.75a.75.75 0 0 0-1.5 0v4.5h-4.5a.75.75 0 0 0 0 1.5h4.5v4.5a.75.75 0 0 0 1.5 0v-4.5h4.5a.75.75 0 0 0 0-1.5h-4.5v-4.5Z" />
+          </svg>
+          Nuevo cliente
+        </Link>
+      </div>
+
+      {/* Filtros */}
+      <div className="bg-white rounded-xl border border-gray-200 p-4 flex flex-wrap gap-3 items-center">
+        <input
+          type="text"
+          placeholder="Buscar por nombre, código, email, RUC..."
+          value={busqueda}
+          onChange={(e) => setBusqueda(e.target.value)}
+          className="flex-1 min-w-48 border border-gray-300 rounded-lg px-4 py-2 text-sm outline-none focus:border-gray-500 transition-colors"
+        />
+        <select
+          value={filtroEstado}
+          onChange={(e) => setFiltroEstado(e.target.value as "" | "activo" | "inactivo")}
+          className="border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-gray-500 bg-white"
+        >
+          <option value="">Todos los estados</option>
+          <option value="activo">Activo</option>
+          <option value="inactivo">Inactivo</option>
+        </select>
+        <select
+          value={filtroTipo}
+          onChange={(e) => setFiltroTipo(e.target.value as "" | "empresa" | "persona")}
+          className="border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-gray-500 bg-white"
+        >
+          <option value="">Todos los tipos</option>
+          <option value="empresa">Empresa</option>
+          <option value="persona">Persona</option>
+        </select>
+        <select
+          value={filtroOrigen}
+          onChange={(e) => setFiltroOrigen(e.target.value as "" | "CRM" | "VENTA" | "MANUAL")}
+          className="border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-gray-500 bg-white"
+        >
+          <option value="">Todos los orígenes</option>
+          <option value="CRM">CRM</option>
+          <option value="VENTA">Venta</option>
+          <option value="MANUAL">Manual</option>
+        </select>
+        {hayFiltros && (
+          <button
+            onClick={() => { setBusqueda(""); setFiltroEstado(""); setFiltroOrigen(""); setFiltroTipo(""); }}
+            className="text-xs text-gray-500 hover:text-gray-900 border border-gray-300 rounded-lg px-3 py-2 hover:bg-gray-50 transition-colors"
+          >
+            Limpiar
+          </button>
+        )}
+      </div>
+
+      {/* Contador */}
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-gray-500">
+          <span className="font-semibold text-gray-800">{filtrados.length}</span> de{" "}
+          <span className="font-semibold text-gray-800">{clientes.length}</span> clientes
+        </p>
+        <div className="flex gap-3 text-xs text-gray-400">
+          <span>{clientes.filter((c) => c.estado === "activo").length} activos</span>
+          <span>·</span>
+          <span>{clientes.filter((c) => c.tipo_cliente === "empresa").length} empresas</span>
+        </div>
+      </div>
+
+      {/* Tabla */}
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+        {cargando ? (
+          <div className="py-16 text-center text-gray-400 text-sm animate-pulse">Cargando clientes…</div>
+        ) : filtrados.length === 0 ? (
+          <div className="py-16 text-center text-gray-400">
+            <p className="text-4xl mb-3">👥</p>
+            <p className="font-medium text-gray-600">
+              {clientes.length === 0 ? "No hay clientes registrados" : "Sin resultados para los filtros aplicados"}
+            </p>
+            {clientes.length === 0 && (
+              <Link href="/clientes/nuevo" className="mt-4 inline-block text-sm text-gray-500 underline hover:text-gray-800">
+                Crear primer cliente
+              </Link>
+            )}
+          </div>
+        ) : /* tabla */ (
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-gray-100 bg-gray-50/60">
+                <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide px-5 py-3">Código</th>
+                <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide px-5 py-3">Empresa / Nombre</th>
+                <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide px-5 py-3">Contacto</th>
+                <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide px-5 py-3">Teléfono</th>
+                <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide px-5 py-3">Email</th>
+                <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide px-5 py-3">Origen</th>
+                <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide px-5 py-3">Estado</th>
+                <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide px-5 py-3">Desde</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {filtrados.map((c) => (
+                <tr
+                  key={c.id}
+                  className="hover:bg-gray-50 transition-colors cursor-pointer group"
+                  onClick={() => window.location.href = `/clientes/${c.id}`}
+                >
+                  <td className="px-5 py-3.5">
+                    <span className="font-mono text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
+                      {c.codigo_cliente}
+                    </span>
+                  </td>
+                  <td className="px-5 py-3.5">
+                    <div className="flex items-center gap-2">
+                      <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0 ${
+                        c.tipo_cliente === "empresa" ? "bg-blue-500" : "bg-violet-500"
+                      }`}>
+                        {c.tipo_cliente === "empresa" ? "E" : "P"}
+                      </div>
+                      <div>
+                        <p className="text-sm font-semibold text-gray-800 group-hover:text-gray-900">
+                          {clienteNombre(c)}
+                        </p>
+                        {c.tipo_cliente === "empresa" && c.ruc && (
+                          <p className="text-xs text-gray-400">RUC: {c.ruc}</p>
+                        )}
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-5 py-3.5">
+                    <p className="text-sm text-gray-700">
+                      {c.tipo_cliente === "empresa" ? c.nombre_contacto : (c.ciudad ?? "—")}
+                    </p>
+                  </td>
+                  <td className="px-5 py-3.5 text-sm text-gray-600">{c.telefono ?? "—"}</td>
+                  <td className="px-5 py-3.5 text-sm text-gray-600">{c.email ?? "—"}</td>
+                  <td className="px-5 py-3.5"><BadgeOrigen origen={c.origen} /></td>
+                  <td className="px-5 py-3.5"><BadgeEstado estado={c.estado} /></td>
+                  <td className="px-5 py-3.5 text-xs text-gray-400">{formatFecha(c.created_at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+    </div>
+  );
+}

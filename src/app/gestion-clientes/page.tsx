@@ -1,0 +1,868 @@
+"use client";
+
+import Link from "next/link";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { getClientes, clienteNombre } from "@/lib/clientes/storage";
+import { getFacturas } from "@/lib/gestion-clientes/storage";
+import type { Cliente } from "@/lib/clientes/types";
+import type { EstadoFactura, Factura } from "@/lib/gestion-clientes/types";
+
+// ── Estilos ────────────────────────────────────────────────────────────────────
+
+const fInputClass =
+  "w-full border border-gray-200 rounded-md px-3 py-1.5 text-xs outline-none focus:border-gray-400 transition-colors bg-white";
+const fLabelClass = "block text-xs font-medium text-gray-500 mb-0.5";
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function formatGs(n: number) {
+  return n.toLocaleString("es-PY");
+}
+
+function formatFecha(str: string) {
+  if (!str) return "—";
+  const [y, m, d] = str.split("-");
+  return `${d}/${m}/${y}`;
+}
+
+function formatFechaIso(iso: string) {
+  try {
+    const d = new Date(iso);
+    return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
+  } catch { return ""; }
+}
+
+// ── Badges ────────────────────────────────────────────────────────────────────
+
+function BadgeEstado({ estado }: { estado: Cliente["estado"] }) {
+  return (
+    <span className={`inline-flex items-center gap-1 text-xs font-semibold px-1.5 py-0.5 rounded-full ${
+      estado === "activo" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"
+    }`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${estado === "activo" ? "bg-green-500" : "bg-gray-400"}`} />
+      {estado === "activo" ? "Activo" : "Inactivo"}
+    </span>
+  );
+}
+
+function BadgeFactura({ estado }: { estado: string }) {
+  const cfg: Record<string, string> = {
+    Pagado:    "bg-green-100 text-green-700",
+    Pendiente: "bg-amber-100 text-amber-700",
+    Vencido:   "bg-red-100 text-red-700",
+    Anulado:   "bg-gray-100 text-gray-500",
+  };
+  return (
+    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${cfg[estado] ?? "bg-gray-100 text-gray-500"}`}>
+      {estado}
+    </span>
+  );
+}
+
+function BadgeTipo({ tipo }: { tipo: string }) {
+  const cfg: Record<string, string> = {
+    contado:     "bg-gray-50 text-gray-500 border-gray-200",
+    credito:     "bg-blue-50 text-blue-600 border-blue-100",
+    suscripcion: "bg-violet-50 text-violet-600 border-violet-100",
+  };
+  return (
+    <span className={`text-xs px-1.5 py-0.5 rounded border capitalize ${cfg[tipo] ?? "bg-gray-50 text-gray-500 border-gray-200"}`}>
+      {tipo}
+    </span>
+  );
+}
+
+// ── Botón operativo ───────────────────────────────────────────────────────────
+
+function BotonOperativo({
+  label,
+  icon,
+  activo = false,
+  href,
+  onClick,
+}: {
+  label:    string;
+  icon:     string;
+  activo?:  boolean;
+  href?:    string;
+  onClick?: () => void;
+}) {
+  const base =
+    "flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-medium transition-colors";
+  const activeClass  = "border-gray-800 bg-gray-900 text-white hover:bg-gray-700";
+  const disabledClass = "border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed";
+
+  if (activo && href) {
+    return (
+      <Link href={href} className={`${base} ${activeClass}`}>
+        <span>{icon}</span>
+        {label}
+      </Link>
+    );
+  }
+  if (activo && onClick) {
+    return (
+      <button type="button" onClick={onClick} className={`${base} ${activeClass}`}>
+        <span>{icon}</span>
+        {label}
+      </button>
+    );
+  }
+  return (
+    <button type="button" disabled className={`${base} ${disabledClass}`}>
+      <span>{icon}</span>
+      {label}
+    </button>
+  );
+}
+
+// ── Sección header de columna ─────────────────────────────────────────────────
+
+function ColHeader({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-200">
+      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{children}</p>
+    </div>
+  );
+}
+
+// ── Lookup de cliente (popup buscador) ───────────────────────────────────────
+
+function ClienteLookup({
+  clientes,
+  selected,
+  onSelect,
+  onClear,
+}: {
+  clientes: Cliente[];
+  selected: Cliente | null;
+  onSelect: (c: Cliente) => void;
+  onClear:  () => void;
+}) {
+  const [open,  setOpen]  = useState(false);
+  const [query, setQuery] = useState("");
+  const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef     = useRef<HTMLInputElement>(null);
+
+  const resultados = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const base = q
+      ? clientes.filter((c) =>
+          (c.empresa         ?? "").toLowerCase().includes(q) ||
+          c.nombre_contacto.toLowerCase().includes(q)         ||
+          (c.telefono        ?? "").toLowerCase().includes(q) ||
+          (c.ruc             ?? "").toLowerCase().includes(q) ||
+          (c.documento       ?? "").toLowerCase().includes(q) ||
+          (c.email           ?? "").toLowerCase().includes(q)
+        )
+      : clientes;
+    return base.slice(0, 10);
+  }, [clientes, query]);
+
+  // Cerrar al hacer click fuera del popup
+  useEffect(() => {
+    if (!open) return;
+    function onMouseDown(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onMouseDown);
+    return () => document.removeEventListener("mousedown", onMouseDown);
+  }, [open]);
+
+  // Foco automático al abrir
+  useEffect(() => {
+    if (open) setTimeout(() => inputRef.current?.focus(), 0);
+  }, [open]);
+
+  function handleOpen() {
+    setQuery("");
+    setOpen(true);
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Escape") {
+      setOpen(false);
+    } else if (e.key === "Enter" && resultados.length > 0) {
+      onSelect(resultados[0]);
+      setOpen(false);
+      setQuery("");
+    }
+  }
+
+  function handleSelect(c: Cliente) {
+    onSelect(c);
+    setOpen(false);
+    setQuery("");
+  }
+
+  return (
+    <div ref={containerRef} className="relative">
+
+      {/* ── Trigger ── */}
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          onClick={handleOpen}
+          className={`flex-1 min-w-0 border rounded-md px-3 py-1.5 text-xs flex items-center gap-1.5 transition-colors text-left ${
+            open
+              ? "border-blue-400 bg-white ring-1 ring-blue-200"
+              : "border-gray-200 bg-white hover:border-gray-300"
+          }`}
+        >
+          <svg className="w-3 h-3 text-gray-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+          </svg>
+          {selected ? (
+            <span className="font-semibold text-gray-800 truncate">{clienteNombre(selected)}</span>
+          ) : (
+            <span className="text-gray-400">Buscar cliente...</span>
+          )}
+        </button>
+        {selected && (
+          <button
+            type="button"
+            onClick={onClear}
+            className="shrink-0 p-1 rounded-md text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors"
+            title="Limpiar selección"
+          >
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        )}
+      </div>
+
+      {/* ── Dropdown popup ── */}
+      {open && (
+        <div className="absolute left-0 right-0 top-full mt-1.5 bg-white border border-gray-200 rounded-xl shadow-2xl z-50 overflow-hidden">
+
+          {/* Buscador interno */}
+          <div className="p-2 border-b border-gray-100 bg-gray-50/60">
+            <input
+              ref={inputRef}
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Escribí para buscar..."
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100 transition-all bg-white"
+            />
+          </div>
+
+          {/* Resultados */}
+          <div className="overflow-y-auto max-h-56">
+            {resultados.length === 0 ? (
+              <div className="py-6 text-center text-xs text-gray-400">
+                Sin resultados para &ldquo;{query}&rdquo;
+              </div>
+            ) : (
+              resultados.map((c, i) => (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => handleSelect(c)}
+                  className={`w-full text-left px-3 py-2.5 border-b border-gray-50 last:border-0 transition-colors hover:bg-blue-50 ${
+                    i === 0 ? "bg-blue-50/30" : ""
+                  }`}
+                >
+                  <p className="text-xs font-bold text-gray-900 truncate">{clienteNombre(c)}</p>
+                  <div className="flex flex-wrap gap-x-3 mt-0.5">
+                    {c.ruc && (
+                      <span className="text-xs text-gray-500">RUC: {c.ruc}</span>
+                    )}
+                    <span className="text-xs text-gray-500">Contacto: {c.nombre_contacto}</span>
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
+
+          {/* Atajos de teclado */}
+          <div className="flex items-center gap-4 px-3 py-1.5 bg-gray-50 border-t border-gray-100">
+            <span className="text-xs text-gray-400 flex items-center gap-1">
+              <kbd className="bg-white border border-gray-200 rounded px-1 py-0.5 text-[10px] font-mono leading-none">↵</kbd>
+              seleccionar primero
+            </span>
+            <span className="text-xs text-gray-400 flex items-center gap-1">
+              <kbd className="bg-white border border-gray-200 rounded px-1 py-0.5 text-[10px] font-mono leading-none">Esc</kbd>
+              cerrar
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Página principal ──────────────────────────────────────────────────────────
+
+export default function GestionClientesPage() {
+  const [clientes,  setClientes]  = useState<Cliente[]>([]);
+  const [selected,  setSelected]  = useState<Cliente | null>(null);
+  const [facturas,  setFacturas]  = useState<Factura[]>([]);
+
+  const [filters, setFilters] = useState({
+    cliente:                 "",
+    nombre:                  "",
+    ruc:                     "",
+    telefono:                "",
+    correo:                  "",
+    nro_documento:           "",
+    fecha_desde:             "",
+    fecha_hasta:             "",
+    vencimiento_desde:       "",
+    vencimiento_hasta:       "",
+    incluir_saldo_cero:      true,
+    incluir_factura_contado: true,
+    moneda:                  "" as "" | "GS" | "USD",
+  });
+
+  useEffect(() => {
+    getClientes().then(setClientes);
+  }, []);
+
+  function selectCliente(c: Cliente) {
+    setSelected(c);
+    setFacturas(getFacturas(c.id));
+  }
+
+  function handleChange(e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) {
+    const { name, value, type } = e.target;
+    const checked = (e.target as HTMLInputElement).checked;
+    setFilters((prev) => ({
+      ...prev,
+      [name]: type === "checkbox" ? checked : value,
+    }));
+  }
+
+  function limpiarFiltros() {
+    setFilters({
+      cliente: "", nombre: "", ruc: "", telefono: "", correo: "", nro_documento: "",
+      fecha_desde: "", fecha_hasta: "", vencimiento_desde: "", vencimiento_hasta: "",
+      incluir_saldo_cero: true, incluir_factura_contado: true, moneda: "",
+    });
+    setSelected(null);
+    setFacturas([]);
+  }
+
+  // Handlers del lookup
+  function handleSelectFromLookup(c: Cliente) {
+    selectCliente(c);
+    setFilters((prev) => ({ ...prev, cliente: clienteNombre(c) }));
+  }
+
+  function handleClearLookup() {
+    setSelected(null);
+    setFacturas([]);
+    setFilters((prev) => ({ ...prev, cliente: "" }));
+  }
+
+  // ── Filtrado de clientes (columna izquierda) ─────────────────────────────
+
+  const clientesFiltrados = useMemo(() => {
+    return clientes.filter((c) => {
+      const nombre = clienteNombre(c).toLowerCase();
+      if (filters.cliente      && !nombre.includes(filters.cliente.toLowerCase())
+                                && !(c.codigo_cliente ?? "").toLowerCase().includes(filters.cliente.toLowerCase())) return false;
+      if (filters.nombre       && !nombre.includes(filters.nombre.toLowerCase()))                                   return false;
+      if (filters.ruc          && !(c.ruc       ?? "").toLowerCase().includes(filters.ruc.toLowerCase()))           return false;
+      if (filters.telefono     && !(c.telefono  ?? "").toLowerCase().includes(filters.telefono.toLowerCase()))      return false;
+      if (filters.correo       && !(c.email     ?? "").toLowerCase().includes(filters.correo.toLowerCase()))        return false;
+      if (filters.nro_documento && !(c.documento ?? "").toLowerCase().includes(filters.nro_documento.toLowerCase())) return false;
+      return true;
+    });
+  }, [clientes, filters.cliente, filters.nombre, filters.ruc, filters.telefono, filters.correo, filters.nro_documento]);
+
+  // ── Filtrado de facturas (columna derecha) ───────────────────────────────
+
+  const facturasFiltradas = useMemo(() => {
+    return facturas.filter((f) => {
+      if (filters.fecha_desde       && f.fecha             < filters.fecha_desde)       return false;
+      if (filters.fecha_hasta       && f.fecha             > filters.fecha_hasta)        return false;
+      if (filters.vencimiento_desde && f.fecha_vencimiento < filters.vencimiento_desde)  return false;
+      if (filters.vencimiento_hasta && f.fecha_vencimiento > filters.vencimiento_hasta)  return false;
+      if (!filters.incluir_saldo_cero      && f.saldo === 0)             return false;
+      if (!filters.incluir_factura_contado && f.tipo === "contado")      return false;
+      if (filters.moneda && f.moneda !== filters.moneda)                  return false;
+      return true;
+    });
+  }, [facturas, filters.fecha_desde, filters.fecha_hasta, filters.vencimiento_desde, filters.vencimiento_hasta, filters.incluir_saldo_cero, filters.incluir_factura_contado, filters.moneda]);
+
+  // ── Fecha de hoy para mora/estado automático ─────────────────────────────
+
+  const hoyStr = useMemo(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }, []);
+
+  // ── Facturas enriquecidas: estado efectivo + días mora + ordenadas DESC ───
+
+  const facturasOrdenadas = useMemo(() => {
+    return [...facturasFiltradas]
+      .sort((a, b) => b.fecha_vencimiento.localeCompare(a.fecha_vencimiento))
+      .map((f) => {
+        const estaVencida    = f.saldo > 0 && f.fecha_vencimiento < hoyStr;
+        const estadoEfectivo: EstadoFactura = estaVencida ? "Vencido" : f.estado;
+        const diasMora       = estaVencida
+          ? Math.floor(
+              (new Date().getTime() - new Date(f.fecha_vencimiento + "T00:00:00").getTime()) /
+              86_400_000
+            )
+          : 0;
+        return { ...f, _estadoEfectivo: estadoEfectivo, _diasMora: diasMora };
+      });
+  }, [facturasFiltradas, hoyStr]);
+
+  // ── Totales de facturas ──────────────────────────────────────────────────
+
+  const totalMonto    = facturasOrdenadas.reduce((s, f) => s + f.monto, 0);
+  const totalSaldo    = facturasOrdenadas.reduce((s, f) => s + f.saldo, 0);
+  const cntVencidas   = facturasOrdenadas.filter((f) => f._estadoEfectivo === "Vencido").length;
+  const cntPendientes = facturasOrdenadas.filter((f) => f._estadoEfectivo === "Pendiente").length;
+  const cntPagadas    = facturasOrdenadas.filter((f) => f._estadoEfectivo === "Pagado").length;
+
+  return (
+    <div className="flex flex-col gap-4 h-full">
+
+      {/* ── Header ─────────────────────────────────────────────────────── */}
+      <div className="shrink-0">
+        <h1 className="text-3xl font-bold text-gray-800">Gestión del Cliente</h1>
+        <p className="text-gray-500 text-sm mt-1">Panel operativo · consultas y tipificaciones</p>
+      </div>
+
+      {/* ── Panel dos columnas ──────────────────────────────────────────── */}
+      <div
+        className="flex border border-gray-200 rounded-xl overflow-hidden shadow-sm bg-white flex-1 min-h-0"
+        style={{ height: "calc(100vh - 170px)" }}
+      >
+
+        {/* ══════════════════════════════════════════════════════════════
+            COLUMNA IZQUIERDA — Filtros + Lista de clientes
+        ══════════════════════════════════════════════════════════════ */}
+        <div className="w-[340px] shrink-0 border-r border-gray-200 flex flex-col overflow-hidden bg-gray-50/40">
+
+          <ColHeader>Filtros de búsqueda</ColHeader>
+
+          {/* Formulario de filtros */}
+          <div className="flex-1 overflow-y-auto">
+            <div className="p-4 space-y-3">
+
+              {/* Criterios de texto */}
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Criterios</p>
+
+                <div>
+                  <label className={fLabelClass}>Cliente</label>
+                  <ClienteLookup
+                    clientes={clientes}
+                    selected={selected}
+                    onSelect={handleSelectFromLookup}
+                    onClear={handleClearLookup}
+                  />
+                </div>
+                <div>
+                  <label className={fLabelClass}>Nombre</label>
+                  <input name="nombre" value={filters.nombre} onChange={handleChange} placeholder="Nombre del contacto" className={fInputClass} />
+                </div>
+                <div>
+                  <label className={fLabelClass}>RUC</label>
+                  <input name="ruc" value={filters.ruc} onChange={handleChange} placeholder="00000000-0" className={fInputClass} />
+                </div>
+                <div>
+                  <label className={fLabelClass}>Teléfono</label>
+                  <input name="telefono" value={filters.telefono} onChange={handleChange} placeholder="021 / 09XX" className={fInputClass} />
+                </div>
+                <div>
+                  <label className={fLabelClass}>Correo</label>
+                  <input name="correo" value={filters.correo} onChange={handleChange} placeholder="email@dominio.com" className={fInputClass} />
+                </div>
+                <div>
+                  <label className={fLabelClass}>Nro. documento</label>
+                  <input name="nro_documento" value={filters.nro_documento} onChange={handleChange} placeholder="CI o pasaporte" className={fInputClass} />
+                </div>
+              </div>
+
+              {/* Filtros de período */}
+              <div className="space-y-2 pt-2 border-t border-gray-200">
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Período facturas</p>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className={fLabelClass}>Fecha desde</label>
+                    <input type="date" name="fecha_desde" value={filters.fecha_desde} onChange={handleChange} className={fInputClass} />
+                  </div>
+                  <div>
+                    <label className={fLabelClass}>Fecha hasta</label>
+                    <input type="date" name="fecha_hasta" value={filters.fecha_hasta} onChange={handleChange} className={fInputClass} />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className={fLabelClass}>Venc. desde</label>
+                    <input type="date" name="vencimiento_desde" value={filters.vencimiento_desde} onChange={handleChange} className={fInputClass} />
+                  </div>
+                  <div>
+                    <label className={fLabelClass}>Venc. hasta</label>
+                    <input type="date" name="vencimiento_hasta" value={filters.vencimiento_hasta} onChange={handleChange} className={fInputClass} />
+                  </div>
+                </div>
+              </div>
+
+              {/* Opciones */}
+              <div className="space-y-2 pt-2 border-t border-gray-200">
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Opciones</p>
+
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    name="incluir_saldo_cero"
+                    checked={filters.incluir_saldo_cero}
+                    onChange={handleChange}
+                    className="rounded border-gray-300 accent-gray-800"
+                  />
+                  <span className="text-xs text-gray-600">Incluir saldo cero</span>
+                </label>
+
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    name="incluir_factura_contado"
+                    checked={filters.incluir_factura_contado}
+                    onChange={handleChange}
+                    className="rounded border-gray-300 accent-gray-800"
+                  />
+                  <span className="text-xs text-gray-600">Incluir factura contado</span>
+                </label>
+
+                <div>
+                  <label className={fLabelClass}>Moneda</label>
+                  <select name="moneda" value={filters.moneda} onChange={handleChange} className={fInputClass}>
+                    <option value="">Todas</option>
+                    <option value="GS">Guaraníes (GS)</option>
+                    <option value="USD">Dólares (USD)</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Botón limpiar */}
+              <button
+                type="button"
+                onClick={limpiarFiltros}
+                className="w-full text-xs text-gray-500 border border-gray-200 rounded-lg py-1.5 hover:bg-gray-100 transition-colors"
+              >
+                Limpiar filtros
+              </button>
+            </div>
+
+            {/* ── Lista de resultados ──────────────────────────────────── */}
+            <div className="border-t border-gray-200">
+              <div className="px-4 py-2 bg-gray-100/50 flex items-center justify-between">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Resultados</p>
+                <span className="text-xs font-bold text-gray-600 bg-white border border-gray-200 px-1.5 py-0.5 rounded-full">
+                  {clientesFiltrados.length}
+                </span>
+              </div>
+
+              {clientesFiltrados.length === 0 ? (
+                <div className="px-4 py-8 text-center text-xs text-gray-400">
+                  Sin resultados para los filtros aplicados
+                </div>
+              ) : (
+                <div className="divide-y divide-gray-100">
+                  {clientesFiltrados.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => selectCliente(c)}
+                      className={`w-full text-left px-4 py-3 transition-colors hover:bg-blue-50/60 ${
+                        selected?.id === c.id
+                          ? "bg-blue-50 border-l-[3px] border-l-blue-500"
+                          : "border-l-[3px] border-l-transparent"
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className={`text-xs font-semibold truncate ${selected?.id === c.id ? "text-blue-800" : "text-gray-800"}`}>
+                            {clienteNombre(c)}
+                          </p>
+                          <p className="text-xs text-gray-400 mt-0.5 font-mono">
+                            {c.codigo_cliente}
+                            {(c.ruc || c.documento) && ` · ${c.ruc ?? c.documento}`}
+                          </p>
+                        </div>
+                        <BadgeEstado estado={c.estado} />
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+          </div>
+        </div>
+
+        {/* ══════════════════════════════════════════════════════════════
+            COLUMNA DERECHA — Información del cliente
+        ══════════════════════════════════════════════════════════════ */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+
+          {selected === null ? (
+            /* Empty state */
+            <div className="flex-1 flex items-center justify-center">
+              <div className="text-center">
+                <span className="text-5xl">👤</span>
+                <p className="mt-4 text-base font-semibold text-gray-600">Seleccioná un cliente</p>
+                <p className="text-sm text-gray-400 mt-1 max-w-xs">
+                  Buscá en la columna izquierda y hacé click en un cliente para ver su información
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="flex-1 flex flex-col overflow-hidden">
+
+              {/* ── Panel info del cliente ─────────────────────────── */}
+              <div className="shrink-0 border-b border-gray-200">
+                <ColHeader>Información del cliente</ColHeader>
+                <div className="px-6 py-4">
+                  <div className="flex items-start justify-between mb-4">
+                    <div>
+                      <h2 className="text-lg font-bold text-gray-900">{clienteNombre(selected)}</h2>
+                      <span className="font-mono text-xs text-gray-400">{selected.codigo_cliente}</span>
+                    </div>
+                    <BadgeEstado estado={selected.estado} />
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-x-8 gap-y-2.5 text-sm">
+                    {[
+                      { label: "RUC",        value: selected.ruc        ?? "—" },
+                      { label: "Contacto",   value: selected.nombre_contacto   },
+                      { label: "Correo",     value: selected.email      ?? "—" },
+                      { label: "Teléfono",   value: selected.telefono   ?? "—" },
+                      { label: "Dirección",  value: selected.direccion  ?? "—" },
+                      { label: "Ciudad",     value: selected.ciudad     ?? "—" },
+                      { label: "Condición",  value: selected.condicion_pago ?? "—" },
+                      { label: "Moneda",     value: selected.moneda_preferida ?? "GS" },
+                      { label: "Fecha alta", value: formatFechaIso(selected.created_at) },
+                    ].map((item) => (
+                      <div key={item.label}>
+                        <p className="text-xs text-gray-400">{item.label}</p>
+                        <p className="font-medium text-gray-800 truncate" title={item.value}>{item.value}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* ── Botones operativos ─────────────────────────── */}
+                <div className="px-6 pb-4 flex flex-wrap gap-2">
+                  <BotonOperativo
+                    label="Tipificación"
+                    icon="📋"
+                    activo
+                    href={`/clientes/${selected.id}/tipificacion`}
+                  />
+                  <BotonOperativo label="Servicios asociados"   icon="🔗" />
+                  <BotonOperativo label="Cambio de plan"        icon="🔄" />
+                  <BotonOperativo label="Cambio fecha venc."    icon="📅" />
+                  <BotonOperativo label="Historial cliente"     icon="🕐" />
+                </div>
+              </div>
+
+              {/* ── Tabla de facturas ──────────────────────────────── */}
+              <div className="flex-1 flex flex-col overflow-hidden">
+                <ColHeader>
+                  Facturas del cliente
+                  {facturasFiltradas.length !== facturas.length && (
+                    <span className="ml-2 normal-case font-normal text-gray-400">
+                      ({facturasFiltradas.length} de {facturas.length} con filtros aplicados)
+                    </span>
+                  )}
+                </ColHeader>
+
+                {/* ── Resumen de facturas ──────────────────────────── */}
+                {facturasOrdenadas.length > 0 && (
+                  <div className="shrink-0 grid grid-cols-3 gap-2 px-4 py-3 border-b border-gray-100 bg-gray-50/40">
+                    <div className="bg-white rounded-lg border border-gray-100 px-3 py-2">
+                      <p className="text-xs text-gray-400">Facturas</p>
+                      <p className="text-lg font-bold text-gray-800 leading-tight">{facturasOrdenadas.length}</p>
+                    </div>
+                    <div className="bg-white rounded-lg border border-gray-100 px-3 py-2">
+                      <p className="text-xs text-gray-400">Monto total</p>
+                      <p className="text-xs font-bold text-gray-800 tabular-nums leading-tight mt-0.5">
+                        Gs. {formatGs(totalMonto)}
+                      </p>
+                    </div>
+                    <div className="bg-white rounded-lg border border-gray-100 px-3 py-2">
+                      <p className="text-xs text-gray-400">Saldo pendiente</p>
+                      <p className={`text-xs font-bold tabular-nums leading-tight mt-0.5 ${totalSaldo > 0 ? "text-red-600" : "text-green-600"}`}>
+                        Gs. {formatGs(totalSaldo)}
+                      </p>
+                    </div>
+                    <div className="bg-white rounded-lg border border-red-100 px-3 py-2">
+                      <p className="text-xs text-red-400">Vencidas</p>
+                      <p className="text-lg font-bold text-red-600 leading-tight">{cntVencidas}</p>
+                    </div>
+                    <div className="bg-white rounded-lg border border-amber-100 px-3 py-2">
+                      <p className="text-xs text-amber-500">Pendientes</p>
+                      <p className="text-lg font-bold text-amber-600 leading-tight">{cntPendientes}</p>
+                    </div>
+                    <div className="bg-white rounded-lg border border-green-100 px-3 py-2">
+                      <p className="text-xs text-green-500">Pagadas</p>
+                      <p className="text-lg font-bold text-green-600 leading-tight">{cntPagadas}</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Tabla ────────────────────────────────────────── */}
+                <div className="flex-1 overflow-y-auto">
+                  {facturasOrdenadas.length === 0 ? (
+                    <div className="py-12 text-center text-sm text-gray-400">
+                      No hay facturas para los filtros seleccionados
+                    </div>
+                  ) : (
+                    <table className="w-full text-sm">
+                      <thead className="sticky top-0 bg-white border-b border-gray-100 shadow-sm">
+                        <tr>
+                          {["Tipo", "Nro. Factura", "Fecha emisión", "Fecha vencimiento", "Monto", "Saldo", "Días mora", "Estado", "Acciones"].map((h) => (
+                            <th key={h} className="text-left text-xs font-semibold text-gray-500 px-3 py-2.5 uppercase tracking-wide whitespace-nowrap">
+                              {h}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50">
+                        {facturasOrdenadas.map((f) => (
+                          <tr
+                            key={f.id}
+                            className={`transition-colors ${
+                              f._estadoEfectivo === "Vencido"
+                                ? "bg-red-50/40 hover:bg-red-50/70"
+                                : "hover:bg-gray-50/60"
+                            }`}
+                          >
+                            {/* Tipo */}
+                            <td className="px-3 py-2.5">
+                              <BadgeTipo tipo={f.tipo} />
+                            </td>
+                            {/* Nro. Factura — clickable */}
+                            <td className="px-3 py-2.5">
+                              <Link
+                                href={`/facturas/${f.id}`}
+                                className="font-mono text-xs font-semibold text-blue-600 hover:text-blue-800 hover:underline"
+                              >
+                                {f.numero_factura}
+                              </Link>
+                            </td>
+                            {/* Fecha emisión */}
+                            <td className="px-3 py-2.5 text-xs text-gray-500 whitespace-nowrap">
+                              {formatFecha(f.fecha)}
+                            </td>
+                            {/* Fecha vencimiento */}
+                            <td className={`px-3 py-2.5 text-xs font-medium whitespace-nowrap ${
+                              f._estadoEfectivo === "Vencido" ? "text-red-600" : "text-gray-600"
+                            }`}>
+                              {formatFecha(f.fecha_vencimiento)}
+                            </td>
+                            {/* Monto */}
+                            <td className="px-3 py-2.5 text-xs text-gray-800 tabular-nums whitespace-nowrap">
+                              {f.moneda === "GS"
+                                ? `Gs. ${formatGs(f.monto)}`
+                                : `USD ${f.monto.toLocaleString("en-US")}`}
+                            </td>
+                            {/* Saldo */}
+                            <td className={`px-3 py-2.5 text-xs tabular-nums font-semibold whitespace-nowrap ${
+                              f.saldo > 0 ? "text-red-600" : "text-gray-400"
+                            }`}>
+                              {f.moneda === "GS"
+                                ? `Gs. ${formatGs(f.saldo)}`
+                                : `USD ${f.saldo.toLocaleString("en-US")}`}
+                            </td>
+                            {/* Días mora */}
+                            <td className="px-3 py-2.5 text-xs text-center">
+                              {f._diasMora > 0 ? (
+                                <span className="font-bold text-red-600 tabular-nums">{f._diasMora}</span>
+                              ) : (
+                                <span className="text-gray-300">—</span>
+                              )}
+                            </td>
+                            {/* Estado */}
+                            <td className="px-3 py-2.5">
+                              <BadgeFactura estado={f._estadoEfectivo} />
+                            </td>
+                            {/* Acciones */}
+                            <td className="px-3 py-2.5">
+                              <div className="flex items-center gap-0.5">
+                                {/* Ver */}
+                                <Link
+                                  href={`/facturas/${f.id}`}
+                                  title="Ver factura"
+                                  className="inline-flex items-center justify-center w-7 h-7 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                                >
+                                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+                                    <path d="M10 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z" />
+                                    <path fillRule="evenodd" d="M.664 10.59a1.651 1.651 0 0 1 0-1.186A10.004 10.004 0 0 1 10 3c4.257 0 7.893 2.66 9.336 6.41.147.381.146.804 0 1.186A10.004 10.004 0 0 1 10 17c-4.257 0-7.893-2.66-9.336-6.41ZM14 10a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z" clipRule="evenodd" />
+                                  </svg>
+                                </Link>
+                                {/* Imprimir */}
+                                <button
+                                  type="button"
+                                  title="Imprimir factura"
+                                  onClick={() => window.open(`/facturas/${f.id}?print=1`, "_blank")}
+                                  className="inline-flex items-center justify-center w-7 h-7 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
+                                >
+                                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+                                    <path fillRule="evenodd" d="M5 4v3H4a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h1v2a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-2h1a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-1V4a1 1 0 0 0-1-1H6a1 1 0 0 0-1 1Zm2 0h6v3H7V4Zm-1 9v-1h8v1a.5.5 0 0 1-.5.5h-7A.5.5 0 0 1 6 13Zm8-4.5a.5.5 0 1 1-1 0 .5.5 0 0 1 1 0Z" clipRule="evenodd" />
+                                  </svg>
+                                </button>
+                                {/* Descargar PDF */}
+                                <button
+                                  type="button"
+                                  title="Descargar PDF"
+                                  onClick={() => window.open(`/facturas/${f.id}?download=1`, "_blank")}
+                                  className="inline-flex items-center justify-center w-7 h-7 rounded-lg text-gray-400 hover:text-green-600 hover:bg-green-50 transition-colors"
+                                >
+                                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-3.5 h-3.5">
+                                    <path fillRule="evenodd" d="M4 4a2 2 0 0 1 2-2h4.586A2 2 0 0 1 12 2.586L15.414 6A2 2 0 0 1 16 7.414V16a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4Zm2 6a1 1 0 0 1 1-1h6a1 1 0 1 1 0 2H7a1 1 0 0 1-1-1Zm1 3a1 1 0 1 0 0 2h6a1 1 0 1 0 0-2H7Z" clipRule="evenodd" />
+                                  </svg>
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+
+                {/* ── Pie de tabla ─────────────────────────────────── */}
+                {facturasOrdenadas.length > 0 && (
+                  <div className="shrink-0 border-t border-gray-100 bg-gray-50/50 px-4 py-2 flex items-center gap-4 flex-wrap">
+                    <span className="text-xs text-gray-500 tabular-nums">
+                      <span className="font-semibold text-gray-700">{facturasOrdenadas.length}</span> facturas
+                      {facturasFiltradas.length !== facturas.length && (
+                        <span className="text-gray-400"> (filtradas)</span>
+                      )}
+                    </span>
+                    <span className="text-xs text-gray-500 tabular-nums">
+                      Total: <span className="font-semibold text-gray-700">Gs. {formatGs(totalMonto)}</span>
+                    </span>
+                    <span className="text-xs text-gray-500 tabular-nums">
+                      Saldo: <span className={`font-semibold ${totalSaldo > 0 ? "text-red-600" : "text-green-700"}`}>
+                        Gs. {formatGs(totalSaldo)}
+                      </span>
+                    </span>
+                  </div>
+                )}
+              </div>
+
+            </div>
+          )}
+
+        </div>
+      </div>
+
+    </div>
+  );
+}

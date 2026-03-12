@@ -1,0 +1,487 @@
+"use client";
+
+import { Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { saveCliente } from "@/lib/clientes/storage";
+import { getProspecto, updateProspecto } from "@/lib/crm/storage";
+import type { TipoCliente, OrigenCliente } from "@/lib/clientes/types";
+
+// ── Estilos ────────────────────────────────────────────────────────────────────
+
+const inputClass =
+  "w-full border border-gray-300 rounded-lg px-4 py-3 outline-none focus:border-gray-500 transition-colors text-sm";
+const labelClass = "block text-sm font-medium text-gray-700 mb-1.5";
+
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="text-xs font-semibold text-gray-400 uppercase tracking-widest mb-4 pt-1">
+      {children}
+    </p>
+  );
+}
+
+// ── Formulario interno ────────────────────────────────────────────────────────
+
+function NuevoClienteForm() {
+  const router       = useRouter();
+  const searchParams = useSearchParams();
+  const fromCrmId    = searchParams.get("from_crm");
+
+  const [crmBanner,  setCrmBanner]  = useState<string | null>(null);
+  const [error,      setError]      = useState<string | null>(null);
+  const [guardando,  setGuardando]  = useState(false);
+
+  const [form, setForm] = useState({
+    tipo_cliente:        "empresa" as TipoCliente,
+    empresa:             "",
+    nombre_contacto:     "",
+    ruc:                 "",
+    documento:           "",
+    telefono:            "",
+    telefono_secundario: "",
+    email:               "",
+    email_secundario:    "",
+    direccion:           "",
+    ciudad:              "",
+    pais:                "PARAGUAY",
+    sitio_web:           "",
+    instagram:           "",
+    linkedin:            "",
+    categoria_cliente:   "",
+    industria:           "",
+    valor_cliente:       "",
+    condicion_pago:      "CONTADO",
+    moneda_preferida:    "GS" as "GS" | "USD",
+    vendedor_asignado:   "",
+    origen:              "MANUAL" as OrigenCliente,
+    prospecto_id:        null as number | null,
+    estado:              "activo" as "activo" | "inactivo",
+  });
+
+  // Pre-fill desde CRM si viene con ?from_crm=id
+  useEffect(() => {
+    if (!fromCrmId) return;
+    const id = parseInt(fromCrmId);
+    if (isNaN(id)) return;
+    const prospecto = getProspecto(id);
+    if (!prospecto) return;
+
+    setCrmBanner(`Prospecto ${prospecto.numero_control} — ${prospecto.empresa}`);
+    setForm((prev) => ({
+      ...prev,
+      tipo_cliente:    "empresa",
+      empresa:         prospecto.empresa,
+      nombre_contacto: prospecto.contacto,
+      telefono:        prospecto.telefono ?? "",
+      email:           prospecto.email    ?? "",
+      origen:          "CRM",
+      prospecto_id:    prospecto.id,
+    }));
+  }, [fromCrmId]);
+
+  const upper = ["empresa", "nombre_contacto", "ciudad", "pais", "categoria_cliente", "industria", "vendedor_asignado", "condicion_pago"];
+
+  function handleChange(
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
+  ) {
+    setError(null);
+    const { name, value } = e.target;
+    setForm((prev) => ({
+      ...prev,
+      [name]: upper.includes(name) ? value.toUpperCase() : value,
+    }));
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+
+    if (!form.nombre_contacto.trim())                              return setError("El nombre de contacto es obligatorio.");
+    if (form.tipo_cliente === "empresa" && !form.empresa.trim())   return setError("La razón social es obligatoria para empresas.");
+
+    setGuardando(true);
+
+    const nuevo = await saveCliente({
+      tipo_cliente:        form.tipo_cliente,
+      empresa:             form.tipo_cliente === "empresa" ? form.empresa.trim().toUpperCase() : undefined,
+      nombre_contacto:     form.nombre_contacto.trim().toUpperCase(),
+      ruc:                 form.ruc.trim()                 || undefined,
+      documento:           form.documento.trim()           || undefined,
+      telefono:            form.telefono.trim()            || undefined,
+      telefono_secundario: form.telefono_secundario.trim() || undefined,
+      email:               form.email.trim()               || undefined,
+      email_secundario:    form.email_secundario.trim()    || undefined,
+      direccion:           form.direccion.trim()           || undefined,
+      ciudad:              form.ciudad.trim().toUpperCase()  || undefined,
+      pais:                form.pais.trim().toUpperCase()    || undefined,
+      sitio_web:           form.sitio_web.trim()           || undefined,
+      instagram:           form.instagram.trim()           || undefined,
+      linkedin:            form.linkedin.trim()            || undefined,
+      categoria_cliente:   form.categoria_cliente.trim().toUpperCase() || undefined,
+      industria:           form.industria.trim().toUpperCase()         || undefined,
+      valor_cliente:       parseFloat(form.valor_cliente) || undefined,
+      condicion_pago:      form.condicion_pago.trim().toUpperCase()    || undefined,
+      moneda_preferida:    form.moneda_preferida,
+      vendedor_asignado:   form.vendedor_asignado.trim().toUpperCase() || undefined,
+      origen:              form.origen,
+      prospecto_id:        form.prospecto_id ?? undefined,
+      estado:              form.estado,
+    });
+
+    setGuardando(false);
+
+    if (!nuevo) return setError("Error al guardar en Supabase. Revisa la consola.");
+
+    // Marcar prospecto CRM como cliente_creado
+    if (form.prospecto_id) {
+      updateProspecto(form.prospecto_id, { cliente_creado: true });
+    }
+
+    router.push(`/clientes/${nuevo.id}`);
+  }
+
+  return (
+    <div className="space-y-8">
+
+      {/* Header */}
+      <div>
+        <button
+          onClick={() => router.push("/clientes")}
+          className="text-xs text-gray-400 hover:text-gray-600 mb-2 flex items-center gap-1"
+        >
+          ← Clientes
+        </button>
+        <h1 className="text-3xl font-bold text-gray-800">Nuevo cliente</h1>
+        <p className="text-gray-500 text-sm mt-1">Registrá un cliente en la base de datos</p>
+      </div>
+
+      {/* Banner CRM */}
+      {crmBanner && (
+        <div className="flex items-center gap-3 bg-violet-50 border border-violet-200 rounded-xl px-5 py-3">
+          <span className="text-violet-500 text-lg">🔗</span>
+          <div>
+            <p className="text-sm font-semibold text-violet-800">Creando desde CRM</p>
+            <p className="text-xs text-violet-600">{crmBanner}</p>
+          </div>
+        </div>
+      )}
+
+      <div className="bg-white rounded-xl shadow p-6 max-w-3xl">
+        <form className="space-y-8" onSubmit={handleSubmit}>
+
+          {/* ── Identificación ───────────────────────────────────────────── */}
+          <section className="space-y-4">
+            <SectionTitle>Identificación</SectionTitle>
+
+            {/* Tipo de cliente */}
+            <div>
+              <label className={labelClass}>Tipo de cliente</label>
+              <div className="flex rounded-lg border border-gray-300 overflow-hidden w-fit">
+                {(["empresa", "persona"] as TipoCliente[]).map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setForm((prev) => ({ ...prev, tipo_cliente: t }))}
+                    className={`px-5 py-2.5 text-sm font-medium transition-colors ${
+                      form.tipo_cliente === t
+                        ? "bg-gray-900 text-white"
+                        : "bg-white text-gray-600 hover:bg-gray-50"
+                    }`}
+                  >
+                    {t === "empresa" ? "Empresa" : "Persona"}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {form.tipo_cliente === "empresa" && (
+              <div>
+                <label className={labelClass}>
+                  Razón social <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  name="empresa"
+                  value={form.empresa}
+                  onChange={handleChange}
+                  placeholder="Nombre de la empresa"
+                  className={`${inputClass} uppercase`}
+                />
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className={labelClass}>
+                  {form.tipo_cliente === "empresa" ? "Persona de contacto" : "Nombre completo"}{" "}
+                  <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  name="nombre_contacto"
+                  value={form.nombre_contacto}
+                  onChange={handleChange}
+                  placeholder="Nombre y apellido"
+                  className={`${inputClass} uppercase`}
+                  required
+                />
+              </div>
+              <div>
+                <label className={labelClass}>
+                  {form.tipo_cliente === "empresa" ? "RUC" : "CI / Documento"}
+                </label>
+                {form.tipo_cliente === "empresa" ? (
+                  <input
+                    type="text"
+                    name="ruc"
+                    value={form.ruc}
+                    onChange={handleChange}
+                    placeholder="00000000-0"
+                    className={inputClass}
+                  />
+                ) : (
+                  <input
+                    type="text"
+                    name="documento"
+                    value={form.documento}
+                    onChange={handleChange}
+                    placeholder="CI sin puntos"
+                    className={inputClass}
+                  />
+                )}
+              </div>
+            </div>
+          </section>
+
+          {/* ── Contacto ─────────────────────────────────────────────────── */}
+          <section className="space-y-4">
+            <SectionTitle>Contacto</SectionTitle>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className={labelClass}>Teléfono principal</label>
+                <input
+                  type="text"
+                  name="telefono"
+                  value={form.telefono}
+                  onChange={handleChange}
+                  placeholder="021-000000"
+                  className={inputClass}
+                />
+              </div>
+              <div>
+                <label className={labelClass}>Teléfono secundario</label>
+                <input
+                  type="text"
+                  name="telefono_secundario"
+                  value={form.telefono_secundario}
+                  onChange={handleChange}
+                  placeholder="0981-000000"
+                  className={inputClass}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className={labelClass}>Email principal</label>
+                <input
+                  type="email"
+                  name="email"
+                  value={form.email}
+                  onChange={handleChange}
+                  placeholder="contacto@empresa.com"
+                  className={inputClass}
+                />
+              </div>
+              <div>
+                <label className={labelClass}>Email secundario</label>
+                <input
+                  type="email"
+                  name="email_secundario"
+                  value={form.email_secundario}
+                  onChange={handleChange}
+                  placeholder="otro@empresa.com"
+                  className={inputClass}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className={labelClass}>Dirección</label>
+              <input
+                type="text"
+                name="direccion"
+                value={form.direccion}
+                onChange={handleChange}
+                placeholder="Av. / Calle y número"
+                className={inputClass}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className={labelClass}>Ciudad</label>
+                <input
+                  type="text"
+                  name="ciudad"
+                  value={form.ciudad}
+                  onChange={handleChange}
+                  placeholder="ASUNCIÓN"
+                  className={`${inputClass} uppercase`}
+                />
+              </div>
+              <div>
+                <label className={labelClass}>País</label>
+                <input
+                  type="text"
+                  name="pais"
+                  value={form.pais}
+                  onChange={handleChange}
+                  className={`${inputClass} uppercase`}
+                />
+              </div>
+            </div>
+          </section>
+
+          {/* ── Datos comerciales ────────────────────────────────────────── */}
+          <section className="space-y-4">
+            <SectionTitle>Datos comerciales</SectionTitle>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className={labelClass}>Categoría</label>
+                <input
+                  type="text"
+                  name="categoria_cliente"
+                  value={form.categoria_cliente}
+                  onChange={handleChange}
+                  placeholder="MAYORISTA / MINORISTA / CORPORATIVO"
+                  className={`${inputClass} uppercase`}
+                />
+              </div>
+              <div>
+                <label className={labelClass}>Industria</label>
+                <input
+                  type="text"
+                  name="industria"
+                  value={form.industria}
+                  onChange={handleChange}
+                  placeholder="DISTRIBUCIÓN / SALUD..."
+                  className={`${inputClass} uppercase`}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <label className={labelClass}>Condición de pago</label>
+                <select
+                  name="condicion_pago"
+                  value={form.condicion_pago}
+                  onChange={handleChange}
+                  className={inputClass}
+                >
+                  <option value="CONTADO">Contado</option>
+                  <option value="15 DÍAS">15 días</option>
+                  <option value="30 DÍAS">30 días</option>
+                  <option value="60 DÍAS">60 días</option>
+                  <option value="90 DÍAS">90 días</option>
+                </select>
+              </div>
+              <div>
+                <label className={labelClass}>Moneda preferida</label>
+                <select
+                  name="moneda_preferida"
+                  value={form.moneda_preferida}
+                  onChange={(e) => setForm((prev) => ({ ...prev, moneda_preferida: e.target.value as "GS" | "USD" }))}
+                  className={inputClass}
+                >
+                  <option value="GS">Guaraníes (GS)</option>
+                  <option value="USD">Dólares (USD)</option>
+                </select>
+              </div>
+              <div>
+                <label className={labelClass}>Vendedor asignado</label>
+                <input
+                  type="text"
+                  name="vendedor_asignado"
+                  value={form.vendedor_asignado}
+                  onChange={handleChange}
+                  placeholder="Nombre del vendedor"
+                  className={`${inputClass} uppercase`}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className={labelClass}>Origen del cliente</label>
+                <select
+                  name="origen"
+                  value={form.origen}
+                  onChange={(e) => setForm((prev) => ({ ...prev, origen: e.target.value as OrigenCliente }))}
+                  className={inputClass}
+                  disabled={!!fromCrmId}
+                >
+                  <option value="MANUAL">Manual</option>
+                  <option value="CRM">CRM</option>
+                  <option value="VENTA">Venta</option>
+                </select>
+              </div>
+              <div>
+                <label className={labelClass}>Estado inicial</label>
+                <select
+                  name="estado"
+                  value={form.estado}
+                  onChange={(e) => setForm((prev) => ({ ...prev, estado: e.target.value as "activo" | "inactivo" }))}
+                  className={inputClass}
+                >
+                  <option value="activo">Activo</option>
+                  <option value="inactivo">Inactivo</option>
+                </select>
+              </div>
+            </div>
+          </section>
+
+          {/* Error */}
+          {error && (
+            <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">
+              <span>⚠</span><span className="font-medium">{error}</span>
+            </div>
+          )}
+
+          {/* Acciones */}
+          <div className="flex gap-4 pt-2">
+            <button
+              type="submit"
+              disabled={guardando}
+              className="bg-gray-900 text-white px-6 py-3 rounded-lg text-sm font-medium hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {guardando ? "Guardando…" : "Guardar cliente"}
+            </button>
+            <button
+              type="button"
+              onClick={() => router.push("/clientes")}
+              className="border border-gray-300 px-6 py-3 rounded-lg text-sm hover:bg-gray-50 transition-colors"
+            >
+              Cancelar
+            </button>
+          </div>
+
+        </form>
+      </div>
+
+    </div>
+  );
+}
+
+// ── Page wrapper con Suspense (requerido por useSearchParams) ──────────────────
+
+export default function NuevoClientePage() {
+  return (
+    <Suspense fallback={<div className="animate-pulse text-gray-400 text-sm p-8">Cargando formulario...</div>}>
+      <NuevoClienteForm />
+    </Suspense>
+  );
+}
