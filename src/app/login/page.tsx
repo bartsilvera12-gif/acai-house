@@ -33,27 +33,24 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] flex items-center justify-center px-4">
-      <div className="w-full max-w-sm">
+    <div className="min-h-screen bg-[#F8FAFC] flex flex-col items-center justify-center px-4">
+      <div className="flex flex-col items-center w-full">
 
-        {/* Logo */}
-        <div className="flex justify-center mb-8">
+        {/* Logo — más grande que el cuadro de login (card max-w-sm = 384px) */}
+        <div className="mb-6 w-[min(420px,100%)]">
           <Image
             src="/neura-logo.svg"
             alt="Neura"
-            width={160}
-            height={60}
-            className="h-[60px] w-auto object-contain brightness-0"
+            width={420}
+            height={120}
+            className="w-full h-auto object-contain brightness-0"
           />
         </div>
 
-        <div className="text-center mb-6">
-          <h1 className="text-2xl font-bold text-[#0F172A] tracking-tight">Neura ERP</h1>
-          <p className="text-sm text-[#475569] mt-1">Iniciá sesión para continuar</p>
-        </div>
+        <p className="text-sm text-[#475569] mb-6">Iniciá sesión para continuar</p>
 
         {/* Card */}
-        <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-8">
+        <div className="w-full max-w-sm bg-white border border-slate-200 rounded-xl shadow-sm p-8">
           <form onSubmit={handleSubmit} className="space-y-5">
 
             <div>
@@ -117,7 +114,7 @@ export default function LoginPage() {
         </div>
 
         <p className="text-center text-xs text-[#475569] mt-6">
-          Neura ERP · Acceso restringido
+          Acceso restringido
         </p>
 
       </div>
