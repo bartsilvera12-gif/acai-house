@@ -6,7 +6,7 @@ import { getCompras } from "@/lib/compras/storage";
 import type { Compra, TipoPago } from "@/lib/compras/types";
 
 const inputFilterClass =
-  "border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-gray-400 transition-colors bg-white";
+  "border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#0EA5E9] focus:outline-none bg-white";
 
 function formatGs(valor: number) {
   return `Gs. ${valor.toLocaleString("es-PY")}`;
@@ -68,7 +68,7 @@ export default function ComprasPage() {
         <p className="text-gray-600">Registro de órdenes de compra a proveedores</p>
       </div>
 
-      <div className="bg-white rounded-xl shadow p-6">
+      <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6">
 
         <div className="flex justify-between items-center mb-5">
           <h2 className="text-xl font-semibold">Órdenes de compra</h2>
@@ -139,7 +139,7 @@ export default function ComprasPage() {
                 </tr>
               ) : (
                 filtradas.map((c) => (
-                  <tr key={c.id} className="border-b last:border-0 hover:bg-gray-50">
+                  <tr key={c.id} className="border-b border-slate-200 last:border-0 hover:bg-slate-50 transition-colors">
                     <td className="py-4 pr-4 font-mono text-xs text-gray-500">
                       {c.numero_control}
                     </td>

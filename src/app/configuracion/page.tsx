@@ -10,13 +10,13 @@ type Tab = "facturacion" | "politicas" | "preferencias" | "metricas";
 
 // ── Helpers UI ────────────────────────────────────────────────────────────────
 
-const fLabel  = "block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1";
-const fInput  = "w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900/20 bg-white";
-const fSelect = "w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900/20 bg-white";
+const fLabel  = "block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1";
+const fInput  = "w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0EA5E9] bg-white";
+const fSelect = "w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0EA5E9] bg-white";
 
 function Card({ children }: { children: React.ReactNode }) {
   return (
-    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
+    <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
       {children}
     </div>
   );
@@ -529,7 +529,7 @@ export default function ConfiguracionPage() {
         {/* ── Botón guardar (siempre visible) ─────────────────────── */}
         <div className="flex items-center gap-4 pt-2">
           <button type="submit"
-            className="bg-gray-900 text-white text-sm font-semibold px-6 py-2.5 rounded-lg hover:bg-gray-700 transition-colors">
+            className="bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-sm font-semibold px-6 py-2.5 rounded-lg transition-colors shadow-sm active:scale-95">
             Guardar configuración
           </button>
           <p className="text-xs text-gray-400">

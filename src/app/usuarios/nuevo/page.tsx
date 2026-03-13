@@ -10,9 +10,9 @@ import type { AreaUsuario, NivelUsuario, TipoContrato } from "@/lib/usuarios/typ
 
 // ── Helpers UI ────────────────────────────────────────────────────────────────
 
-const fLabel  = "block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1";
-const fInput  = "w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900/20 bg-white";
-const fSelect = "w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900/20 bg-white";
+const fLabel  = "block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1";
+const fInput  = "w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0EA5E9] bg-white";
+const fSelect = "w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0EA5E9] bg-white";
 
 function SectionCard({ title, icon, children }: { title: string; icon: string; children: React.ReactNode }) {
   return (
@@ -307,7 +307,7 @@ export default function NuevoUsuarioPage() {
         {/* Acciones */}
         <div className="flex items-center gap-3">
           <button type="submit" disabled={guardando}
-            className="bg-gray-900 text-white text-sm font-semibold px-6 py-2.5 rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+            className="bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-sm font-semibold px-6 py-2.5 rounded-lg transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed active:scale-95">
             {guardando ? "Creando usuario…" : "Guardar usuario"}
           </button>
           <Link href="/usuarios" className="text-sm text-gray-500 hover:text-gray-800 transition-colors px-4 py-2.5">

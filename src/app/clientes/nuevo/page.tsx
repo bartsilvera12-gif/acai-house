@@ -9,8 +9,8 @@ import type { TipoCliente, OrigenCliente } from "@/lib/clientes/types";
 // ── Estilos ────────────────────────────────────────────────────────────────────
 
 const inputClass =
-  "w-full border border-gray-300 rounded-lg px-4 py-3 outline-none focus:border-gray-500 transition-colors text-sm";
-const labelClass = "block text-sm font-medium text-gray-700 mb-1.5";
+  "w-full border border-slate-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-[#0EA5E9] focus:outline-none bg-white text-sm";
+const labelClass = "block text-sm font-medium text-slate-700 mb-1.5";
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
@@ -167,7 +167,7 @@ function NuevoClienteForm() {
         </div>
       )}
 
-      <div className="bg-white rounded-xl shadow p-6 max-w-3xl">
+      <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 max-w-3xl">
         <form className="space-y-8" onSubmit={handleSubmit}>
 
           {/* ── Identificación ───────────────────────────────────────────── */}
@@ -177,7 +177,7 @@ function NuevoClienteForm() {
             {/* Tipo de cliente */}
             <div>
               <label className={labelClass}>Tipo de cliente</label>
-              <div className="flex rounded-lg border border-gray-300 overflow-hidden w-fit">
+              <div className="flex rounded-lg border border-slate-200 overflow-hidden w-fit">
                 {(["empresa", "persona"] as TipoCliente[]).map((t) => (
                   <button
                     key={t}
@@ -185,8 +185,8 @@ function NuevoClienteForm() {
                     onClick={() => setForm((prev) => ({ ...prev, tipo_cliente: t }))}
                     className={`px-5 py-2.5 text-sm font-medium transition-colors ${
                       form.tipo_cliente === t
-                        ? "bg-gray-900 text-white"
-                        : "bg-white text-gray-600 hover:bg-gray-50"
+                        ? "bg-[#0EA5E9] text-white"
+                        : "bg-white text-slate-600 hover:bg-slate-50"
                     }`}
                   >
                     {t === "empresa" ? "Empresa" : "Persona"}
@@ -457,14 +457,14 @@ function NuevoClienteForm() {
             <button
               type="submit"
               disabled={guardando}
-              className="bg-gray-900 text-white px-6 py-3 rounded-lg text-sm font-medium hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-6 py-3 rounded-lg text-sm font-medium transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed active:scale-95"
             >
               {guardando ? "Guardando…" : "Guardar cliente"}
             </button>
             <button
               type="button"
               onClick={() => router.push("/clientes")}
-              className="border border-gray-300 px-6 py-3 rounded-lg text-sm hover:bg-gray-50 transition-colors"
+              className="border border-slate-200 px-6 py-3 rounded-lg text-sm hover:bg-slate-50 transition-colors"
             >
               Cancelar
             </button>

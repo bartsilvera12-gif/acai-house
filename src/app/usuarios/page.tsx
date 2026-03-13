@@ -97,7 +97,7 @@ export default function UsuariosPage() {
         </div>
         <Link
           href="/usuarios/nuevo"
-          className="inline-flex items-center gap-2 bg-gray-900 text-white text-sm font-semibold px-4 py-2 rounded-lg hover:bg-gray-700 transition-colors"
+          className="inline-flex items-center gap-2 bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors shadow-sm active:scale-95"
         >
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
             <path d="M10.75 4.75a.75.75 0 0 0-1.5 0v4.5h-4.5a.75.75 0 0 0 0 1.5h4.5v4.5a.75.75 0 0 0 1.5 0v-4.5h4.5a.75.75 0 0 0 0-1.5h-4.5v-4.5Z" />
@@ -122,7 +122,7 @@ export default function UsuariosPage() {
         </div>
 
         <select value={filtroNivel} onChange={(e) => setFiltroNivel(e.target.value as typeof filtroNivel)}
-          className="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-900/20 bg-white">
+          className="text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#0EA5E9] bg-white">
           <option value="">Todos los niveles</option>
           <option value="usuario">Usuario</option>
           <option value="supervisor">Supervisor</option>
@@ -130,7 +130,7 @@ export default function UsuariosPage() {
         </select>
 
         <select value={filtroArea} onChange={(e) => setFiltroArea(e.target.value as typeof filtroArea)}
-          className="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-900/20 bg-white">
+          className="text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#0EA5E9] bg-white">
           <option value="">Todas las áreas</option>
           <option value="ventas">Ventas</option>
           <option value="soporte">Soporte</option>
@@ -140,7 +140,7 @@ export default function UsuariosPage() {
         </select>
 
         <select value={filtroEst} onChange={(e) => setFiltroEst(e.target.value as typeof filtroEst)}
-          className="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-900/20 bg-white">
+          className="text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#0EA5E9] bg-white">
           <option value="">Todos los estados</option>
           <option value="activo">Activo</option>
           <option value="inactivo">Inactivo</option>
@@ -161,14 +161,14 @@ export default function UsuariosPage() {
       </p>
 
       {/* Tabla */}
-      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         {filtrados.length === 0 ? (
           <div className="py-16 text-center text-sm text-gray-400">
             No se encontraron usuarios con los filtros aplicados.
           </div>
         ) : (
           <table className="w-full text-sm">
-            <thead className="bg-gray-50 border-b border-gray-100">
+            <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
                 {["Código", "Usuario", "Email", "Nivel", "Área", "IPS", "Estado", "Acciones"].map((h) => (
                   <th key={h} className="text-left text-xs font-semibold text-gray-500 px-4 py-3 uppercase tracking-wide whitespace-nowrap">
@@ -177,9 +177,9 @@ export default function UsuariosPage() {
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-50">
+            <tbody className="divide-y divide-slate-200">
               {filtrados.map((usr) => (
-                <tr key={usr.id} className={`transition-colors hover:bg-gray-50/60 ${usr.estado === "inactivo" ? "opacity-60" : ""}`}>
+                <tr key={usr.id} className={`border-b border-slate-200 hover:bg-slate-50 transition-colors ${usr.estado === "inactivo" ? "opacity-60" : ""}`}>
 
                   {/* Código */}
                   <td className="px-4 py-3 font-mono text-xs font-semibold text-gray-500 whitespace-nowrap">

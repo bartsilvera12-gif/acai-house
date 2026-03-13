@@ -16,8 +16,8 @@ import type { Cliente, NotaCliente } from "@/lib/clientes/types";
 // ── Estilos ────────────────────────────────────────────────────────────────────
 
 const inputClass =
-  "w-full border border-gray-300 rounded-lg px-4 py-2.5 outline-none focus:border-gray-500 transition-colors text-sm";
-const labelClass = "block text-xs font-medium text-gray-500 mb-1";
+  "w-full border border-slate-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-[#0EA5E9] focus:outline-none bg-white text-sm";
+const labelClass = "block text-xs font-medium text-slate-500 mb-1";
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
@@ -244,7 +244,7 @@ export default function ClienteDetailPage() {
 
       {/* ── Panel resumen ─────────────────────────────────────────────────── */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="bg-gradient-to-r from-gray-900 to-gray-700 px-6 py-5">
+        <div className="bg-gradient-to-r from-[#0EA5E9] to-[#0284C7] px-6 py-5">
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-center gap-4">
               {/* Avatar */}
@@ -369,14 +369,14 @@ export default function ClienteDetailPage() {
 
                 <div>
                   <label className={labelClass}>Tipo de cliente</label>
-                  <div className="flex rounded-lg border border-gray-300 overflow-hidden w-fit">
+                  <div className="flex rounded-lg border border-slate-200 overflow-hidden w-fit">
                     {(["empresa", "persona"] as Cliente["tipo_cliente"][]).map((t) => (
                       <button
                         key={t}
                         type="button"
                         onClick={() => setForm((prev) => ({ ...prev, tipo_cliente: t }))}
                         className={`px-4 py-2 text-sm font-medium transition-colors ${
-                          form.tipo_cliente === t ? "bg-gray-900 text-white" : "bg-white text-gray-600 hover:bg-gray-50"
+                          form.tipo_cliente === t ? "bg-[#0EA5E9] text-white" : "bg-white text-slate-600 hover:bg-slate-50"
                         }`}
                       >
                         {t === "empresa" ? "Empresa" : "Persona"}
@@ -537,7 +537,7 @@ export default function ClienteDetailPage() {
               <div className="flex gap-3">
                 <button
                   type="submit"
-                  className="bg-gray-900 text-white px-5 py-2.5 rounded-lg text-sm font-medium hover:bg-gray-700 transition-colors"
+                  className="bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-5 py-2.5 rounded-lg text-sm font-medium transition-colors shadow-sm active:scale-95"
                 >
                   Guardar cambios
                 </button>
@@ -598,13 +598,13 @@ export default function ClienteDetailPage() {
                   }}
                   rows={3}
                   placeholder="Escribí una nota interna (Ctrl+Enter para guardar)..."
-                  className="w-full border border-gray-300 rounded-lg px-4 py-3 outline-none focus:border-gray-500 transition-colors text-sm resize-none mb-3"
+                  className="w-full border border-slate-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-[#0EA5E9] focus:outline-none bg-white text-sm resize-none mb-3"
                 />
-                <button
-                  type="submit"
-                  disabled={!nuevaNota.trim() || guardandoNota}
-                  className="bg-gray-900 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                >
+<button
+                type="submit"
+                disabled={!nuevaNota.trim() || guardandoNota}
+                className="bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm disabled:opacity-40 disabled:cursor-not-allowed active:scale-95"
+              >
                   Agregar nota
                 </button>
               </form>

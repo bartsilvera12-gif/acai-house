@@ -22,8 +22,8 @@ function calcIva(tipo: TipoIvaVenta, base: number) {
 // ── Estilos ────────────────────────────────────────────────────────────────────
 
 const inputClass =
-  "w-full border border-gray-300 rounded-lg px-3 py-2.5 outline-none focus:border-gray-500 transition-colors text-sm";
-const labelClass = "block text-sm font-medium text-gray-700 mb-1.5";
+  "w-full border border-slate-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-[#0EA5E9] focus:outline-none bg-white text-sm";
+const labelClass = "block text-sm font-medium text-slate-700 mb-1.5";
 
 // ── Sub-componentes ───────────────────────────────────────────────────────────
 
@@ -39,7 +39,7 @@ function SegmentedControl<T extends string>({
   disabled?: boolean;
 }) {
   return (
-    <div className={`flex border border-gray-300 rounded-lg overflow-hidden ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}>
+    <div className={`flex border border-slate-200 rounded-lg overflow-hidden ${disabled ? "opacity-50 cursor-not-allowed" : ""}`}>
       {options.map((opt) => (
         <button
           key={opt.value}
@@ -48,8 +48,8 @@ function SegmentedControl<T extends string>({
           onClick={() => onChange(opt.value)}
           className={`flex-1 py-2 text-sm font-medium transition-colors ${
             value === opt.value
-              ? "bg-gray-900 text-white"
-              : "bg-white text-gray-600 hover:bg-gray-50"
+              ? "bg-[#0EA5E9] text-white"
+              : "bg-white text-slate-600 hover:bg-slate-50"
           }`}
         >
           {opt.label}
@@ -296,7 +296,7 @@ export default function NuevaVentaPage() {
       <form onSubmit={handleSubmit} className="space-y-6 max-w-4xl">
 
         {/* ── SECCIÓN 1: Condiciones generales ─────────────────────────────── */}
-        <div className="bg-white rounded-xl shadow p-6">
+        <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6">
           <SectionTitle>Condiciones de la venta</SectionTitle>
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -361,7 +361,7 @@ export default function NuevaVentaPage() {
         </div>
 
         {/* ── SECCIÓN 2: Agregar producto ───────────────────────────────────── */}
-        <div className="bg-white rounded-xl shadow p-6">
+        <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6">
           <SectionTitle>Agregar producto</SectionTitle>
 
           <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
@@ -412,7 +412,7 @@ export default function NuevaVentaPage() {
                           onMouseEnter={() => !sinStock && setComboHighlight(idx)}
                           className={`px-3 py-2.5 text-sm cursor-pointer
                             ${sinStock ? "opacity-40 cursor-not-allowed" : ""}
-                            ${isActive && !sinStock ? "bg-gray-900 text-white" : "hover:bg-gray-50"}
+                            ${isActive && !sinStock ? "bg-[#0EA5E9] text-white" : "hover:bg-slate-50"}
                           `}
                         >
                           <span className="font-medium">{p.nombre}</span>
@@ -502,7 +502,7 @@ export default function NuevaVentaPage() {
                 type="button"
                 onClick={handleAgregarLinea}
                 disabled={!lineaValida}
-                className="flex items-center justify-center gap-1.5 w-full bg-gray-900 text-white px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-gray-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                className="flex items-center justify-center gap-1.5 w-full bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors shadow-sm disabled:opacity-40 disabled:cursor-not-allowed active:scale-95"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 shrink-0">
                   <path d="M10.75 4.75a.75.75 0 0 0-1.5 0v4.5h-4.5a.75.75 0 0 0 0 1.5h4.5v4.5a.75.75 0 0 0 1.5 0v-4.5h4.5a.75.75 0 0 0 0-1.5h-4.5v-4.5Z" />
@@ -533,7 +533,7 @@ export default function NuevaVentaPage() {
         </div>
 
         {/* ── SECCIÓN 3: Carrito + totales + confirmar ─────────────────────── */}
-        <div className="bg-white rounded-xl shadow p-6">
+        <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6">
           <SectionTitle>Productos en esta venta</SectionTitle>
 
           {items.length === 0 ? (
@@ -545,7 +545,7 @@ export default function NuevaVentaPage() {
               <div className="overflow-x-auto">
                 <table className="w-full text-sm text-left">
                   <thead>
-                    <tr className="border-b text-gray-500 text-xs">
+                    <tr className="bg-slate-50 text-slate-600 text-sm font-semibold">
                       <th className="py-2.5 pr-3 font-medium">Producto</th>
                       <th className="py-2.5 pr-3 font-medium">SKU</th>
                       <th className="py-2.5 pr-3 font-medium text-right">Cant.</th>
@@ -559,7 +559,7 @@ export default function NuevaVentaPage() {
                   </thead>
                   <tbody>
                     {items.map((item, idx) => (
-                      <tr key={idx} className="border-b last:border-0 hover:bg-gray-50">
+                      <tr key={idx} className="border-b border-slate-200 last:border-0 hover:bg-slate-50 transition-colors">
                         <td className="py-3 pr-3 font-medium text-gray-800">
                           {item.producto_nombre}
                         </td>
@@ -656,14 +656,14 @@ export default function NuevaVentaPage() {
             <button
               type="submit"
               disabled={!ventaValida}
-              className="bg-gray-900 text-white px-6 py-3 rounded-lg text-sm hover:bg-gray-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              className="bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-6 py-3 rounded-lg text-sm font-medium transition-colors shadow-sm disabled:opacity-40 disabled:cursor-not-allowed active:scale-95"
             >
               Confirmar venta
             </button>
             <button
               type="button"
               onClick={() => router.push("/ventas")}
-              className="border border-gray-300 px-6 py-3 rounded-lg text-sm hover:bg-gray-50 transition-colors"
+              className="border border-slate-200 px-6 py-3 rounded-lg text-sm hover:bg-slate-50 transition-colors"
             >
               Cancelar
             </button>

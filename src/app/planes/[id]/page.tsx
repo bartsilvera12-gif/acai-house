@@ -9,11 +9,11 @@ import { Suspense } from "react";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const fLabelClass = "block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1";
+const fLabelClass = "block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1";
 const fInputClass =
-  "w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900/20 bg-white disabled:bg-gray-50 disabled:text-gray-500";
+  "w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0EA5E9] bg-white disabled:bg-slate-50 disabled:text-slate-500";
 const fSelectClass =
-  "w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900/20 bg-white disabled:bg-gray-50 disabled:text-gray-500";
+  "w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0EA5E9] bg-white disabled:bg-slate-50 disabled:text-slate-500";
 
 function formatGs(n: number) {
   return n.toLocaleString("es-PY");
@@ -195,7 +195,7 @@ function PlanDetailContent() {
             <button
               type="button"
               onClick={() => setEditing(true)}
-              className="inline-flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-lg border border-gray-200 hover:bg-gray-50 transition-colors text-gray-700"
+              className="inline-flex items-center gap-1.5 text-sm font-medium px-3 py-2 rounded-lg border border-slate-200 hover:bg-slate-50 transition-colors text-slate-700"
             >
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
                 <path d="M2.695 14.763l-1.262 3.154a.5.5 0 0 0 .65.65l3.155-1.262a4 4 0 0 0 1.343-.885L17.5 5.5a2.121 2.121 0 0 0-3-3L3.58 13.42a4 4 0 0 0-.885 1.343Z" />
@@ -248,7 +248,7 @@ function PlanDetailContent() {
             </div>
           )}
 
-          <section className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
+          <section className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
             <SectionTitle>Información general</SectionTitle>
             <div className="space-y-4">
               <div>
@@ -282,7 +282,7 @@ function PlanDetailContent() {
             </div>
           </section>
 
-          <section className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
+          <section className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
             <SectionTitle>Precio y periodicidad</SectionTitle>
             <div className="grid grid-cols-3 gap-4">
               <div>
@@ -316,7 +316,7 @@ function PlanDetailContent() {
             </div>
           </section>
 
-          <section className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
+          <section className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
             <SectionTitle>Límites del plan</SectionTitle>
             <p className="text-xs text-gray-400 mb-4">
               Dejar en blanco para indicar que el límite es <strong>ilimitado</strong>.
@@ -338,12 +338,12 @@ function PlanDetailContent() {
           </section>
 
           <div className="flex items-center gap-3">
-            <button
-              type="submit"
-              className="bg-gray-900 text-white text-sm font-semibold px-6 py-2.5 rounded-lg hover:bg-gray-700 transition-colors"
-            >
-              Guardar cambios
-            </button>
+<button
+            type="submit"
+            className="bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-sm font-semibold px-6 py-2.5 rounded-lg transition-colors shadow-sm active:scale-95"
+          >
+            Guardar cambios
+          </button>
             <button
               type="button"
               onClick={() => setEditing(false)}

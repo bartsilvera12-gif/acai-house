@@ -8,8 +8,8 @@ import type { EtapaFunnel } from "@/lib/crm/types";
 // ── Estilos ────────────────────────────────────────────────────────────────────
 
 const inputClass =
-  "w-full border border-gray-300 rounded-lg px-4 py-3 outline-none focus:border-gray-500 transition-colors text-sm";
-const labelClass = "block text-sm font-medium text-gray-700 mb-1.5";
+  "w-full border border-slate-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-[#0EA5E9] focus:outline-none bg-white text-sm";
+const labelClass = "block text-sm font-medium text-slate-700 mb-1.5";
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
@@ -93,7 +93,7 @@ export default function NuevoProspectoPage() {
         <p className="text-gray-600 text-sm mt-1">Registrá una nueva oportunidad en el funnel comercial</p>
       </div>
 
-      <div className="bg-white rounded-xl shadow p-6 max-w-2xl">
+      <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 max-w-2xl">
         <form className="space-y-8" onSubmit={handleSubmit}>
 
           {/* ── Empresa y contacto ───────────────────────────────────────── */}
@@ -271,7 +271,7 @@ export default function NuevoProspectoPage() {
           <div className="flex gap-4 pt-2">
             <button
               type="submit"
-              className="bg-gray-900 text-white px-6 py-3 rounded-lg text-sm font-medium hover:bg-gray-700 transition-colors"
+              className="bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-6 py-3 rounded-lg text-sm font-medium transition-colors shadow-sm active:scale-95"
             >
               Guardar prospecto
             </button>

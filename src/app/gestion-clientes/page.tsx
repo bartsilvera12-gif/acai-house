@@ -10,8 +10,8 @@ import type { EstadoFactura, Factura } from "@/lib/gestion-clientes/types";
 // ── Estilos ────────────────────────────────────────────────────────────────────
 
 const fInputClass =
-  "w-full border border-gray-200 rounded-md px-3 py-1.5 text-xs outline-none focus:border-gray-400 transition-colors bg-white";
-const fLabelClass = "block text-xs font-medium text-gray-500 mb-0.5";
+  "w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#0EA5E9] focus:outline-none bg-white";
+const fLabelClass = "block text-xs font-medium text-slate-500 mb-0.5";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -247,7 +247,7 @@ function ClienteLookup({
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Escribí para buscar..."
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-xs outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100 transition-all bg-white"
+              className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#0EA5E9] focus:outline-none bg-white"
             />
           </div>
 
@@ -263,8 +263,8 @@ function ClienteLookup({
                   key={c.id}
                   type="button"
                   onClick={() => handleSelect(c)}
-                  className={`w-full text-left px-3 py-2.5 border-b border-gray-50 last:border-0 transition-colors hover:bg-blue-50 ${
-                    i === 0 ? "bg-blue-50/30" : ""
+                  className={`w-full text-left px-3 py-2.5 border-b border-slate-200 last:border-0 transition-colors hover:bg-slate-50 ${
+                    i === 0 ? "bg-[#0EA5E9]/10" : ""
                   }`}
                 >
                   <p className="text-xs font-bold text-gray-900 truncate">{clienteNombre(c)}</p>
@@ -723,10 +723,10 @@ export default function GestionClientesPage() {
                     </div>
                   ) : (
                     <table className="w-full text-sm">
-                      <thead className="sticky top-0 bg-white border-b border-gray-100 shadow-sm">
+                      <thead className="sticky top-0 bg-slate-50 border-b border-slate-200 shadow-sm">
                         <tr>
                           {["Tipo", "Nro. Factura", "Fecha emisión", "Fecha vencimiento", "Monto", "Saldo", "Días mora", "Estado", "Acciones"].map((h) => (
-                            <th key={h} className="text-left text-xs font-semibold text-gray-500 px-3 py-2.5 uppercase tracking-wide whitespace-nowrap">
+                            <th key={h} className="text-left text-sm font-semibold text-slate-600 px-3 py-2.5 uppercase tracking-wide whitespace-nowrap">
                               {h}
                             </th>
                           ))}

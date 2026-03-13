@@ -107,14 +107,14 @@ export default function InventarioPage() {
         <p className="text-gray-600">Gestión de productos y control de stock</p>
       </div>
 
-      <div className="bg-white rounded-xl shadow p-6">
+      <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6">
 
         <div className="flex justify-between items-center mb-5">
           <div className="flex items-center gap-3">
             <h2 className="text-xl font-semibold">Productos</h2>
             <Link
               href="/inventario/nuevo"
-              className="text-sm text-gray-600 hover:text-gray-900 underline"
+              className="bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm"
             >
               Nuevo producto
             </Link>
@@ -214,7 +214,7 @@ export default function InventarioPage() {
           <table className="w-full text-left text-sm">
 
             <thead>
-              <tr className="border-b text-gray-500">
+              <tr className="bg-slate-50 text-slate-600 text-sm font-semibold">
                 <th className="py-3 pr-4 font-medium">Nombre</th>
                 <th className="py-3 pr-4 font-medium">SKU</th>
                 <th className="py-3 pr-4 font-medium">Costo Prom.</th>
@@ -235,7 +235,7 @@ export default function InventarioPage() {
                 const stockBajo = p.stock_actual <= p.stock_minimo;
                 const margen = calcularMargenVenta(p.costo_promedio, p.precio_venta);
                 return (
-                  <tr key={p.id} className="border-b last:border-0 hover:bg-gray-50">
+                  <tr key={p.id} className="border-b border-slate-200 last:border-0 hover:bg-slate-50 transition-colors">
                     <td className="py-4 pr-4 font-medium text-gray-800">{p.nombre}</td>
                     <td className="py-4 pr-4 text-gray-500 font-mono">{p.sku}</td>
                     <td className="py-4 pr-4 text-gray-700">{formatGs(p.costo_promedio)}</td>

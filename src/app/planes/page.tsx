@@ -118,14 +118,14 @@ export default function PlanesPage() {
             placeholder="Buscar por nombre, código…"
             value={busqueda}
             onChange={(e) => setBusqueda(e.target.value)}
-            className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900/20"
+            className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0EA5E9] bg-white"
           />
         </div>
 
         <select
           value={filtroEst}
           onChange={(e) => setFiltroEst(e.target.value as typeof filtroEst)}
-          className="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-900/20 bg-white"
+          className="text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#0EA5E9] bg-white"
         >
           <option value="">Todos los estados</option>
           <option value="activo">Activo</option>
@@ -135,7 +135,7 @@ export default function PlanesPage() {
         <select
           value={filtroPer}
           onChange={(e) => setFiltroPer(e.target.value as typeof filtroPer)}
-          className="text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-900/20 bg-white"
+          className="text-sm border border-slate-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[#0EA5E9] bg-white"
         >
           <option value="">Todas las periodicidades</option>
           <option value="mensual">Mensual</option>
@@ -160,7 +160,7 @@ export default function PlanesPage() {
       </p>
 
       {/* Tabla */}
-      <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         {filtrados.length === 0 ? (
           <div className="py-16 text-center text-sm text-gray-400">
             No se encontraron planes con los filtros aplicados.
@@ -170,17 +170,17 @@ export default function PlanesPage() {
             <thead className="bg-gray-50 border-b border-gray-100">
               <tr>
                 {["Código", "Nombre", "Precio", "Periodicidad", "Usuarios", "Clientes", "Facturas", "Estado", "Acciones"].map((h) => (
-                  <th key={h} className="text-left text-xs font-semibold text-gray-500 px-4 py-3 uppercase tracking-wide whitespace-nowrap">
+                  <th key={h} className="text-left text-sm font-semibold text-slate-600 px-4 py-3 uppercase tracking-wide whitespace-nowrap">
                     {h}
                   </th>
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-50">
+            <tbody className="divide-y divide-slate-200">
               {filtrados.map((plan) => (
                 <tr
                   key={plan.id}
-                  className={`transition-colors hover:bg-gray-50/60 ${plan.estado === "inactivo" ? "opacity-60" : ""}`}
+                  className={`border-b border-slate-200 hover:bg-slate-50 transition-colors ${plan.estado === "inactivo" ? "opacity-60" : ""}`}
                 >
                   {/* Código */}
                   <td className="px-4 py-3 font-mono text-xs font-semibold text-gray-600 whitespace-nowrap">

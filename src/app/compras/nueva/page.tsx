@@ -28,11 +28,11 @@ function margenColor(m: number) {
 // ── Estilos ────────────────────────────────────────────────────────────────────
 
 const inputClass =
-  "w-full border border-gray-300 rounded-lg px-4 py-3 outline-none focus:border-gray-500 transition-colors text-sm";
+  "w-full border border-slate-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-[#0EA5E9] focus:outline-none bg-white text-sm";
 const inputSmClass =
-  "w-full border border-gray-200 rounded-lg px-3 py-2.5 outline-none focus:border-gray-400 transition-colors text-sm bg-gray-50";
-const labelClass = "block text-sm font-medium text-gray-700 mb-2";
-const labelSmClass = "block text-xs font-medium text-gray-600 mb-1.5";
+  "w-full border border-slate-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-[#0EA5E9] focus:outline-none bg-white text-sm";
+const labelClass = "block text-sm font-medium text-slate-700 mb-2";
+const labelSmClass = "block text-xs font-medium text-slate-600 mb-1.5";
 
 // ── SegmentedControl ───────────────────────────────────────────────────────────
 
@@ -48,7 +48,7 @@ function SegmentedControl<T extends string>({
   small?: boolean;
 }) {
   return (
-    <div className="flex border border-gray-300 rounded-lg overflow-hidden">
+    <div className="flex border border-slate-200 rounded-lg overflow-hidden">
       {options.map((opt) => (
         <button
           key={opt.value}
@@ -58,8 +58,8 @@ function SegmentedControl<T extends string>({
             small ? "py-2 text-xs" : "py-2.5 text-sm"
           } ${
             value === opt.value
-              ? "bg-gray-900 text-white"
-              : "bg-white text-gray-600 hover:bg-gray-50"
+              ? "bg-[#0EA5E9] text-white"
+              : "bg-white text-slate-600 hover:bg-slate-50"
           }`}
         >
           {opt.label}
@@ -328,7 +328,7 @@ export default function NuevaCompraPage() {
         <p className="text-gray-600">Cada compra guardada impacta inmediatamente en el inventario</p>
       </div>
 
-      <div className="bg-white rounded-xl shadow p-6 max-w-2xl">
+      <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6 max-w-2xl">
         <form className="space-y-8" onSubmit={handleSubmit}>
 
           {/* ── 1. Comprobante ────────────────────────────────────────────── */}
@@ -659,7 +659,7 @@ export default function NuevaCompraPage() {
                     {form.iva_tipo === "exenta" ? "—" : formatGs(montoIva)}
                   </p>
                 </div>
-                <div className="bg-gray-900 text-white rounded-lg px-3 py-3 text-center">
+                <div className="bg-[#0EA5E9] text-white rounded-lg px-3 py-3 text-center">
                   <p className="text-xs text-gray-300 mb-1">Total</p>
                   <p className="text-sm font-bold tabular-nums">{formatGs(total)}</p>
                 </div>
@@ -717,14 +717,14 @@ export default function NuevaCompraPage() {
             <button
               type="submit"
               disabled={!calculosListos}
-              className="bg-gray-900 text-white px-5 py-3 rounded-lg text-sm hover:bg-gray-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              className="bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-5 py-3 rounded-lg text-sm font-medium transition-colors shadow-sm disabled:opacity-40 disabled:cursor-not-allowed active:scale-95"
             >
               Guardar compra
             </button>
             <button
               type="button"
               onClick={() => router.push("/compras")}
-              className="border border-gray-300 px-5 py-3 rounded-lg text-sm hover:bg-gray-50 transition-colors"
+              className="border border-slate-200 px-5 py-3 rounded-lg text-sm hover:bg-slate-50 transition-colors"
             >
               Cancelar
             </button>
@@ -771,14 +771,14 @@ function InlineFormBox({
           type="button"
           onClick={onSave}
           disabled={saveDisabled}
-          className="bg-gray-800 text-white px-4 py-2 rounded-lg text-xs hover:bg-gray-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          className="bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-4 py-2 rounded-lg text-xs font-medium transition-colors shadow-sm disabled:opacity-40 disabled:cursor-not-allowed active:scale-95"
         >
           Guardar {titulo.toLowerCase()}
         </button>
         <button
           type="button"
           onClick={onCancel}
-          className="border border-gray-300 px-4 py-2 rounded-lg text-xs hover:bg-white transition-colors"
+          className="border border-slate-200 px-4 py-2 rounded-lg text-xs hover:bg-white transition-colors"
         >
           Cancelar
         </button>

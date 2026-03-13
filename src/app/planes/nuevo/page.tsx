@@ -7,11 +7,11 @@ import { savePlan } from "@/lib/planes/storage";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const fLabelClass = "block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1";
+const fLabelClass = "block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1";
 const fInputClass =
-  "w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900/20 bg-white";
+  "w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0EA5E9] bg-white";
 const fSelectClass =
-  "w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900/20 bg-white";
+  "w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-[#0EA5E9] bg-white";
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
@@ -100,7 +100,7 @@ export default function NuevoPlanPage() {
       <form onSubmit={handleSubmit} className="space-y-8">
 
         {/* Información general */}
-        <section className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
+        <section className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
           <SectionTitle>Información general</SectionTitle>
           <div className="space-y-4">
 
@@ -142,7 +142,7 @@ export default function NuevoPlanPage() {
         </section>
 
         {/* Precios */}
-        <section className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
+        <section className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
           <SectionTitle>Precio y periodicidad</SectionTitle>
           <div className="grid grid-cols-3 gap-4">
 
@@ -181,7 +181,7 @@ export default function NuevoPlanPage() {
         </section>
 
         {/* Límites */}
-        <section className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
+        <section className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
           <SectionTitle>Límites del plan</SectionTitle>
           <p className="text-xs text-gray-400 mb-4">
             Dejar en blanco para indicar que el límite es <strong>ilimitado</strong>.
@@ -236,7 +236,7 @@ export default function NuevoPlanPage() {
         <div className="flex items-center gap-3">
           <button
             type="submit"
-            className="bg-gray-900 text-white text-sm font-semibold px-6 py-2.5 rounded-lg hover:bg-gray-700 transition-colors"
+            className="bg-[#0EA5E9] hover:bg-[#0284C7] text-white text-sm font-semibold px-6 py-2.5 rounded-lg transition-colors shadow-sm active:scale-95"
           >
             Guardar plan
           </button>

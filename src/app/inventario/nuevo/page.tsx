@@ -135,8 +135,8 @@ export default function NuevoProductoPage() {
   const esPerdida = markupCalc !== null && markupCalc < 0;
 
   const inputClass =
-    "w-full border border-gray-300 rounded-lg px-4 py-3 outline-none focus:border-gray-500 transition-colors text-sm";
-  const labelClass = "block text-sm font-medium text-gray-700 mb-2";
+    "w-full border border-slate-200 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-[#0EA5E9] focus:outline-none bg-white text-sm";
+  const labelClass = "block text-sm font-medium text-slate-700 mb-2";
 
   return (
     <div className="space-y-8">
@@ -376,7 +376,7 @@ export default function NuevoProductoPage() {
           <div className="flex gap-4 pt-2">
             <button
               type="submit"
-              className="bg-gray-900 text-white px-5 py-3 rounded-lg text-sm hover:bg-gray-700 transition-colors"
+              className="bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-5 py-3 rounded-lg text-sm font-medium transition-colors shadow-sm active:scale-95"
             >
               Guardar producto
             </button>
@@ -384,7 +384,7 @@ export default function NuevoProductoPage() {
             <button
               type="button"
               onClick={() => router.push("/inventario")}
-              className="border border-gray-300 px-5 py-3 rounded-lg text-sm hover:bg-gray-50 transition-colors"
+              className="border border-slate-200 px-5 py-3 rounded-lg text-sm hover:bg-slate-50 transition-colors"
             >
               Cancelar
             </button>

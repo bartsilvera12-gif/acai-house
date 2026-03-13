@@ -44,7 +44,7 @@ export default function AdminEmpresasPage() {
         </div>
         <Link
           href="/admin/empresas/nueva"
-          className="flex items-center gap-1.5 bg-gray-900 text-white px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-gray-700 transition-colors shrink-0"
+          className="flex items-center gap-1.5 bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors shadow-sm shrink-0 active:scale-95"
         >
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
             <path d="M10.75 4.75a.75.75 0 0 0-1.5 0v4.5h-4.5a.75.75 0 0 0 0 1.5h4.5v4.5a.75.75 0 0 0 1.5 0v-4.5h4.5a.75.75 0 0 0 0-1.5h-4.5v-4.5Z" />
@@ -53,7 +53,7 @@ export default function AdminEmpresasPage() {
         </Link>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
         {cargando ? (
           <div className="py-16 text-center text-gray-400 text-sm animate-pulse">Cargando empresas…</div>
         ) : empresas.length === 0 ? (
@@ -67,18 +67,18 @@ export default function AdminEmpresasPage() {
         ) : (
           <table className="w-full">
             <thead>
-              <tr className="border-b border-gray-100 bg-gray-50/60">
-                <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide px-5 py-3">Empresa</th>
-                <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide px-5 py-3">Plan</th>
-                <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide px-5 py-3">RUC</th>
-                <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide px-5 py-3">Estado</th>
-                <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide px-5 py-3">Creada</th>
-                <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wide px-5 py-3">Acciones</th>
+              <tr className="border-b border-slate-200 bg-slate-50">
+                <th className="text-left text-sm font-semibold text-slate-600 px-5 py-3">Empresa</th>
+                <th className="text-left text-sm font-semibold text-slate-600 px-5 py-3">Plan</th>
+                <th className="text-left text-sm font-semibold text-slate-600 px-5 py-3">RUC</th>
+                <th className="text-left text-sm font-semibold text-slate-600 px-5 py-3">Estado</th>
+                <th className="text-left text-sm font-semibold text-slate-600 px-5 py-3">Creada</th>
+                <th className="text-left text-sm font-semibold text-slate-600 px-5 py-3">Acciones</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
+            <tbody className="divide-y divide-slate-200">
               {empresas.map((e) => (
-                <tr key={e.id} className="hover:bg-gray-50 transition-colors">
+                <tr key={e.id} className="border-b border-slate-200 hover:bg-slate-50 transition-colors">
                   <td className="px-5 py-3.5">
                     <p className="text-sm font-semibold text-gray-800">{e.nombre_empresa}</p>
                   </td>
