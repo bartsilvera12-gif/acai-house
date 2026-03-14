@@ -87,6 +87,14 @@ export interface CompraRaw {
   producto_id?: number | string;
   producto_nombre: string;
   proveedor_nombre: string;
+  total: number;
+  fecha: string;
+}
+
+export interface GastoRaw {
+  id: string;
+  monto: number;
+  fecha: string;
 }
 
 export interface DashboardData {
@@ -97,6 +105,7 @@ export interface DashboardData {
   productos: ProductoRaw[];
   ventas: VentaRaw[];
   compras: CompraRaw[];
+  gastos: GastoRaw[];
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -116,7 +125,7 @@ function toDateStr(v: string | null | undefined): string {
  * Ventas incluyen la propiedad `lineas` construida desde ventas_items.
  */
 export async function getDashboardData(): Promise<DashboardData> {
-  const [prospectosQ, clientesQ, facturasQ, tipificacionesQ, productosQ, ventasQ, ventasItemsQ, comprasQ] =
+  const [prospectosQ, clientesQ, facturasQ, tipificacionesQ, productosQ, ventasQ, ventasItemsQ, comprasQ, gastosQ] =
     await Promise.all([
       (await queryEmpresa("crm_prospectos")).select("*"),
       (await queryEmpresa("clientes")).select("*"),
@@ -126,6 +135,7 @@ export async function getDashboardData(): Promise<DashboardData> {
       (await queryEmpresa("ventas")).select("*"),
       (await queryEmpresa("ventas_items")).select("*"),
       (await queryEmpresa("compras")).select("*"),
+      (await queryEmpresa("gastos")).select("id, monto, fecha"),
     ]);
 
   if (prospectosQ.error) throw new Error(prospectosQ.error.message);
@@ -232,6 +242,14 @@ export async function getDashboardData(): Promise<DashboardData> {
     producto_id: r.producto_id as string | undefined,
     producto_nombre: (r.producto_nombre as string) ?? "",
     proveedor_nombre: (r.proveedor_nombre as string) ?? "",
+    total: Number(r.total) ?? 0,
+    fecha: toDateStr(r.fecha as string),
+  }));
+
+  const gastos: GastoRaw[] = (gastosQ.data ?? []).map((r: Record<string, unknown>) => ({
+    id: r.id as string,
+    monto: Number(r.monto) ?? 0,
+    fecha: (r.fecha as string) ?? "",
   }));
 
   return {
@@ -242,5 +260,6 @@ export async function getDashboardData(): Promise<DashboardData> {
     productos,
     ventas,
     compras,
+    gastos,
   };
 }

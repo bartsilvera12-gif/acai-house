@@ -20,6 +20,7 @@ import {
   Sparkles,
   PanelLeftClose,
   PanelLeft,
+  Receipt,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { getMisModulos, getTodosModulos } from "@/lib/empresas/actions";
@@ -44,6 +45,7 @@ const MENU_STRUCTURE: MenuItem[] = [
   ]},
   { slug: "clientes", label: "Clientes", href: "/clientes", icon: Users },
   { slug: "compras", label: "Compras", href: "/compras", icon: Package },
+  { slug: "gastos", label: "Gastos", href: "/gastos", icon: Receipt },
   { slug: "usuarios", label: "Usuarios", href: "/usuarios", icon: UserCog },
   { slug: "configuracion", label: "Configuración", href: "/configuracion", icon: Settings },
   { slug: "planes", label: "Planes", href: "/planes", icon: FileText },

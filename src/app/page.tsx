@@ -15,6 +15,7 @@ import type {
   ProductoRaw,
   VentaRaw,
   CompraRaw,
+  GastoRaw,
 } from "@/lib/dashboard/data";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -480,15 +481,39 @@ function DashComercial({
 // ── Dashboard Financiero ──────────────────────────────────────────────────────
 
 function DashFinanciero({
-  facturas, clientes, periodo, config,
+  facturas, clientes, ventas, compras, gastos, periodo, config,
 }: {
   facturas:  FacturaRaw[];
   clientes:  ClienteRaw[];
+  ventas:    VentaRaw[];
+  compras:   CompraRaw[];
+  gastos:    GastoRaw[];
   periodo:   Periodo;
   config:    ConfigGlobal;
 }) {
   const { desde, hasta } = useMemo(() => getRango(periodo), [periodo]);
   const hoy = hoyStr();
+
+  // Ingresos, Gastos, Resultado del mes actual
+  const mesActual = useMemo(() => {
+    const n = new Date();
+    const y = n.getFullYear(), m = n.getMonth();
+    const ventasMes = ventas.filter((v) => {
+      const d = new Date(v.fecha);
+      return d.getFullYear() === y && d.getMonth() === m;
+    });
+    const comprasMes = compras.filter((c) => {
+      const d = new Date(c.fecha);
+      return d.getFullYear() === y && d.getMonth() === m;
+    });
+    const gastosMes = gastos.filter((g) => {
+      const d = new Date(g.fecha);
+      return d.getFullYear() === y && d.getMonth() === m;
+    });
+    const ingresos = ventasMes.reduce((s, v) => s + v.total, 0);
+    const gastosTotal = gastosMes.reduce((s, g) => s + g.monto, 0) + comprasMes.reduce((s, c) => s + c.total, 0);
+    return { ingresos, gastos: gastosTotal, resultado: ingresos - gastosTotal };
+  }, [ventas, compras, gastos]);
 
   // KPIs
   const facturasPeriodo = facturas.filter(f => enRango(f.fecha, desde, hasta));
@@ -534,6 +559,18 @@ function DashFinanciero({
 
   return (
     <div className="space-y-5">
+
+      {/* Ingresos, Gastos, Resultado del mes */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <KpiCard icon="📈" label="Ingresos del mes" value={`${formatGsM(mesActual.ingresos)} ₲`} color="text-green-600" />
+        <KpiCard icon="📉" label="Gastos del mes" value={`${formatGsM(mesActual.gastos)} ₲`} color="text-red-600" />
+        <KpiCard
+          icon="💰"
+          label="Resultado del mes"
+          value={`${formatGsM(mesActual.resultado)} ₲`}
+          color={mesActual.resultado >= 0 ? "text-[#0EA5E9]" : "text-red-600"}
+        />
+      </div>
 
       {/* KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -1007,6 +1044,7 @@ export default function DashboardPage() {
   const [productos,      setProductos]      = useState<ProductoRaw[]>([]);
   const [ventas,         setVentas]         = useState<VentaRaw[]>([]);
   const [compras,        setCompras]        = useState<CompraRaw[]>([]);
+  const [gastos,         setGastos]         = useState<GastoRaw[]>([]);
 
   useEffect(() => {
     setConfig(getConfig());
@@ -1029,6 +1067,7 @@ export default function DashboardPage() {
         setProductos(data.productos);
         setVentas(data.ventas);
         setCompras(data.compras);
+        setGastos(data.gastos);
       })
       .catch(() => {
         setProspectos([]);
@@ -1038,6 +1077,7 @@ export default function DashboardPage() {
         setProductos([]);
         setVentas([]);
         setCompras([]);
+        setGastos([]);
       });
   }, []);
 
@@ -1155,6 +1195,9 @@ export default function DashboardPage() {
         <DashFinanciero
           facturas={facturas}
           clientes={clientes}
+          ventas={ventas}
+          compras={compras}
+          gastos={gastos}
           periodo={periodo}
           config={config}
         />
