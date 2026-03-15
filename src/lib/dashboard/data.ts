@@ -7,8 +7,10 @@ export interface ProspectoRaw {
   empresa: string;
   contacto?: string;
   etapa: string;
+  servicio?: string;
   valor_estimado?: number;
   fecha_creacion: string;
+  fecha_actualizacion: string;
   responsable?: string;
   cliente_creado?: boolean;
 }
@@ -152,8 +154,10 @@ export async function getDashboardData(): Promise<DashboardData> {
     empresa: (r.empresa as string) ?? "",
     contacto: r.contacto as string | undefined,
     etapa: (r.etapa as string) ?? "LEAD",
+    servicio: r.servicio as string | undefined,
     valor_estimado: typeof r.valor_estimado === "number" ? r.valor_estimado : 0,
     fecha_creacion: toDateStr(r.fecha_creacion as string) || toDateStr(r.created_at as string),
+    fecha_actualizacion: toDateStr(r.fecha_actualizacion as string) || toDateStr(r.updated_at as string) || toDateStr(r.fecha_creacion as string),
     responsable: r.responsable as string | undefined,
     cliente_creado: Boolean(r.cliente_creado),
   }));

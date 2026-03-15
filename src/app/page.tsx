@@ -307,11 +307,12 @@ function DashComercial({
     [prospectos, isSupervisor, area, usuario]
   );
 
-  // KPIs periodo
+  // KPIs periodo (datos reales de crm_prospectos, filtrados por empresa_id vía getDashboardData)
   const leadsNuevos    = prospectosFilt.filter(p => enRango(p.fecha_creacion, desde, hasta)).length;
   const enNegociacion  = prospectosFilt.filter(p => p.etapa === "NEGOCIACION").length;
-  const clientesGanados= clientes.filter(c => enRango(c.created_at, desde, hasta)).length;
-  const tasaConversion = leadsNuevos > 0 ? (clientesGanados / leadsNuevos) * 100 : 0;
+  const clientesGanados= prospectosFilt.filter(p => p.etapa === "GANADO" && enRango(p.fecha_actualizacion, desde, hasta)).length;
+  const totalLeadsPeriodo = prospectosFilt.filter(p => enRango(p.fecha_creacion, desde, hasta)).length;
+  const tasaConversion = totalLeadsPeriodo > 0 ? (clientesGanados / totalLeadsPeriodo) * 100 : 0;
 
   // Pipeline por etapa (snapshot actual)
   const ETAPAS = ["LEAD", "CONTACTADO", "NEGOCIACION", "GANADO", "PERDIDO"];
@@ -322,19 +323,57 @@ function DashComercial({
       .reduce((s, p) => s + (p.valor_estimado ?? 0), 0),
   }));
 
+  // Planes pendientes de cierre (top 5 en negociación por valor)
+  const planesPendientes = useMemo(() =>
+    prospectosFilt
+      .filter(p => p.etapa === "NEGOCIACION")
+      .sort((a, b) => (b.valor_estimado ?? 0) - (a.valor_estimado ?? 0))
+      .slice(0, 5)
+      .map(p => ({
+        empresa: p.empresa,
+        plan: p.servicio ?? "—",
+        monto: p.valor_estimado ?? 0,
+        responsable: p.responsable ?? "—",
+        fecha: p.fecha_creacion,
+      })),
+    [prospectosFilt]
+  );
+
+  // Top planes vendidos del mes (prospectos GANADO en mes actual, por cantidad de cierres)
+  const topPlanesVendidos = useMemo(() => {
+    const hoy = new Date();
+    const mesInicio = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+    const mesFin = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0, 23, 59, 59);
+    const ganadosMes = prospectosFilt.filter(
+      p => p.etapa === "GANADO" && enRango(p.fecha_actualizacion, mesInicio, mesFin)
+    );
+    const porPlan: Record<string, number> = {};
+    for (const p of ganadosMes) {
+      const planes = (p.servicio ?? "").split(",").map(s => s.trim()).filter(Boolean);
+      for (const plan of planes.length ? planes : ["Otros"]) {
+        const key = plan || "Otros";
+        porPlan[key] = (porPlan[key] ?? 0) + 1;
+      }
+    }
+    return Object.entries(porPlan)
+      .map(([label, value]) => ({ label, value }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 5);
+  }, [prospectosFilt]);
+
   // Rendimiento por usuario (clientes ganados)
   const rendimiento = useMemo(() => {
     const map: Record<string, number> = {};
-    clientes
-      .filter(c => enRango(c.created_at, desde, hasta))
-      .forEach(c => {
-        const v = c.vendedor_asignado ?? "Sin asignar";
+    prospectosFilt
+      .filter(p => p.etapa === "GANADO" && enRango(p.fecha_actualizacion, desde, hasta))
+      .forEach(p => {
+        const v = p.responsable ?? "Sin asignar";
         map[v] = (map[v] ?? 0) + 1;
       });
     return Object.entries(map)
       .map(([label, value]) => ({ label, value }))
       .sort((a, b) => b.value - a.value);
-  }, [clientes, desde, hasta]);
+  }, [prospectosFilt, desde, hasta]);
 
   // Top clientes por origen
   const topClientes = useMemo(() =>
@@ -417,6 +456,43 @@ function DashComercial({
             Clientes ganados por vendedor
           </h3>
           <HBarChart data={rendimiento} color="bg-[#0EA5E9]" />
+        </motion.div>
+      </div>
+
+      {/* Planes pendientes de cierre + Top planes vendidos */}
+      <div className="grid grid-cols-2 gap-4">
+        <motion.div whileHover={{ y: -2 }} className="bg-white border border-slate-200 rounded-xl shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 p-6">
+          <h3 className="text-xs font-bold text-[#475569] uppercase tracking-wider mb-4">Planes pendientes de cierre</h3>
+          {planesPendientes.length === 0 ? (
+            <p className="text-sm text-gray-400 py-4 text-center">Sin prospectos en negociación</p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="bg-slate-50">
+                  <th className="text-left text-xs font-semibold text-slate-600 px-3 py-2">Empresa</th>
+                  <th className="text-left text-xs font-semibold text-slate-600 px-3 py-2">Plan</th>
+                  <th className="text-right text-xs font-semibold text-slate-600 px-3 py-2">Monto</th>
+                  <th className="text-left text-xs font-semibold text-slate-600 px-3 py-2">Responsable</th>
+                  <th className="text-left text-xs font-semibold text-slate-600 px-3 py-2">Fecha</th>
+                </tr>
+              </thead>
+              <tbody>
+                {planesPendientes.map((p, i) => (
+                  <tr key={i} className="border-b border-slate-100 hover:bg-slate-50">
+                    <td className="px-3 py-2 text-xs font-medium text-gray-800 truncate max-w-[100px]" title={p.empresa}>{p.empresa}</td>
+                    <td className="px-3 py-2 text-xs text-gray-600 truncate max-w-[80px]" title={p.plan}>{p.plan}</td>
+                    <td className="px-3 py-2 text-xs text-right tabular-nums font-semibold text-gray-700">Gs. {formatGsM(p.monto)}</td>
+                    <td className="px-3 py-2 text-xs text-gray-500 truncate max-w-[80px]">{p.responsable}</td>
+                    <td className="px-3 py-2 text-xs text-gray-500">{formatFecha(p.fecha)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </motion.div>
+        <motion.div whileHover={{ y: -2 }} className="bg-white border border-slate-200 rounded-xl shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 p-6">
+          <h3 className="text-xs font-bold text-[#475569] uppercase tracking-wider mb-4">Top planes vendidos del mes</h3>
+          <HBarChart data={topPlanesVendidos} color="bg-green-500" />
         </motion.div>
       </div>
 
