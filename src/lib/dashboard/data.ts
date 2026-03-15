@@ -100,10 +100,18 @@ export interface GastoRaw {
   fecha: string;
 }
 
+export interface PagoRaw {
+  id: string;
+  factura_id: string;
+  monto: number;
+  fecha_pago: string;
+}
+
 export interface DashboardData {
   prospectos: ProspectoRaw[];
   clientes: ClienteRaw[];
   facturas: FacturaRaw[];
+  pagos: PagoRaw[];
   tipificaciones: TipificacionRaw[];
   productos: ProductoRaw[];
   ventas: VentaRaw[];
@@ -153,6 +161,7 @@ export async function getDashboardData(): Promise<DashboardData> {
   // 2. Resto de tablas — si queryEmpresa falla (ej. usuario sin empresa_id), usamos arrays vacíos
   let clientes: ClienteRaw[] = [];
   let facturas: FacturaRaw[] = [];
+  let pagos: PagoRaw[] = [];
   let tipificaciones: TipificacionRaw[] = [];
   let productos: ProductoRaw[] = [];
   let ventas: VentaRaw[] = [];
@@ -160,10 +169,11 @@ export async function getDashboardData(): Promise<DashboardData> {
   let gastos: GastoRaw[] = [];
 
   try {
-    const [clientesQ, facturasQ, tipificacionesQ, productosQ, ventasQ, ventasItemsQ, comprasQ, gastosQ] =
+    const [clientesQ, facturasQ, pagosQ, tipificacionesQ, productosQ, ventasQ, ventasItemsQ, comprasQ, gastosQ] =
       await Promise.all([
         (await queryEmpresa("clientes")).select("*"),
         (await queryEmpresa("facturas")).select("*"),
+        (await queryEmpresa("pagos")).select("id, factura_id, monto, fecha_pago"),
         (await queryEmpresa("tipificaciones")).select("*"),
         (await queryEmpresa("productos")).select("*"),
         (await queryEmpresa("ventas")).select("*"),
@@ -174,6 +184,7 @@ export async function getDashboardData(): Promise<DashboardData> {
 
     if (clientesQ.error) throw new Error(clientesQ.error.message);
     if (facturasQ.error) throw new Error(facturasQ.error.message);
+    if (pagosQ.error) throw new Error(pagosQ.error.message);
     if (tipificacionesQ.error) throw new Error(tipificacionesQ.error.message);
     if (productosQ.error) throw new Error(productosQ.error.message);
     if (ventasQ.error) throw new Error(ventasQ.error.message);
@@ -201,6 +212,13 @@ export async function getDashboardData(): Promise<DashboardData> {
       estado: (r.estado as string) ?? "Pendiente",
       tipo: (r.tipo as string) ?? "credito",
       moneda: (r.moneda as string) ?? "GS",
+    }));
+
+    pagos = (pagosQ.data ?? []).map((r: Record<string, unknown>) => ({
+      id: r.id as string,
+      factura_id: r.factura_id as string,
+      monto: Number(r.monto) ?? 0,
+      fecha_pago: toDateStr(r.fecha_pago as string),
     }));
 
     tipificaciones = (tipificacionesQ.data ?? []).map((r: Record<string, unknown>) => ({
@@ -282,6 +300,7 @@ export async function getDashboardData(): Promise<DashboardData> {
     prospectos,
     clientes,
     facturas,
+    pagos,
     tipificaciones,
     productos,
     ventas,

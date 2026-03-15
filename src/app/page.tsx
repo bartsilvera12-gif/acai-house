@@ -11,6 +11,7 @@ import type {
   ProspectoRaw,
   ClienteRaw,
   FacturaRaw,
+  PagoRaw,
   TipificacionRaw,
   ProductoRaw,
   VentaRaw,
@@ -627,9 +628,10 @@ function DashComercial({
 // ── Dashboard Financiero ──────────────────────────────────────────────────────
 
 function DashFinanciero({
-  facturas, clientes, ventas, compras, gastos, periodo, config,
+  facturas, pagos, clientes, ventas, compras, gastos, periodo, config,
 }: {
   facturas:  FacturaRaw[];
+  pagos:     PagoRaw[];
   clientes:  ClienteRaw[];
   ventas:    VentaRaw[];
   compras:   CompraRaw[];
@@ -664,7 +666,8 @@ function DashFinanciero({
   // KPIs
   const facturasPeriodo = facturas.filter(f => enRango(f.fecha, desde, hasta));
   const facturado       = facturasPeriodo.reduce((s, f) => s + f.monto, 0);
-  const cobrado         = facturasPeriodo.reduce((s, f) => s + (f.monto - f.saldo), 0);
+  const pagosPeriodo    = pagos.filter(p => enRango(p.fecha_pago, desde, hasta));
+  const cobrado         = pagosPeriodo.reduce((s, p) => s + p.monto, 0);
   const saldoPendiente  = facturas.filter(f => f.saldo > 0).reduce((s, f) => s + f.saldo, 0);
   const cntVencidas     = facturas.filter(f => estadoEfectivo(f, hoy) === "Vencido").length;
 
@@ -740,9 +743,9 @@ function DashFinanciero({
               .reduce((s, f) => s + f.monto, 0)}
             meta={config.meta_facturacion_mensual} format="gs" />
           <ProgressBar label="Ventas mensuales"
-            value={facturas
-              .filter(f => { const d = new Date(f.fecha); const n = new Date(); return d.getMonth() === n.getMonth() && d.getFullYear() === n.getFullYear(); })
-              .reduce((s, f) => s + (f.monto - f.saldo), 0)}
+            value={ventas
+              .filter(v => { const d = new Date(v.fecha); const n = new Date(); return d.getMonth() === n.getMonth() && d.getFullYear() === n.getFullYear(); })
+              .reduce((s, v) => s + v.total, 0)}
             meta={config.meta_ventas_mensuales} format="gs" />
         </div>
       </div>
@@ -1176,8 +1179,17 @@ const PERIODO_OPTS: { id: Periodo; label: string }[] = [
   { id: "anio", label: "Año"       },
 ];
 
+const TAB_VALID: TabDash[] = ["comercial", "financiero", "inventario", "ventas"];
+
+function getInitialTab(): TabDash {
+  if (typeof window === "undefined") return "comercial";
+  const params = new URLSearchParams(window.location.search);
+  const t = params.get("tab");
+  return (t && TAB_VALID.includes(t as TabDash)) ? (t as TabDash) : "comercial";
+}
+
 export default function DashboardPage() {
-  const [tab,      setTab]      = useState<TabDash>("comercial");
+  const [tab,      setTab]      = useState<TabDash>(getInitialTab);
   const [periodo,  setPeriodo]  = useState<Periodo>("mes");
   const [config,   setConfig]   = useState<ConfigGlobal | null>(null);
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
@@ -1186,11 +1198,24 @@ export default function DashboardPage() {
   const [prospectos,     setProspectos]     = useState<ProspectoRaw[]>([]);
   const [clientes,       setClientes]       = useState<ClienteRaw[]>([]);
   const [facturas,       setFacturas]       = useState<FacturaRaw[]>([]);
+  const [pagos,          setPagos]          = useState<PagoRaw[]>([]);
   const [tipificaciones, setTipificaciones] = useState<TipificacionRaw[]>([]);
   const [productos,      setProductos]      = useState<ProductoRaw[]>([]);
   const [ventas,         setVentas]         = useState<VentaRaw[]>([]);
   const [compras,        setCompras]        = useState<CompraRaw[]>([]);
   const [gastos,         setGastos]         = useState<GastoRaw[]>([]);
+
+  // Sincronizar tab con URL al cargar (popstate / refresh)
+  useEffect(() => {
+    const syncFromUrl = () => {
+      const params = new URLSearchParams(window.location.search);
+      const t = params.get("tab");
+      if (t && TAB_VALID.includes(t as TabDash)) setTab(t as TabDash);
+    };
+    syncFromUrl();
+    window.addEventListener("popstate", syncFromUrl);
+    return () => window.removeEventListener("popstate", syncFromUrl);
+  }, []);
 
   useEffect(() => {
     setConfig(getConfig());
@@ -1209,6 +1234,7 @@ export default function DashboardPage() {
         setProspectos(data.prospectos);
         setClientes(data.clientes);
         setFacturas(data.facturas);
+        setPagos(data.pagos);
         setTipificaciones(data.tipificaciones);
         setProductos(data.productos);
         setVentas(data.ventas);
@@ -1219,6 +1245,7 @@ export default function DashboardPage() {
         setProspectos([]);
         setClientes([]);
         setFacturas([]);
+        setPagos([]);
         setTipificaciones([]);
         setProductos([]);
         setVentas([]);
@@ -1316,7 +1343,7 @@ export default function DashboardPage() {
           { id: "inventario",  label: "Inventario",  icon: "📦" },
           { id: "ventas",      label: "Ventas",      icon: "🛒" },
         ] as { id: TabDash; label: string; icon: string }[]).map(t => (
-          <button key={t.id} type="button" onClick={() => setTab(t.id)}
+          <button key={t.id} type="button" onClick={() => { setTab(t.id); if (typeof window !== "undefined") window.history.replaceState(null, "", `?tab=${t.id}`); }}
             className={`flex items-center gap-1.5 px-5 py-2.5 text-sm font-medium rounded-full transition-all ${
               tab === t.id ? "bg-[#0EA5E9] text-white shadow-sm" : "text-slate-500 hover:text-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800"
             }`}>
@@ -1340,6 +1367,7 @@ export default function DashboardPage() {
       {tab === "financiero" && (
         <DashFinanciero
           facturas={facturas}
+          pagos={pagos}
           clientes={clientes}
           ventas={ventas}
           compras={compras}
