@@ -200,25 +200,32 @@ export async function getDashboardData(): Promise<DashboardData> {
       vendedor_asignado: r.vendedor_asignado as string | undefined,
     }));
 
-    facturas = (facturasQ.data ?? []).map((r: Record<string, unknown>) => ({
-      id: r.id as string,
-      cliente_id: r.cliente_id as string,
-      numero_factura: (r.numero_factura as string) ?? "",
-      fecha: toDateStr(r.fecha as string),
-      fecha_vencimiento: toDateStr(r.fecha_vencimiento as string),
-      monto: Number(r.monto) ?? 0,
-      saldo: Number(r.saldo) ?? 0,
-      estado: (r.estado as string) ?? "Pendiente",
-      tipo: (r.tipo as string) ?? "credito",
-      moneda: (r.moneda as string) ?? "GS",
-    }));
+    facturas = (facturasQ.data ?? []).map((r: Record<string, unknown>) => {
+      const monto = Number(r.monto);
+      const saldo = Number(r.saldo);
+      return {
+        id: r.id as string,
+        cliente_id: r.cliente_id as string,
+        numero_factura: (r.numero_factura as string) ?? "",
+        fecha: toDateStr(r.fecha as string),
+        fecha_vencimiento: toDateStr(r.fecha_vencimiento as string),
+        monto: Number.isFinite(monto) ? monto : 0,
+        saldo: Number.isFinite(saldo) ? saldo : 0,
+        estado: (r.estado as string) ?? "Pendiente",
+        tipo: (r.tipo as string) ?? "credito",
+        moneda: (r.moneda as string) ?? "GS",
+      };
+    });
 
-    pagos = (pagosQ.data ?? []).map((r: Record<string, unknown>) => ({
-      id: r.id as string,
-      factura_id: r.factura_id as string,
-      monto: Number(r.monto) ?? 0,
-      fecha_pago: toDateStr(r.fecha_pago as string),
-    }));
+    pagos = (pagosQ.data ?? []).map((r: Record<string, unknown>) => {
+      const m = Number(r.monto);
+      return {
+        id: r.id as string,
+        factura_id: r.factura_id as string,
+        monto: Number.isFinite(m) ? m : 0,
+        fecha_pago: toDateStr(r.fecha_pago as string),
+      };
+    });
 
     tipificaciones = (tipificacionesQ.data ?? []).map((r: Record<string, unknown>) => ({
       id: r.id as string,
@@ -285,11 +292,14 @@ export async function getDashboardData(): Promise<DashboardData> {
       fecha: toDateStr(r.fecha as string),
     }));
 
-    gastos = (gastosQ.data ?? []).map((r: Record<string, unknown>) => ({
-      id: r.id as string,
-      monto: Number(r.monto) ?? 0,
-      fecha: (r.fecha as string) ?? "",
-    }));
+    gastos = (gastosQ.data ?? []).map((r: Record<string, unknown>) => {
+      const m = Number(r.monto);
+      return {
+        id: r.id as string,
+        monto: Number.isFinite(m) ? m : 0,
+        fecha: (r.fecha as string) ?? "",
+      };
+    });
   } catch (err) {
     console.warn("[dashboard] Error cargando tablas empresa (clientes, facturas, etc.):", err);
     // prospectos ya cargados; clientes, facturas, etc. quedan vacíos

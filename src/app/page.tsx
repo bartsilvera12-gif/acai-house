@@ -32,16 +32,18 @@ function formatGs(n: number): string {
 
 /** Formato abreviado: 2.500.000 → 2.5M, 25.000.000 → 25M */
 function formatGsM(n: number): string {
-  if (n >= 1_000_000_000) {
-    const b = n / 1_000_000_000;
+  const num = Number(n);
+  if (!Number.isFinite(num) || num < 0) return "0";
+  if (num >= 1_000_000_000) {
+    const b = num / 1_000_000_000;
     return b % 1 === 0 ? `${b}B` : `${b.toFixed(1)}B`;
   }
-  if (n >= 1_000_000) {
-    const m = n / 1_000_000;
+  if (num >= 1_000_000) {
+    const m = num / 1_000_000;
     return m % 1 === 0 ? `${m}M` : `${m.toFixed(1)}M`;
   }
-  if (n >= 1_000) return `${Math.round(n / 1_000)}K`;
-  return n.toLocaleString("es-PY");
+  if (num >= 1_000) return `${Math.round(num / 1_000)}K`;
+  return num.toLocaleString("es-PY");
 }
 
 function formatFecha(s: string): string {
@@ -665,17 +667,17 @@ function DashFinanciero({
       const d = new Date(g.fecha);
       return d.getFullYear() === y && d.getMonth() === m;
     });
-    const ingresos = pagosMes.reduce((s, p) => s + p.monto, 0);
-    const gastosTotal = gastosMes.reduce((s, g) => s + g.monto, 0) + comprasMes.reduce((s, c) => s + c.total, 0);
+    const ingresos = pagosMes.reduce((s, p) => s + (Number(p.monto) || 0), 0);
+    const gastosTotal = gastosMes.reduce((s, g) => s + (Number(g.monto) || 0), 0) + comprasMes.reduce((s, c) => s + (Number(c.total) || 0), 0);
     return { ingresos, gastos: gastosTotal, resultado: ingresos - gastosTotal };
   }, [pagos, compras, gastos]);
 
   // KPIs
   const facturasPeriodo = facturas.filter(f => enRango(f.fecha, desde, hasta));
-  const facturado       = facturasPeriodo.reduce((s, f) => s + f.monto, 0);
+  const facturado       = facturasPeriodo.reduce((s, f) => s + (Number(f.monto) || 0), 0);
   const pagosPeriodo    = pagos.filter(p => enRango(p.fecha_pago, desde, hasta));
-  const cobrado         = pagosPeriodo.reduce((s, p) => s + p.monto, 0);
-  const saldoPendiente  = facturas.filter(f => f.saldo > 0).reduce((s, f) => s + f.saldo, 0);
+  const cobrado         = pagosPeriodo.reduce((s, p) => s + (Number(p.monto) || 0), 0);
+  const saldoPendiente  = facturas.filter(f => (Number(f.saldo) || 0) > 0).reduce((s, f) => s + (Number(f.saldo) || 0), 0);
   const cntVencidas     = facturas.filter(f => estadoEfectivo(f, hoy) === "Vencido").length;
 
   // Facturación mensual (últimos 12 meses)
