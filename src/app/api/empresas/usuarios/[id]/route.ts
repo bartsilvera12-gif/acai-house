@@ -3,10 +3,8 @@ import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 
-async function getAuthUserId(
-  supabase: ReturnType<typeof createClient>,
-  usuario: { auth_user_id?: string | null; email?: string }
-) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function getAuthUserId(supabase: any, usuario: { auth_user_id?: string | null; email?: string }): Promise<string | null> {
   if (usuario.auth_user_id) return usuario.auth_user_id;
   const emailBuscado = (usuario.email ?? "").trim().toLowerCase();
   if (!emailBuscado) return null;
