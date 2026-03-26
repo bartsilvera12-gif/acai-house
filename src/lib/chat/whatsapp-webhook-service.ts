@@ -287,7 +287,44 @@ export async function processInboundWebhookValue(
 }
 
 /**
- * Recorre el body completo del webhook Meta.
+ * Extrae bloques `value` como los envía Meta en `entry[].changes[]`, o el mismo objeto
+ * si n8n (u otro proxy) reenvía solo el `value` en la raíz del JSON.
+ */
+export function collectMetaWebhookMessageValues(body: unknown): MetaWebhookValue[] {
+  const out: MetaWebhookValue[] = [];
+  if (!body || typeof body !== "object") return out;
+
+  const root = body as Record<string, unknown>;
+  const entries = (root.entry as Array<{ changes?: unknown[] }> | undefined) ?? [];
+
+  for (const ent of entries) {
+    const changes = ent.changes ?? [];
+    for (const ch of changes) {
+      const change = ch as { value?: MetaWebhookValue; field?: string };
+      if (change.field === "statuses") continue;
+      const value = change.value;
+      if (value?.messages?.length) out.push(value);
+    }
+  }
+
+  if (out.length > 0) return out;
+
+  // Payload plano (p. ej. n8n): mismo shape que `change.value` de Meta
+  const field = typeof root.field === "string" ? root.field : undefined;
+  if (field === "statuses") return out;
+
+  const metadata = root.metadata as { phone_number_id?: string } | undefined;
+  const phoneNumberId = metadata?.phone_number_id?.trim();
+  const messages = root.messages;
+  if (phoneNumberId && Array.isArray(messages) && messages.length > 0) {
+    out.push(body as MetaWebhookValue);
+  }
+
+  return out;
+}
+
+/**
+ * Recorre el body completo del webhook Meta (o el `value` reenviado en la raíz).
  */
 export async function processWhatsAppWebhookBody(
   supabase: SupabaseAdmin,
@@ -307,23 +344,14 @@ export async function processWhatsAppWebhookBody(
     return aggregated;
   }
 
-  const root = body as { entry?: Array<{ changes?: unknown[] }> };
-  const entries = root.entry ?? [];
+  const values = collectMetaWebhookMessageValues(body);
 
-  for (const ent of entries) {
-    const changes = ent.changes ?? [];
-    for (const ch of changes) {
-      const change = ch as { value?: MetaWebhookValue; field?: string };
-      if (change.field === "statuses") continue;
-      const value = change.value;
-      if (!value?.messages?.length) continue;
-
-      const r = await processInboundWebhookValue(supabase, value, provisionEnv);
-      aggregated.processed += r.processed;
-      aggregated.skipped += r.skipped;
-      aggregated.errors.push(...r.errors);
-      if (!r.ok) aggregated.ok = false;
-    }
+  for (const value of values) {
+    const r = await processInboundWebhookValue(supabase, value, provisionEnv);
+    aggregated.processed += r.processed;
+    aggregated.skipped += r.skipped;
+    aggregated.errors.push(...r.errors);
+    if (!r.ok) aggregated.ok = false;
   }
 
   return aggregated;
