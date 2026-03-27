@@ -123,6 +123,8 @@ export default function FlowEditorPage() {
   const [newNodeCode, setNewNodeCode] = useState("");
   const [newNodeType, setNewNodeType] = useState("text");
   const [creatingNode, setCreatingNode] = useState(false);
+  const [savingNodeId, setSavingNodeId] = useState<string | null>(null);
+  const [lastSavedNodeId, setLastSavedNodeId] = useState<string | null>(null);
 
   const nodeByCode = useMemo(
     () => new Map(nodes.map((n) => [n.node_code, n])),
@@ -198,7 +200,6 @@ export default function FlowEditorPage() {
       if (!res.ok || !json.ok) throw new Error(json.error ?? "No se pudo cargar nodos");
       setNodes(json.items ?? []);
       setError(null);
-      setSuccess(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error al cargar");
     } finally {
@@ -284,7 +285,6 @@ export default function FlowEditorPage() {
     );
     const json = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
     if (!res.ok || !json.ok) throw new Error(json.error ?? "No se pudo guardar nodo");
-    setSuccess(`Paso ${prettifyCode(node.node_code)} guardado.`);
   }
 
   async function saveOption(node: FlowNode, opt: FlowNodeOption) {
@@ -450,6 +450,9 @@ export default function FlowEditorPage() {
                 <div>
                   <div className="text-sm font-semibold text-slate-800">Paso #{idx + 1}: {friendlyNodeTitle(node)}</div>
                   <div className="text-xs text-slate-500">Tipo: {nodeTypeLabel(node.node_type)} · {nodeTypeHelp(node.node_type)}</div>
+                  {lastSavedNodeId === node.id && (
+                    <div className="text-xs text-emerald-600 mt-1">Guardado correctamente.</div>
+                  )}
                 </div>
                 <label className="text-sm text-slate-700 flex items-center gap-2">
                   <input type="checkbox" checked={node.is_active} onChange={(e) => setNodes((prev) => prev.map((n) => n.id === node.id ? { ...n, is_active: e.target.checked } : n))} />
@@ -794,17 +797,23 @@ export default function FlowEditorPage() {
 
               <button
                 type="button"
+                disabled={savingNodeId === node.id}
                 onClick={async () => {
                   try {
+                    setSavingNodeId(node.id);
                     await saveNode(node);
                     await reload();
+                    setSuccess(`Paso ${prettifyCode(node.node_code)} guardado correctamente.`);
+                    setLastSavedNodeId(node.id);
                   } catch (e) {
                     setError(e instanceof Error ? e.message : "Error al guardar nodo");
+                  } finally {
+                    setSavingNodeId(null);
                   }
                 }}
-                className="bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-4 py-2 rounded-lg text-sm font-medium"
+                className="bg-[#0EA5E9] hover:bg-[#0284C7] disabled:opacity-60 text-white px-4 py-2 rounded-lg text-sm font-medium"
               >
-                Guardar paso
+                {savingNodeId === node.id ? "Guardando..." : "Guardar paso"}
               </button>
 
               {(node.node_type === "buttons" || node.node_type === "list") && (
