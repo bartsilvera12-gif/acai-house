@@ -24,9 +24,7 @@ export async function fetchSorteoCuponesOrdenesServer(): Promise<{
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase
     .from("sorteo_entradas")
-    .select(
-      "id, numero_orden, nombre_participante, whatsapp_numero, cantidad_boletos, monto_total, promo_nombre, precio_fuente, estado_pago, created_at, chat_conversation_id, sorteos(nombre), sorteo_cupones(numero_cupon)"
-    )
+    .select("*, sorteos(nombre), sorteo_cupones(numero_cupon)")
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -66,7 +64,10 @@ export async function fetchSorteoCuponesOrdenesServer(): Promise<{
           ? r.monto_total
           : Number(r.monto_total);
       const montoTotal = Number.isFinite(mt) ? mt : 0;
-      const pf = r.precio_fuente === "promo" || r.precio_fuente === "lista" ? r.precio_fuente : null;
+      const pfRaw = r.precio_fuente;
+      const pf =
+        pfRaw === "promo" || pfRaw === "lista" ? pfRaw : null;
+      const promoNom = r.promo_nombre;
       return {
         entrada_id: r.id,
         numero_orden: typeof r.numero_orden === "number" ? r.numero_orden : 0,
@@ -74,7 +75,8 @@ export async function fetchSorteoCuponesOrdenesServer(): Promise<{
         whatsapp_numero: r.whatsapp_numero,
         cantidad_boletos: r.cantidad_boletos,
         monto_total: montoTotal,
-        promo_nombre: r.promo_nombre?.trim() ? r.promo_nombre.trim() : null,
+        promo_nombre:
+          typeof promoNom === "string" && promoNom.trim() ? promoNom.trim() : null,
         precio_fuente: pf,
         estado_pago: r.estado_pago as SorteoCuponOrdenRow["estado_pago"],
         created_at: r.created_at,

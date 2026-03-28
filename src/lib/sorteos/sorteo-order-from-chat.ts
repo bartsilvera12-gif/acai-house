@@ -129,26 +129,38 @@ export function parseSorteoParticipantFromFlowData(data: Record<string, string>)
   };
 }
 
-const MONTO_FLOW_KEYS = ["monto", "monto_compra", "monto_promocional"] as const;
 const PRECIO_REG_KEYS = ["precio_regular", "precio_regular_referencia", "precio_lista"] as const;
+
+function parseFirstMoney(
+  data: Record<string, string>,
+  keys: readonly string[]
+): number | null {
+  for (const k of keys) {
+    const v = norm(data[k]);
+    if (!v) continue;
+    const n = parseMoneyPy(v);
+    if (n != null && n > 0) return Math.round(n);
+  }
+  return null;
+}
 
 /**
  * Monto y metadatos comerciales guardados en chat_flow_data al elegir una opción (JSON estructurado).
+ *
+ * No usa el campo genérico `monto` salvo si `precio_fuente` es `promo`, para que pasos del flujo
+ * que rellenan `{{monto}}` con el total de lista no pisen el precio promocional guardado en
+ * `monto_compra` / `monto_promocional`.
  */
 export function parseSorteoPricingFromFlowData(data: Record<string, string>): {
   montoCompra: number | null;
   promoNombre: string;
   precioRegularReferencia: number | null;
 } {
-  let montoCompra: number | null = null;
-  for (const k of MONTO_FLOW_KEYS) {
-    const v = norm(data[k]);
-    if (!v) continue;
-    const n = parseMoneyPy(v);
-    if (n != null && n > 0) {
-      montoCompra = Math.round(n);
-      break;
-    }
+  const pf = norm(data["precio_fuente"]).toLowerCase();
+  let montoCompra =
+    parseFirstMoney(data, ["monto_compra", "monto_promocional"]) ?? null;
+  if (montoCompra == null && pf === "promo") {
+    montoCompra = parseFirstMoney(data, ["monto"]);
   }
   const promoNombre = norm(data["promo_nombre"]);
   let precioRegularReferencia: number | null = null;

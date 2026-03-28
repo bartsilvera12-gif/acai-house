@@ -214,10 +214,15 @@ function buildPayloadFromSimple(
   else delete base.producto;
   const montoParsed = monto ? parseMoneyPy(monto) : null;
   if (montoParsed != null && montoParsed > 0) {
-    base.monto = Math.round(montoParsed);
+    const r = Math.round(montoParsed);
+    base.monto = r;
+    base.monto_compra = r;
+    base.monto_promocional = r;
     base.precio_fuente = "promo";
   } else {
     delete base.monto;
+    delete base.monto_compra;
+    delete base.monto_promocional;
     delete base.precio_fuente;
   }
   if (promoNombre) base.promo_nombre = promoNombre;

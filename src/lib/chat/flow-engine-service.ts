@@ -240,10 +240,23 @@ function augmentSorteoPricingFromInteractiveOption(
   if (parsed == null || parsed <= 0) return entries;
   const normalized = String(Math.round(parsed));
   const filtered = entries.filter(([k]) => !montoKeys.has(lower(k)));
-  const hasPf = filtered.some(([k]) => lower(k) === "precio_fuente");
+  const pfEntry = filtered.find(([k]) => lower(k) === "precio_fuente");
+  const pfVal = pfEntry ? String(pfEntry[1]).toLowerCase().trim() : "";
   const withMonto: [string, string][] = [...filtered, ["monto", normalized]];
-  if (hasPf) return withMonto;
-  return [...withMonto, ["precio_fuente", "promo"]];
+  let out: [string, string][];
+  if (!pfEntry) {
+    out = [...withMonto, ["precio_fuente", "promo"]];
+  } else {
+    out = withMonto;
+  }
+  if (!pfEntry || pfVal === "promo") {
+    out = [
+      ...out,
+      ["monto_compra", normalized],
+      ["monto_promocional", normalized],
+    ];
+  }
+  return out;
 }
 
 export function createFlowEngine(ctx: FlowEngineContext) {
