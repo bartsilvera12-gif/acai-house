@@ -60,12 +60,13 @@ export default async function SorteoCuponesPage() {
           <div className="py-16 text-center text-gray-400 text-sm">No hay órdenes con cupones</div>
         ) : rows.length === 0 ? null : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[960px]">
+            <table className="w-full min-w-[1040px]">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50">
                   <th className="text-left text-sm font-semibold text-slate-600 px-5 py-3">Nº orden</th>
                   <th className="text-left text-sm font-semibold text-slate-600 px-5 py-3">Sorteo</th>
                   <th className="text-left text-sm font-semibold text-slate-600 px-5 py-3">Cliente</th>
+                  <th className="text-left text-sm font-semibold text-slate-600 px-5 py-3">Cédula</th>
                   <th className="text-left text-sm font-semibold text-slate-600 px-5 py-3">Teléfono</th>
                   <th className="text-left text-sm font-semibold text-slate-600 px-5 py-3">Cantidad</th>
                   <th className="text-right text-sm font-semibold text-slate-600 px-5 py-3">Monto</th>
@@ -81,6 +82,7 @@ export default async function SorteoCuponesPage() {
                     <td className="px-5 py-3 text-sm font-mono font-semibold text-slate-800">{r.numero_orden}</td>
                     <td className="px-5 py-3 text-sm text-slate-800">{r.sorteo_nombre}</td>
                     <td className="px-5 py-3 text-sm text-slate-800">{r.nombre_participante}</td>
+                    <td className="px-5 py-3 text-sm font-mono text-slate-600">{r.documento ?? "—"}</td>
                     <td className="px-5 py-3 text-sm font-mono text-slate-700">{r.whatsapp_numero}</td>
                     <td className="px-5 py-3 text-sm text-slate-800">{r.cantidad_boletos}</td>
                     <td className="px-5 py-3 text-sm text-right tabular-nums text-slate-800">

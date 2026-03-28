@@ -157,6 +157,7 @@ export async function getSorteoCuponesOrdenes(): Promise<SorteoCuponOrdenRow[]> 
     id: string;
     numero_orden: number | null;
     nombre_participante: string;
+    documento?: string | null;
     whatsapp_numero: string;
     cantidad_boletos: number;
     monto_total: number | null;
@@ -194,6 +195,7 @@ export async function getSorteoCuponesOrdenes(): Promise<SorteoCuponOrdenRow[]> 
         entrada_id: r.id,
         numero_orden: typeof r.numero_orden === "number" ? r.numero_orden : 0,
         nombre_participante: r.nombre_participante,
+        documento: r.documento?.trim() ? r.documento.trim() : null,
         whatsapp_numero: r.whatsapp_numero,
         cantidad_boletos: r.cantidad_boletos,
         monto_total: montoTotal,

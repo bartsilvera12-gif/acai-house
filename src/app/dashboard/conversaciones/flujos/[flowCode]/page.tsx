@@ -218,11 +218,13 @@ function buildPayloadFromSimple(
     base.monto = r;
     base.monto_compra = r;
     base.monto_promocional = r;
+    base.sorteo_monto_opcion = r;
     base.precio_fuente = "promo";
   } else {
     delete base.monto;
     delete base.monto_compra;
     delete base.monto_promocional;
+    delete base.sorteo_monto_opcion;
     delete base.precio_fuente;
   }
   if (promoNombre) base.promo_nombre = promoNombre;

@@ -44,4 +44,14 @@ assert(
   "5 boletos: debe leer monto_promocional aunque monto tenga total lista"
 );
 
-console.log("OK: parseSorteoPricingFromFlowData — 3×50.000, lista sin promo, 5×90.000 con piso en monto.");
+const casoCanon = parseSorteoPricingFromFlowData({
+  cantidad: "3",
+  precio_fuente: "promo",
+  sorteo_monto_opcion: "50000",
+  monto: "60000",
+});
+assert(casoCanon.montoCompra === 50000, "sorteo_monto_opcion gana sobre monto");
+
+console.log(
+  "OK: parseSorteoPricingFromFlowData — 3×50k, lista, 5×90k, sorteo_monto_opcion."
+);

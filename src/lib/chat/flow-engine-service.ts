@@ -150,8 +150,16 @@ function augmentCantidadFromInteractiveOption(
 ): [string, string][] {
   const lowerKeys = new Set(entries.map(([k]) => k.trim().toLowerCase()));
   const qtyNames = ["cantidad", "cantidad_boletos", "boletos", "qty"];
+  const withCantidadSnapshot = (list: [string, string][], qty: string): [string, string][] => {
+    const lk = new Set(list.map(([k]) => k.trim().toLowerCase()));
+    if (lk.has("sorteo_cantidad_opcion")) return list;
+    return [...list, ["sorteo_cantidad_opcion", qty]];
+  };
   if (qtyNames.some((k) => lowerKeys.has(k))) {
-    return entries;
+    const entry = entries.find(([k]) => qtyNames.includes(k.trim().toLowerCase()));
+    const v = entry?.[1]?.trim() ?? "";
+    if (!v) return entries;
+    return withCantidadSnapshot(entries, v);
   }
 
   const tryQty = (raw: unknown): number | null => {
@@ -171,7 +179,7 @@ function augmentCantidadFromInteractiveOption(
       const n = tryQty(payload[k]);
       if (n != null) {
         const rest = entries.filter((e) => e[0].trim().toLowerCase() !== "cantidad");
-        return [...rest, ["cantidad", String(n)]];
+        return withCantidadSnapshot([...rest, ["cantidad", String(n)]], String(n));
       }
     }
   }
@@ -180,13 +188,13 @@ function augmentCantidadFromInteractiveOption(
   if (ov) {
     const direct = tryQty(ov);
     if (direct != null) {
-      return [...entries, ["cantidad", String(direct)]];
+      return withCantidadSnapshot([...entries, ["cantidad", String(direct)]], String(direct));
     }
     const lead = ov.match(/^(\d+)/);
     if (lead) {
       const n = tryQty(lead[1]);
       if (n != null) {
-        return [...entries, ["cantidad", String(n)]];
+        return withCantidadSnapshot([...entries, ["cantidad", String(n)]], String(n));
       }
     }
   }
@@ -205,7 +213,7 @@ function augmentCantidadFromInteractiveOption(
     if (m) {
       const n = tryQty(m[1]);
       if (n != null) {
-        return [...entries, ["cantidad", String(n)]];
+        return withCantidadSnapshot([...entries, ["cantidad", String(n)]], String(n));
       }
     }
   }
@@ -227,7 +235,7 @@ function augmentSorteoPricingFromInteractiveOption(
   entries: [string, string][]
 ): [string, string][] {
   const lower = (k: string) => k.trim().toLowerCase();
-  const montoKeys = new Set(["monto", "monto_compra", "monto_promocional"]);
+  const montoKeys = new Set(["monto", "monto_compra", "monto_promocional", "sorteo_monto_opcion"]);
   let rawMonto: string | null = null;
   for (const [k, v] of entries) {
     if (montoKeys.has(lower(k))) {
@@ -254,6 +262,7 @@ function augmentSorteoPricingFromInteractiveOption(
       ...out,
       ["monto_compra", normalized],
       ["monto_promocional", normalized],
+      ["sorteo_monto_opcion", normalized],
     ];
   }
   return out;
@@ -1088,7 +1097,7 @@ export function createFlowEngine(ctx: FlowEngineContext) {
       }));
       const { error: payloadSaveErr } = await supabase
         .from("chat_flow_data")
-        .upsert(upserts, { onConflict: "conversation_id,field_name" });
+        .upsert(upserts, { onConflict: "conversation_id,flow_code,field_name" });
       if (payloadSaveErr) {
         return { ok: false, status: "save_option_payload_failed", error: payloadSaveErr.message };
       }
@@ -1225,10 +1234,29 @@ export function createFlowEngine(ctx: FlowEngineContext) {
             field_name: currentNode.save_as_field,
             field_value: textValue,
           },
-          { onConflict: "conversation_id,field_name" }
+          { onConflict: "conversation_id,flow_code,field_name" }
         );
       if (dataErr) {
         return { ok: false, status: "save_text_failed", error: dataErr.message };
+      }
+      const sfLower = currentNode.save_as_field.trim().toLowerCase();
+      if (["nombre", "apellido", "nombre_y_apellido"].includes(sfLower)) {
+        const { error: clrErr } = await supabase.from("chat_flow_data").upsert(
+          {
+            empresa_id: state.empresa_id,
+            conversation_id: state.id,
+            flow_code: state.flow_code,
+            field_name: "nombre_completo",
+            field_value: "",
+          },
+          { onConflict: "conversation_id,flow_code,field_name" }
+        );
+        if (clrErr) {
+          console.warn(FLOW_SORTEO_LOG, "clear_stale_nombre_completo_failed", {
+            conversationId: state.id,
+            message: clrErr.message,
+          });
+        }
       }
     }
 
@@ -1447,7 +1475,7 @@ export function createFlowEngine(ctx: FlowEngineContext) {
             field_name: currentNode.save_as_field,
             field_value: publicUrl,
           },
-          { onConflict: "conversation_id,field_name" }
+          { onConflict: "conversation_id,flow_code,field_name" }
         );
       if (upErr) {
         console.error(FLOW_SORTEO_LOG, "processImageReply_early_exit", {
@@ -1510,7 +1538,7 @@ export function createFlowEngine(ctx: FlowEngineContext) {
       );
       const { error: sorteoCtxErr } = await supabase
         .from("chat_flow_data")
-        .upsert(contextRows, { onConflict: "conversation_id,field_name" });
+        .upsert(contextRows, { onConflict: "conversation_id,flow_code,field_name" });
       if (sorteoCtxErr) {
         console.error(FLOW_SORTEO_LOG, "sorteo_order_context_upsert_failed", {
           conversationId: state.id,

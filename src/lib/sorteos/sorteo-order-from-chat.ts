@@ -20,7 +20,7 @@ const FLOW_SORTEO_LOG = "[flow-sorteo]" as const;
  * Motivo legible cuando `parseSorteoParticipantFromFlowData` devuelve null (diagnóstico en logs).
  */
 export function explainParseSorteoParticipantFailure(data: Record<string, string>): string {
-  const qtyKeys = ["cantidad_boletos", "cantidad", "boletos", "qty"] as const;
+  const qtyKeys = ["sorteo_cantidad_opcion", "cantidad_boletos", "cantidad", "boletos", "qty"] as const;
   let foundKey: string | undefined;
   let rawVal: string | undefined;
   let qtyValid = false;
@@ -51,11 +51,11 @@ export function explainParseSorteoParticipantFailure(data: Record<string, string
     return `cantidad: clave "${foundKey}"="${rawVal}" no es número entero >= 1`;
   }
   const nombreCompleto =
-    norm(data["nombre_completo"]) ||
+    [norm(data["nombre"]), norm(data["apellido"])].filter(Boolean).join(" ").trim() ||
     norm(data["nombre_y_apellido"]) ||
-    [norm(data["nombre"]), norm(data["apellido"])].filter(Boolean).join(" ").trim();
+    norm(data["nombre_completo"]);
   if (!nombreCompleto) {
-    return "nombre: falta nombre_completo | nombre_y_apellido | (nombre y apellido)";
+    return "nombre: falta (nombre y apellido) | nombre_y_apellido | nombre_completo";
   }
   return "desconocido";
 }
@@ -92,7 +92,7 @@ export function parseSorteoParticipantFromFlowData(data: Record<string, string>)
   ciudad: string;
   cantidad_boletos: number;
 } | null {
-  const qtyKeys = ["cantidad_boletos", "cantidad", "boletos", "qty"];
+  const qtyKeys = ["sorteo_cantidad_opcion", "cantidad_boletos", "cantidad", "boletos", "qty"];
   let qty = NaN;
   for (const k of qtyKeys) {
     const v = norm(data[k]);
@@ -114,10 +114,14 @@ export function parseSorteoParticipantFromFlowData(data: Record<string, string>)
   }
   if (!Number.isFinite(qty) || qty < 1) return null;
 
+  const fromNombreApellido = [norm(data["nombre"]), norm(data["apellido"])]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
   const nombreCompleto =
-    norm(data["nombre_completo"]) ||
+    fromNombreApellido ||
     norm(data["nombre_y_apellido"]) ||
-    [norm(data["nombre"]), norm(data["apellido"])].filter(Boolean).join(" ").trim();
+    norm(data["nombre_completo"]);
 
   if (!nombreCompleto) return null;
 
@@ -158,7 +162,8 @@ export function parseSorteoPricingFromFlowData(data: Record<string, string>): {
 } {
   const pf = norm(data["precio_fuente"]).toLowerCase();
   let montoCompra =
-    parseFirstMoney(data, ["monto_compra", "monto_promocional"]) ?? null;
+    parseFirstMoney(data, ["sorteo_monto_opcion", "monto_compra", "monto_promocional"]) ??
+    null;
   if (montoCompra == null && pf === "promo") {
     montoCompra = parseFirstMoney(data, ["monto"]);
   }
@@ -342,6 +347,14 @@ export async function ensureSorteoOrderFromChat(
   }
 
   const pricing = parseSorteoPricingFromFlowData(input.flowData);
+  console.info(FLOW_SORTEO_LOG, "ensureSorteoOrderFromChat_pricing", {
+    conversationId: input.conversationId,
+    flowCode,
+    montoCompra: pricing.montoCompra,
+    promoNombre: pricing.promoNombre,
+    tiene_sorteo_monto_opcion: Boolean(input.flowData["sorteo_monto_opcion"]?.trim()),
+    tiene_precio_fuente: Boolean(input.flowData["precio_fuente"]?.trim()),
+  });
 
   const idempotencyKey = buildSorteoIdempotencyKey(
     input.conversationId,

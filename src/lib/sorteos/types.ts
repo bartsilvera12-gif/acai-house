@@ -94,6 +94,7 @@ export type SorteoCuponOrdenRow = {
   entrada_id: string;
   numero_orden: number;
   nombre_participante: string;
+  documento: string | null;
   whatsapp_numero: string;
   cantidad_boletos: number;
   monto_total: number;
