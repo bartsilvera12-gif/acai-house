@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Calendar } from "lucide-react";
+import { SifenEstadoBadge } from "@/components/sifen/SifenEstadoBadge";
+import { useFacturaSifenEstados } from "@/hooks/useFacturaSifenEstados";
 import { getClientes, clienteNombre } from "@/lib/clientes/storage";
 import { getFacturas } from "@/lib/gestion-clientes/storage";
 import type { Cliente } from "@/lib/clientes/types";
@@ -593,6 +595,8 @@ export default function GestionClientesPage() {
   const cntPendientes = facturasOrdenadas.filter((f) => f._estadoEfectivo === "Pendiente").length;
   const cntPagadas    = facturasOrdenadas.filter((f) => f._estadoEfectivo === "Pagado").length;
 
+  const sifenPorFactura = useFacturaSifenEstados(facturasOrdenadas.map((f) => f.id));
+
   return (
     <div className="flex flex-col gap-4 h-full">
 
@@ -902,7 +906,7 @@ export default function GestionClientesPage() {
                     <table className="w-full text-sm">
                       <thead className="sticky top-0 bg-slate-50 border-b border-slate-200 shadow-sm">
                         <tr>
-                          {["Tipo", "Nro. Factura", "Fecha emisión", "Fecha vencimiento", "Monto", "Saldo", "Días mora", "Estado", "Acciones"].map((h) => (
+                          {["Tipo", "Nro. Factura", "Fecha emisión", "Fecha vencimiento", "Monto", "Saldo", "Días mora", "Estado", "SIFEN", "Acciones"].map((h) => (
                             <th key={h} className="text-left text-sm font-semibold text-slate-600 px-3 py-2.5 uppercase tracking-wide whitespace-nowrap">
                               {h}
                             </th>
@@ -967,6 +971,11 @@ export default function GestionClientesPage() {
                             {/* Estado */}
                             <td className="px-3 py-2.5">
                               <BadgeFactura estado={f._estadoEfectivo} />
+                            </td>
+                            <td className="px-3 py-2.5">
+                              <SifenEstadoBadge
+                                estadoSifen={sifenPorFactura[f.id]?.estado_sifen ?? null}
+                              />
                             </td>
                             {/* Acciones */}
                             <td className="px-3 py-2.5">

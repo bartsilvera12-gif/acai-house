@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import MontoInput from "@/components/ui/MontoInput";
 import { getConfig, saveConfig, resetConfig } from "@/lib/config/storage";
@@ -239,6 +240,23 @@ export default function ConfiguracionPage() {
         {/* ══ TAB: FACTURACIÓN ══════════════════════════════════════ */}
         {tab === "facturacion" && (
           <>
+            <Card>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div>
+                  <SectionTitle>SIFEN / Facturación electrónica</SectionTitle>
+                  <p className="text-sm text-gray-600 -mt-2">
+                    Timbrado, CSC, certificado .p12 y ambiente SET. Opcional: las empresas sin SIFEN no se ven afectadas.
+                  </p>
+                </div>
+                <Link
+                  href="/configuracion/facturacion-electronica"
+                  className="shrink-0 inline-flex items-center justify-center px-4 py-2.5 rounded-lg text-sm font-semibold bg-[#0EA5E9] text-white hover:bg-[#0284C7] transition-colors shadow-sm"
+                >
+                  Configurar SIFEN
+                </Link>
+              </div>
+            </Card>
+
             <Card>
               <SectionTitle>Numeración de documentos</SectionTitle>
               <div className="grid grid-cols-2 gap-4">

@@ -1,0 +1,255 @@
+import { NextRequest, NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+import { getUserAndEmpresa } from "@/lib/middleware/auth";
+import { successResponse, errorResponse } from "@/lib/api/response";
+import { API_ERRORS } from "@/lib/api/errors";
+import { decryptSecret } from "@/lib/sifen/security";
+import {
+  buildSifenSignedXmlObjectPath,
+  downloadSifenObject,
+  ensureSifenStorageBucket,
+  removeSifenObject,
+  SIFEN_STORAGE_BUCKET,
+  uploadSifenXml,
+} from "@/lib/sifen/sifen-storage";
+import { downloadSifenCertificadoObject } from "@/lib/sifen/sifen-certificados-storage";
+import { extractKeyAndCertFromP12, signSifenDocumentoXml } from "@/lib/sifen/sign-xml";
+import type {
+  FacturaElectronicaDTO,
+  SifenApiFirmarDetalle,
+  SifenFirmarResponseData,
+} from "@/lib/sifen/types";
+
+function getSupabase() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !key) throw new Error("Supabase no configurado");
+  return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
+}
+
+const ESTADOS_BLOQUEADOS_FIRMAR = new Set<string>(["aprobado", "enviado"]);
+
+/**
+ * POST /api/facturas/[id]/sifen/firmar
+ * Firma el XML en storage con el .p12 de la empresa (XML-DSig). No envía a SET.
+ */
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const auth = await getUserAndEmpresa();
+    if (!auth) {
+      return NextResponse.json(errorResponse(API_ERRORS.UNAUTHORIZED), { status: 401 });
+    }
+
+    const { id: facturaId } = await params;
+    if (!facturaId?.trim()) {
+      return NextResponse.json(errorResponse("id de factura es obligatorio"), { status: 400 });
+    }
+
+    const debugXml = request.nextUrl.searchParams.get("debug") === "1";
+    const supabase = getSupabase();
+    const fid = facturaId.trim();
+
+    const { data: feRow, error: errFe } = await supabase
+      .from("factura_electronica")
+      .select("id, factura_id, xml_path, xml_firmado_path, estado_sifen")
+      .eq("factura_id", fid)
+      .eq("empresa_id", auth.empresa_id)
+      .maybeSingle();
+
+    if (errFe) {
+      return NextResponse.json(errorResponse(errFe.message), { status: 400 });
+    }
+    if (!feRow) {
+      return NextResponse.json(
+        errorResponse(
+          "No existe registro electrónico para esta factura. Cree el borrador y genere el XML antes de firmar."
+        ),
+        { status: 400 }
+      );
+    }
+
+    if (ESTADOS_BLOQUEADOS_FIRMAR.has(String(feRow.estado_sifen))) {
+      return NextResponse.json(
+        errorResponse(`No se puede firmar: el documento está en estado "${feRow.estado_sifen}".`),
+        { status: 409 }
+      );
+    }
+
+    const xmlPath = feRow.xml_path == null ? "" : String(feRow.xml_path).trim();
+    if (!xmlPath) {
+      return NextResponse.json(
+        errorResponse("No hay XML generado (xml_path vacío). Ejecute primero POST /api/facturas/{id}/sifen/xml."),
+        { status: 400 }
+      );
+    }
+
+    const { data: cfg, error: errCfg } = await supabase
+      .from("empresa_sifen_config")
+      .select("certificado_path, certificado_password_encrypted")
+      .eq("empresa_id", auth.empresa_id)
+      .maybeSingle();
+
+    if (errCfg) {
+      return NextResponse.json(errorResponse(errCfg.message), { status: 400 });
+    }
+    if (!cfg) {
+      return NextResponse.json(
+        errorResponse("No hay configuración SIFEN para esta empresa."),
+        { status: 400 }
+      );
+    }
+
+    const certPath = cfg.certificado_path == null ? "" : String(cfg.certificado_path).trim();
+    if (!certPath) {
+      return NextResponse.json(
+        errorResponse(
+          "No hay certificado en storage (certificado_path vacío). Suba el .p12 con POST /api/configuracion/sifen/certificado."
+        ),
+        { status: 400 }
+      );
+    }
+
+    const encPwd = cfg.certificado_password_encrypted;
+    if (encPwd == null || String(encPwd).trim() === "") {
+      return NextResponse.json(
+        errorResponse(
+          "No hay contraseña del certificado cifrada. Configúrela con PATCH /api/configuracion/sifen (certificado_password)."
+        ),
+        { status: 400 }
+      );
+    }
+
+    let p12Password: string;
+    try {
+      p12Password = decryptSecret(String(encPwd));
+    } catch (e) {
+      const m = e instanceof Error ? e.message : "Error al descifrar la contraseña del certificado";
+      return NextResponse.json(errorResponse(m), { status: 500 });
+    }
+
+    const xmlDl = await downloadSifenObject(supabase, xmlPath);
+    if (!xmlDl.ok) {
+      return NextResponse.json(
+        errorResponse(`No se pudo descargar el XML desde storage: ${xmlDl.message}`),
+        { status: 500 }
+      );
+    }
+
+    const p12Dl = await downloadSifenCertificadoObject(supabase, certPath);
+    if (!p12Dl.ok) {
+      return NextResponse.json(
+        errorResponse(`No se pudo descargar el certificado .p12: ${p12Dl.message}`),
+        { status: 500 }
+      );
+    }
+
+    let material;
+    try {
+      material = extractKeyAndCertFromP12(p12Dl.data, p12Password);
+    } catch (e) {
+      const m = e instanceof Error ? e.message : "Error al leer el .p12";
+      return NextResponse.json(errorResponse(m), { status: 400 });
+    }
+
+    let signedXml: string;
+    try {
+      signedXml = signSifenDocumentoXml(xmlDl.data.toString("utf8"), material);
+    } catch (e) {
+      const m = e instanceof Error ? e.message : "Error al firmar el XML";
+      return NextResponse.json(errorResponse(`Firma XML-DSig falló: ${m}`), { status: 500 });
+    }
+
+    const bucketOk = await ensureSifenStorageBucket(supabase);
+    if (!bucketOk.ok) {
+      return NextResponse.json(errorResponse(`Storage SIFEN: ${bucketOk.message}`), { status: 500 });
+    }
+
+    const signedPath = buildSifenSignedXmlObjectPath(auth.empresa_id, fid);
+    const up = await uploadSifenXml(supabase, signedPath, signedXml);
+    if (!up.ok) {
+      return NextResponse.json(
+        errorResponse(`No se pudo guardar el XML firmado: ${up.message}`),
+        { status: 500 }
+      );
+    }
+
+    const previousEstado = String(feRow.estado_sifen ?? "generado");
+    const previousSignedPath =
+      feRow.xml_firmado_path == null || feRow.xml_firmado_path === undefined
+        ? null
+        : String(feRow.xml_firmado_path);
+
+    const { data: updatedRow, error: errUpdate } = await supabase
+      .from("factura_electronica")
+      .update({
+        xml_firmado_path: signedPath,
+        estado_sifen: "firmado",
+      })
+      .eq("id", feRow.id)
+      .eq("empresa_id", auth.empresa_id)
+      .select()
+      .single();
+
+    if (errUpdate || !updatedRow) {
+      if (previousSignedPath == null || signedPath !== previousSignedPath) {
+        await removeSifenObject(supabase, signedPath);
+      }
+      return NextResponse.json(
+        errorResponse(
+          errUpdate?.message ??
+            "No se pudo actualizar factura_electronica; el XML firmado subido fue eliminado."
+        ),
+        { status: 500 }
+      );
+    }
+
+    const detalle: SifenApiFirmarDetalle = {
+      origen: "api_firmar",
+      factura_id: fid,
+      xml_firmado_path: signedPath,
+    };
+
+    const { error: errEvento } = await supabase.from("factura_electronica_evento").insert({
+      empresa_id: auth.empresa_id,
+      factura_electronica_id: feRow.id,
+      tipo: "firma",
+      detalle,
+    });
+
+    if (errEvento) {
+      await supabase
+        .from("factura_electronica")
+        .update({
+          xml_firmado_path: previousSignedPath,
+          estado_sifen: previousEstado,
+        })
+        .eq("id", feRow.id)
+        .eq("empresa_id", auth.empresa_id);
+      if (previousSignedPath == null || signedPath !== previousSignedPath) {
+        await removeSifenObject(supabase, signedPath);
+      }
+      return NextResponse.json(
+        errorResponse(`No se pudo registrar el evento; se revirtió el estado y el archivo: ${errEvento.message}`),
+        { status: 500 }
+      );
+    }
+
+    const data: SifenFirmarResponseData = {
+      factura_electronica: updatedRow as FacturaElectronicaDTO,
+      xml_path: feRow.xml_path == null ? null : String(feRow.xml_path),
+      xml_firmado_path: signedPath,
+      storage_bucket: SIFEN_STORAGE_BUCKET,
+    };
+    if (debugXml) {
+      data.xml_firmado = signedXml;
+    }
+
+    return NextResponse.json(successResponse(data));
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Error";
+    return NextResponse.json(errorResponse(msg), { status: 500 });
+  }
+}

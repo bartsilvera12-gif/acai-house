@@ -21,23 +21,28 @@
     "db:apply-sorteo-revendedores-migration": "tsx scripts/apply-sorteo-revendedores-migration.ts",
     "verify:sorteo-integridad": "tsx scripts/verify-sorteo-integridad-nombre-monto.ts",
     "verify:flow-sessions": "tsx scripts/verify-flow-session-isolation.ts",
+    "db:migrate-sifen-cert-password": "tsx scripts/migrate-sifen-certificado-password-to-encrypted.ts",
     "test:comprobante-tech": "tsx scripts/technical-tests-comprobante-full.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.9.0",
     "@supabase/supabase-js": "^2.99.0",
+    "@xmldom/xmldom": "^0.9.9",
     "framer-motion": "^12.36.0",
     "lucide-react": "^0.577.0",
     "next": "16.1.6",
+    "node-forge": "^1.4.0",
     "pg": "^8.20.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
-    "tsx": "^4.21.0"
+    "tsx": "^4.21.0",
+    "xml-crypto": "^6.1.2"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.2",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
+    "@types/node-forge": "^1.3.14",
     "@types/pg": "^8.18.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",

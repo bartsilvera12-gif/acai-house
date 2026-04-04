@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import {
@@ -18,6 +19,8 @@ import { apiCreateFactura, apiCreatePago, apiCreateSuscripcion } from "@/lib/api
 import { getConfig, saveConfig } from "@/lib/config/storage";
 import { getCurrentUser } from "@/lib/auth";
 import { supabase } from "@/lib/supabase";
+import { SifenEstadoBadge } from "@/components/sifen/SifenEstadoBadge";
+import { useFacturaSifenEstados } from "@/hooks/useFacturaSifenEstados";
 import MontoInput from "@/components/ui/MontoInput";
 import { getPlanes } from "@/lib/planes/storage";
 import type { Cliente, NotaCliente, TipoServicioCliente } from "@/lib/clientes/types";
@@ -171,6 +174,8 @@ export default function ClienteDetailPage() {
   const [facturaPago, setFacturaPago] = useState<Factura | null>(null);
   const [formPago, setFormPago] = useState({ factura_id: "" as string, monto: "", fecha_pago: "", metodo_pago: "efectivo" as const, referencia: "" });
   const [guardandoPago, setGuardandoPago] = useState(false);
+
+  const sifenPorFactura = useFacturaSifenEstados(facturas.map((f) => f.id));
 
   async function cargar() {
     const c = await getCliente(id);
@@ -1072,7 +1077,7 @@ export default function ClienteDetailPage() {
                   <table className="w-full text-sm">
                     <thead className="bg-slate-50">
                       <tr>
-                        {["Número", "Fecha", "Vencimiento", "Total", "Estado"].map((h) => (
+                        {["Número", "Fecha", "Vencimiento", "Total", "Estado", "SIFEN"].map((h) => (
                           <th key={h} className="text-left text-xs font-semibold text-slate-600 px-4 py-3">{h}</th>
                         ))}
                         <th className="text-right text-xs font-semibold text-slate-600 px-4 py-3">Acción</th>
@@ -1081,7 +1086,11 @@ export default function ClienteDetailPage() {
                     <tbody className="divide-y divide-slate-100">
                       {facturas.map((f) => (
                         <tr key={f.id} className="hover:bg-slate-50">
-                          <td className="px-4 py-3 font-mono text-slate-800">{f.numero_factura}</td>
+                          <td className="px-4 py-3 font-mono text-slate-800">
+                            <Link href={`/facturas/${f.id}`} className="text-[#0EA5E9] hover:underline font-semibold">
+                              {f.numero_factura}
+                            </Link>
+                          </td>
                           <td className="px-4 py-3 text-slate-600">{formatFecha(f.fecha)}</td>
                           <td className="px-4 py-3 text-slate-600">{formatFecha(f.fecha_vencimiento)}</td>
                           <td className="px-4 py-3 font-semibold text-slate-800">Gs. {f.monto.toLocaleString("es-PY")}</td>
@@ -1090,6 +1099,9 @@ export default function ClienteDetailPage() {
                               f.estado === "Pagado" ? "bg-green-100 text-green-700" :
                               f.estado === "Vencido" ? "bg-red-100 text-red-700" : "bg-amber-100 text-amber-700"
                             }`}>{f.estado}</span>
+                          </td>
+                          <td className="px-4 py-3">
+                            <SifenEstadoBadge estadoSifen={sifenPorFactura[f.id]?.estado_sifen ?? null} />
                           </td>
                           <td className="px-4 py-3 text-right">
                             {f.saldo > 0 && (
@@ -1101,6 +1113,12 @@ export default function ClienteDetailPage() {
                                 Registrar pago
                               </button>
                             )}
+                            <Link
+                              href={`/facturas/${f.id}`}
+                              className="text-xs font-medium text-slate-500 hover:text-[#0EA5E9] hover:underline ml-2"
+                            >
+                              Ver
+                            </Link>
                           </td>
                         </tr>
                       ))}
