@@ -7,6 +7,7 @@ const LABELS: Record<string, string> = {
   enviado: "Enviado",
   aprobado: "Aprobado",
   rechazado: "Rechazado",
+  error_envio: "Error envío",
 };
 
 function badgeClasses(estado: string | null): string {
@@ -26,6 +27,8 @@ function badgeClasses(estado: string | null): string {
       return "bg-emerald-50 text-emerald-800 border border-emerald-200";
     case "rechazado":
       return "bg-red-50 text-red-800 border border-red-200";
+    case "error_envio":
+      return "bg-orange-50 text-orange-900 border border-orange-200";
     default:
       return "bg-gray-100 text-gray-700 border border-gray-200";
   }

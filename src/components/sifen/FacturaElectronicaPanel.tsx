@@ -111,6 +111,19 @@ function resolverEstadoEmisionVisual(resumen: Resumen): {
           aprobacion: "rechazado",
         },
       };
+    case "error_envio":
+      return {
+        mensaje: fe.error?.trim()
+          ? `El envío a SET (TEST) no se completó: ${fe.error.trim()}`
+          : "El envío del lote a SET (TEST) no se completó. Revisá el mensaje técnico abajo o reintentá.",
+        pasos: {
+          ...soloComercial,
+          borrador: "listo",
+          xml: "listo",
+          firma: "listo",
+          set: "rechazado",
+        },
+      };
     default:
       return {
         mensaje:
@@ -205,7 +218,7 @@ export function FacturaElectronicaPanel({
   loadingResumen: boolean;
   onResumenLoaded: (r: Resumen) => void;
 }) {
-  const [action, setAction] = useState<"borrador" | "xml" | "firmar" | null>(null);
+  const [action, setAction] = useState<"borrador" | "xml" | "firmar" | "enviar-test" | null>(null);
   const [flash, setFlash] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
   const refresh = useCallback(async () => {
@@ -238,6 +251,24 @@ export function FacturaElectronicaPanel({
               ? "XML generado correctamente."
               : "XML firmado correctamente.",
       });
+      await refresh();
+    } catch (e) {
+      setFlash({ kind: "err", text: e instanceof Error ? e.message : "Error de red" });
+    } finally {
+      setAction(null);
+    }
+  };
+
+  const runEnviarTest = async () => {
+    setFlash(null);
+    setAction("enviar-test");
+    try {
+      const res = await fetch(`/api/facturas/${facturaId}/sifen/enviar-test`, { method: "POST" });
+      if (!res.ok) {
+        setFlash({ kind: "err", text: await readApiError(res) });
+        return;
+      }
+      setFlash({ kind: "ok", text: "Lote enviado correctamente a SET (TEST)" });
       await refresh();
     } catch (e) {
       setFlash({ kind: "err", text: e instanceof Error ? e.message : "Error de red" });
@@ -361,19 +392,18 @@ export function FacturaElectronicaPanel({
               <div className="flex flex-col sm:flex-row sm:items-center sm:flex-wrap gap-2 sm:gap-3">
                 <button
                   type="button"
-                  disabled
-                  aria-disabled="true"
-                  title="Disponible cuando se integre el envío a SET"
-                  className="w-fit px-3 py-2 text-xs font-semibold rounded-lg bg-violet-600 text-white opacity-50 cursor-not-allowed shadow-sm"
+                  disabled={action !== null}
+                  onClick={() => void runEnviarTest()}
+                  className="w-fit px-3 py-2 text-xs font-semibold rounded-lg bg-violet-600 text-white shadow-sm disabled:opacity-50 disabled:cursor-not-allowed hover:bg-violet-700"
                 >
-                  Enviar a SET
+                  {action === "enviar-test" ? "Enviando a SET…" : "Enviar a SET"}
                 </button>
                 <p className="text-xs text-violet-900/75 font-medium">
-                  Próximamente disponible · Pendiente de integración con SET
+                  Ambiente de pruebas (TEST). Requiere configuración SIFEN activa en modo test.
                 </p>
               </div>
               <p className="text-xs text-slate-700 leading-relaxed">
-                Esta será la acción final para emitir legalmente la factura electrónica.
+                Al enviar, el documento pasa a estado enviado en el ERP; SET procesa el lote de forma asíncrona.
               </p>
             </div>
           )}
