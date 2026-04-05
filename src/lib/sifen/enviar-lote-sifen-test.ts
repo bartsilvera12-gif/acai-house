@@ -1,7 +1,7 @@
 /**
  * Cliente técnico: envío de lote asíncrono a SIFEN TEST (recibe-lote).
  *
- * `xDE` = Base64 de un ZIP (application/zip) que contiene un único `lote.xml`
+ * `xDE` = Base64 de un ZIP (application/zip) que contiene un único `xml_file.xml`
  * con el XML del lote (`rLoteDE`), según WS_SiRecepLoteDE / guía DNIT.
  *
  * TLS mutuo: certificado/clave en PEM extraídos del .p12 de la empresa (igual que firma).
@@ -12,19 +12,21 @@ import JSZip from "jszip";
 import type { AmbienteSifen } from "./types";
 import { extractKeyAndCertFromP12 } from "./sign-xml";
 
-/** Nombre del archivo dentro del ZIP enviado en xDE. */
-const NOMBRE_XML_DENTRO_ZIP = "lote.xml";
+/**
+ * Nombre del archivo dentro del ZIP enviado en xDE.
+ * Debe coincidir con lo que espera SET (mismo criterio que librerías oficiales de referencia: `xml_file.xml`).
+ */
+const NOMBRE_XML_DENTRO_ZIP = "xml_file.xml";
 
 const SIFEN_NS = "http://ekuatia.set.gov.py/sifen/xsd";
 const SOAP_ENV = "http://www.w3.org/2003/05/soap-envelope";
 
-/** URL del servicio (no la URL del WSDL con ?wsdl). */
+/**
+ * URL del servicio TEST (misma que documentan DNIT / pysifen: `recibe-lote.wsdl`).
+ * El POST va contra esta URL, no contra la variante sin sufijo.
+ */
 export const SIFEN_TEST_RECEP_LOTE_SERVICE_URL =
-  "https://sifen-test.set.gov.py/de/ws/async/recibe-lote";
-
-/** SOAP 1.2: acción sugerida (algunos stacks la ignoran). */
-const SOAP_ACTION_RECEP_LOTE =
-  "http://ekuatia.set.gov.py/sifen/xsd/SiRecepLoteDE/recepcionLote";
+  "https://sifen-test.set.gov.py/de/ws/async/recibe-lote.wsdl";
 
 export interface EmpresaConfigEnvioLoteTest {
   /** Solo se usa `test` en esta función. */
@@ -88,7 +90,7 @@ function generarDId(): number {
 }
 
 /**
- * Empaqueta `xmlLote` en un ZIP real (DEFLATE), verifica entrada `lote.xml` y devuelve Base64 del ZIP.
+ * Empaqueta `xmlLote` en un ZIP real (DEFLATE), verifica entrada `xml_file.xml` y devuelve Base64 del ZIP.
  */
 async function zipLoteXmlAUtf8Base64(xmlLote: string): Promise<string> {
   const zip = new JSZip();
@@ -107,7 +109,7 @@ async function zipLoteXmlAUtf8Base64(xmlLote: string): Promise<string> {
   }
   const inner = await entry.async("string");
   if (inner !== xmlLote) {
-    throw new Error("El contenido de lote.xml dentro del ZIP no coincide con el XML del lote");
+    throw new Error(`El contenido de ${NOMBRE_XML_DENTRO_ZIP} dentro del ZIP no coincide con el XML del lote`);
   }
 
   const zipB64 = zipBuffer.toString("base64");
@@ -126,24 +128,29 @@ async function zipLoteXmlAUtf8Base64(xmlLote: string): Promise<string> {
   return zipB64;
 }
 
+/**
+ * Cuerpo SOAP alineado a WS_SiRecepLoteDE: elemento raíz del body `rEnvioLote`
+ * (calificado por `xmlns` en el propio elemento), hijos `dId` y `xDE` en el mismo NS.
+ * Envelope SOAP 1.2 con prefijo `env:` como en integraciones de referencia (SET.js / guías).
+ */
 function construirSoapRecibeLote(dId: number, xdeBase64: string): string {
   const xdeEscapado = xdeBase64.replace(/&/g, "&amp;").replace(/</g, "&lt;");
   return (
     `<?xml version="1.0" encoding="UTF-8"?>` +
-    `<soap12:Envelope xmlns:soap12="${SOAP_ENV}" xmlns:xsd="${SIFEN_NS}">` +
-    `<soap12:Header/>` +
-    `<soap12:Body>` +
-    `<xsd:rEnvioLoteDe>` +
-    `<xsd:dId>${dId}</xsd:dId>` +
-    `<xsd:xDE>${xdeEscapado}</xsd:xDE>` +
-    `</xsd:rEnvioLoteDe>` +
-    `</soap12:Body>` +
-    `</soap12:Envelope>`
+    `<env:Envelope xmlns:env="${SOAP_ENV}">` +
+    `<env:Header/>` +
+    `<env:Body>` +
+    `<rEnvioLote xmlns="${SIFEN_NS}">` +
+    `<dId>${dId}</dId>` +
+    `<xDE>${xdeEscapado}</xDE>` +
+    `</rEnvioLote>` +
+    `</env:Body>` +
+    `</env:Envelope>`
   );
 }
 
-const CONTENT_TYPE_RECEP_LOTE = () =>
-  `application/soap+xml; charset=utf-8; action="${SOAP_ACTION_RECEP_LOTE}"`;
+/** SET acepta `application/xml` en recibe-lote (no exige SOAP 1.2 feature con action). */
+const CONTENT_TYPE_RECEP_LOTE = "application/xml; charset=utf-8";
 
 /** Arma el mismo SOAP que envía `enviarLoteSifenTest` (útil para trazas sin mTLS). */
 export async function prepararSoapRecibeLoteTestDe(
@@ -167,7 +174,7 @@ export async function prepararSoapRecibeLoteTestDe(
     dId,
     url: SIFEN_TEST_RECEP_LOTE_SERVICE_URL,
     method: "POST",
-    contentType: CONTENT_TYPE_RECEP_LOTE(),
+    contentType: CONTENT_TYPE_RECEP_LOTE,
     soapBodyUtf8,
   };
 }
