@@ -6,6 +6,7 @@ import { API_ERRORS } from "@/lib/api/errors";
 import { decryptSecret } from "@/lib/sifen/security";
 import {
   buildSifenSignedXmlObjectPath,
+  buildSifenXmlObjectPath,
   downloadSifenObject,
   ensureSifenStorageBucket,
   removeSifenObject,
@@ -78,13 +79,16 @@ export async function POST(
       );
     }
 
-    const xmlPath = feRow.xml_path == null ? "" : String(feRow.xml_path).trim();
-    if (!xmlPath) {
+    const xmlPathRegistrado = feRow.xml_path == null ? "" : String(feRow.xml_path).trim();
+    if (!xmlPathRegistrado) {
       return NextResponse.json(
         errorResponse("No hay XML generado (xml_path vacío). Ejecute primero POST /api/facturas/{id}/sifen/xml."),
         { status: 400 }
       );
     }
+
+    /** Siempre el mismo objeto que genera POST .../sifen/xml (evita firmar un path desalineado en BD). */
+    const canonicalXmlPath = buildSifenXmlObjectPath(auth.empresa_id, fid);
 
     const { data: cfg, error: errCfg } = await supabase
       .from("empresa_sifen_config")
@@ -130,10 +134,12 @@ export async function POST(
       return NextResponse.json(errorResponse(m), { status: 500 });
     }
 
-    const xmlDl = await downloadSifenObject(supabase, xmlPath);
+    const xmlDl = await downloadSifenObject(supabase, canonicalXmlPath);
     if (!xmlDl.ok) {
       return NextResponse.json(
-        errorResponse(`No se pudo descargar el XML desde storage: ${xmlDl.message}`),
+        errorResponse(
+          `No se pudo descargar documento.xml (${canonicalXmlPath}) desde storage: ${xmlDl.message}`
+        ),
         { status: 500 }
       );
     }
@@ -167,7 +173,25 @@ export async function POST(
       return NextResponse.json(errorResponse(`Storage SIFEN: ${bucketOk.message}`), { status: 500 });
     }
 
+    const previousEstado = String(feRow.estado_sifen ?? "generado");
+    const previousSignedPath =
+      feRow.xml_firmado_path == null || feRow.xml_firmado_path === undefined
+        ? null
+        : String(feRow.xml_firmado_path);
+    const previousXmlPath =
+      feRow.xml_path == null || feRow.xml_path === undefined ? null : String(feRow.xml_path);
+
     const signedPath = buildSifenSignedXmlObjectPath(auth.empresa_id, fid);
+
+    await removeSifenObject(supabase, signedPath);
+    if (
+      previousSignedPath != null &&
+      String(previousSignedPath).trim() !== "" &&
+      String(previousSignedPath).trim() !== signedPath
+    ) {
+      await removeSifenObject(supabase, String(previousSignedPath).trim());
+    }
+
     const up = await uploadSifenXml(supabase, signedPath, signedXml);
     if (!up.ok) {
       return NextResponse.json(
@@ -176,17 +200,12 @@ export async function POST(
       );
     }
 
-    const previousEstado = String(feRow.estado_sifen ?? "generado");
-    const previousSignedPath =
-      feRow.xml_firmado_path == null || feRow.xml_firmado_path === undefined
-        ? null
-        : String(feRow.xml_firmado_path);
-
     const { data: updatedRow, error: errUpdate } = await supabase
       .from("factura_electronica")
       .update({
         xml_firmado_path: signedPath,
         estado_sifen: "firmado",
+        xml_path: canonicalXmlPath,
       })
       .eq("id", feRow.id)
       .eq("empresa_id", auth.empresa_id)
@@ -225,6 +244,7 @@ export async function POST(
         .update({
           xml_firmado_path: previousSignedPath,
           estado_sifen: previousEstado,
+          xml_path: previousXmlPath,
         })
         .eq("id", feRow.id)
         .eq("empresa_id", auth.empresa_id);
@@ -239,7 +259,7 @@ export async function POST(
 
     const data: SifenFirmarResponseData = {
       factura_electronica: updatedRow as FacturaElectronicaDTO,
-      xml_path: feRow.xml_path == null ? null : String(feRow.xml_path),
+      xml_path: canonicalXmlPath,
       xml_firmado_path: signedPath,
       storage_bucket: SIFEN_STORAGE_BUCKET,
     };
