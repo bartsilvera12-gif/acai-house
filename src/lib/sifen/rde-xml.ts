@@ -51,26 +51,58 @@ function montoRedondeo(n: number): string {
   return v.toFixed(4);
 }
 
-function formatDeDateTime(d: Date): string {
-  const p = (x: number) => String(x).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+/**
+ * Zona usada en `dFeEmiDE` / `dFecFirma`. SET valida contra su reloj en Paraguay; usar `getHours()` del servidor
+ * (p. ej. UTC en la nube) provoca error **1004 — La fecha y hora de la firma digital es adelantada**.
+ */
+const SIFEN_FECHA_REFERENCIA_TZ = "America/Asuncion";
+
+/**
+ * Margen si el reloj del host va algunos segundos por delante del SET (misma causa 1004).
+ */
+const SIFEN_FIRMA_SKEW_MS = 120_000;
+
+function wallYmdAndHmsInSifenTz(d: Date): { ymd: string; hms: string } {
+  const tz = SIFEN_FECHA_REFERENCIA_TZ;
+  const ymd = d.toLocaleDateString("en-CA", { timeZone: tz });
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+    hourCycle: "h23",
+  }).formatToParts(d);
+  const pick2 = (ty: Intl.DateTimeFormatPart["type"]) => {
+    const raw = parts.find((p) => p.type === ty)?.value ?? "0";
+    const n = parseInt(raw.replace(/\D/g, ""), 10);
+    return Number.isFinite(n) ? String(n).padStart(2, "0") : "00";
+  };
+  return { ymd, hms: `${pick2("hour")}:${pick2("minute")}:${pick2("second")}` };
+}
+
+function formatDeDateTimeEnTzSifen(d: Date): string {
+  const { ymd, hms } = wallYmdAndHmsInSifenTz(d);
+  return `${ymd}T${hms}`;
 }
 
 /**
  * `dFeEmiDE` / `dFecFirma` deben usar la **misma fecha calendario** que entra en el CDC (`fechaEmisionCdc(documento.fecha)`).
  * Si se usa solo `new Date()` al generar el XML días después, el Id (CDC) y la fecha en el DE quedan desalineados y SET rechaza el documento.
+ * La parte horaria debe ser **hora civil de Paraguay** en el instante de generación (no la zona del servidor).
  */
 function dFeEmiDeYFecFirma(fechaFacturaIso: string, horaReferencia: Date): string {
+  const ref = new Date(horaReferencia.getTime() - SIFEN_FIRMA_SKEW_MS);
   const t = fechaFacturaIso.trim();
   const dm = /^(\d{4})-(\d{2})-(\d{2})/.exec(t);
-  const p = (x: number) => String(x).padStart(2, "0");
   if (dm) {
     const y = dm[1]!;
     const mo = dm[2]!;
     const d = dm[3]!;
-    return `${y}-${mo}-${d}T${p(horaReferencia.getHours())}:${p(horaReferencia.getMinutes())}:${p(horaReferencia.getSeconds())}`;
+    const { hms } = wallYmdAndHmsInSifenTz(ref);
+    return `${y}-${mo}-${d}T${hms}`;
   }
-  return formatDeDateTime(horaReferencia);
+  return formatDeDateTimeEnTzSifen(ref);
 }
 
 function inferirTasaIva(subtotal: number, iva: number): 0 | 5 | 10 {
