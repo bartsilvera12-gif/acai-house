@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { tipo_cliente, empresa, nombre_contacto, ruc, documento, telefono, email, direccion, ciudad, pais, condicion_pago, moneda_preferida, estado, tipo_servicio_cliente, plan_comercial_id } = body;
 
-    const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     const planComercial =
       typeof plan_comercial_id === "string" && uuidRe.test(plan_comercial_id.trim()) ? plan_comercial_id.trim() : null;
 
@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(errorResponse(`tipo_servicio_cliente debe ser uno de: ${TIPOS_SERVICIO_VALIDOS.join(", ")}`), { status: 400 });
     }
 
-    const insert = {
+    const insertBase = {
       empresa_id:           auth.empresa_id,
       created_by_user_id:    auth.user.id,
       created_by_nombre:     auth.nombre ?? null,
@@ -83,15 +83,25 @@ export async function POST(request: NextRequest) {
       condicion_pago:       condicion_pago?.trim() || null,
       moneda_preferida:     moneda_preferida === "USD" ? "USD" : "GS",
       estado:               estado === "inactivo" ? "inactivo" : "activo",
-      plan_comercial_id:    planComercial,
     };
 
     const supabase = getSupabase();
-    const { data, error } = await supabase
-      .from("clientes")
-      .insert([insert])
-      .select()
-      .single();
+
+    const rowWithPlan =
+      planComercial ? { ...insertBase, plan_comercial_id: planComercial } : insertBase;
+
+    let { data, error } = await supabase.from("clientes").insert([rowWithPlan]).select().single();
+
+    // Si falla con plan (columna sin migrar, caché PostgREST, FK, etc.), reintentar sin plan_comercial_id.
+    if (error && planComercial) {
+      const second = await supabase.from("clientes").insert([insertBase]).select().single();
+      if (!second.error) {
+        data = second.data;
+        error = null;
+      } else {
+        error = second.error;
+      }
+    }
 
     if (error) {
       return NextResponse.json(errorResponse(error.message), { status: 400 });

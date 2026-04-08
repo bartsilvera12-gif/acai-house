@@ -9,11 +9,20 @@ async function apiPost<T>(path: string, data: Record<string, unknown>): Promise<
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   });
-  const json = await res.json();
-  if (!res.ok) {
-    return { success: false, error: json?.error ?? `Error ${res.status}` };
+  let json: unknown;
+  try {
+    json = await res.json();
+  } catch {
+    return { success: false, error: res.ok ? "Respuesta inválida del servidor" : `Error ${res.status}` };
   }
-  return json as { success: true; data: T };
+  const body = json as { success?: boolean; data?: T; error?: string };
+  if (!res.ok) {
+    return { success: false, error: body?.error ?? `Error ${res.status}` };
+  }
+  if (body?.success !== true || body.data === undefined || body.data === null) {
+    return { success: false, error: body?.error ?? "Respuesta inválida del servidor" };
+  }
+  return { success: true, data: body.data };
 }
 
 export async function apiCreateCliente(data: {
@@ -32,9 +41,15 @@ export async function apiCreateCliente(data: {
   moneda_preferida?: string;
   estado?: string;
   plan_comercial_id?: string | null;
-}): Promise<{ id: string; [key: string]: unknown } | null> {
+}): Promise<
+  | { ok: true; data: { id: string; [key: string]: unknown } }
+  | { ok: false; error: string }
+> {
   const result = await apiPost<{ id: string; [key: string]: unknown }>("/api/clientes", data);
-  return result.success ? result.data : null;
+  if (!result.success) {
+    return { ok: false, error: result.error };
+  }
+  return { ok: true, data: result.data };
 }
 
 export type BajaOperativaPreview = {
