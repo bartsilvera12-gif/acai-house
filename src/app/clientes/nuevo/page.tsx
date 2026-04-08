@@ -157,7 +157,7 @@ function NuevoClienteForm() {
 
     setGuardando(true);
 
-    const nuevo = await apiCreateCliente({
+    const creado = await apiCreateCliente({
       tipo_cliente: form.tipo_cliente,
       tipo_servicio_cliente: form.tipo_servicio_cliente || undefined,
       empresa: form.tipo_cliente === "empresa" ? form.empresa.trim().toUpperCase() : undefined,
@@ -175,16 +175,17 @@ function NuevoClienteForm() {
       plan_comercial_id: formSusc.plan_id.trim() || null,
     });
 
-    if (!nuevo) {
+    if (creado.ok !== true) {
       setGuardando(false);
-      return setError("Error al guardar. Revisa la consola.");
+      return setError(creado.error || "Error al guardar. Revisá la consola.");
     }
+    const clienteId = creado.data.id;
 
     // Crear suscripción automática si condicion_pago = MENSUAL y estado activo
     if (form.condicion_pago === "MENSUAL" && form.estado === "activo") {
       const plan = planes.find((p) => p.id === formSusc.plan_id);
       await apiCreateSuscripcion({
-        cliente_id: nuevo.id,
+        cliente_id: clienteId,
         plan_id: formSusc.plan_id || null,
         precio: parseFloat(formSusc.precio) || (plan?.precio ?? 0),
         moneda: form.moneda_preferida,
@@ -204,7 +205,7 @@ function NuevoClienteForm() {
         const hoy = new Date().toISOString().slice(0, 10);
         const numeroFactura = `${config.prefijo_factura}${String(config.numeracion_inicial).padStart(6, "0")}`;
         const factura = await apiCreateFactura({
-          cliente_id: nuevo.id,
+          cliente_id: clienteId,
           numero_factura: numeroFactura,
           fecha: hoy,
           fecha_vencimiento: hoy,
@@ -243,7 +244,7 @@ function NuevoClienteForm() {
     }
 
     setGuardando(false);
-    router.push(`/clientes/${nuevo.id}`);
+    router.push(`/clientes/${clienteId}`);
   }
 
   return (
