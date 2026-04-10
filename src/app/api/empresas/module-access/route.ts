@@ -1,6 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
-import { supabaseDbSchemaOption, supabaseServiceRoleClientOptions } from "@/lib/supabase/schema";
-import { createClient } from "@supabase/supabase-js";
+import { supabaseDbSchemaOption } from "@/lib/supabase/schema";
+import { createServiceRoleClient } from "@/lib/supabase/service-admin";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { resolveEffectiveModules } from "@/lib/modulos/resolve-effective-modules";
@@ -41,7 +41,7 @@ export async function GET() {
       return NextResponse.json({ error: "No autenticado" }, { status: 401 });
     }
 
-    const supabase = createClient(url, serviceKey, { ...supabaseServiceRoleClientOptions });
+    const supabase = createServiceRoleClient();
 
     const { data: urows, error: errUsuario } = await supabase
       .from("usuarios")
