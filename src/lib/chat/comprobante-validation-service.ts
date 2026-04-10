@@ -1,5 +1,5 @@
 import { createHash } from "crypto";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { AppSupabaseClient } from "@/lib/supabase/schema";
 import {
   COMPROBANTE_BUTTON_IDS,
   type ComprobanteEstadoValidacion,
@@ -137,7 +137,7 @@ function worstMissing(a: OnMissingBehavior, b: OnMissingBehavior): OnMissingBeha
 }
 
 async function existsHashDuplicate(
-  supabase: SupabaseClient,
+  supabase: AppSupabaseClient,
   empresaId: string,
   hash: string
 ): Promise<boolean> {
@@ -153,7 +153,7 @@ async function existsHashDuplicate(
 }
 
 async function existsOcrRefDuplicate(
-  supabase: SupabaseClient,
+  supabase: AppSupabaseClient,
   empresaId: string,
   refNorm: string,
   sameFlowSessionId: string
@@ -173,7 +173,7 @@ async function existsOcrRefDuplicate(
 }
 
 async function existsOcrFingerprintDuplicate(
-  supabase: SupabaseClient,
+  supabase: AppSupabaseClient,
   empresaId: string,
   fp: string,
   excludeId?: string
@@ -217,7 +217,7 @@ export type ComprobantePipelineResult =
     };
 
 type PipelineCtx = {
-  supabase: SupabaseClient;
+  supabase: AppSupabaseClient;
   empresaId: string;
   conversationId: string;
   channelId: string;
@@ -235,7 +235,7 @@ type PipelineCtx = {
 };
 
 async function insertValidationRow(
-  supabase: SupabaseClient,
+  supabase: AppSupabaseClient,
   input: {
     empresa_id: string;
     conversation_id: string;
@@ -721,7 +721,7 @@ const DEFAULT_MSG_COMPROBANTE_NO_CIERRA =
 
 /** Mensaje al cliente cuando toca Confirmar pero `estado_validacion` ≠ valido. */
 export async function mensajeClienteComprobanteNoValido(
-  supabase: SupabaseClient,
+  supabase: AppSupabaseClient,
   conversationId: string,
   estado: string
 ): Promise<string> {

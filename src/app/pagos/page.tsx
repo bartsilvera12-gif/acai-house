@@ -6,6 +6,7 @@ import { enRangoCalendario, hoyYmdLocal, rangoDesdeHastaInputs, toCalendarDateSt
 import { getFacturas } from "@/lib/gestion-clientes/storage";
 import MontoInput from "@/components/ui/MontoInput";
 import { getClientes } from "@/lib/clientes/storage";
+import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import { apiCreatePago } from "@/lib/api/client";
 import type { Factura } from "@/lib/gestion-clientes/types";
 
@@ -75,7 +76,7 @@ export default function PagosPage() {
   async function fetchCobrados() {
     setCargandoCobrados(true);
     try {
-      const res = await fetch("/api/pagos");
+      const res = await fetchWithSupabaseSession("/api/pagos");
       const json = await res.json();
       if (json.success && Array.isArray(json.data)) {
         setCobrados(

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
+import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import type { AmbienteSifen, EmpresaSifenConfigDTO } from "@/lib/sifen/types";
 
 const fLabel = "block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1";
@@ -90,7 +91,7 @@ export default function FacturacionElectronicaSifenPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/configuracion/sifen");
+      const res = await fetchWithSupabaseSession("/api/configuracion/sifen");
       const j = (await res.json()) as { success?: boolean; data?: EmpresaSifenConfigDTO | null; error?: string };
       if (!res.ok || !j.success) {
         setError(j.error ?? "No se pudo cargar la configuración");
@@ -186,7 +187,7 @@ export default function FacturacionElectronicaSifenPage() {
         if (venc != null) body.certificado_vencimiento = venc;
         if (nuevaPassword.trim()) body.certificado_password = nuevaPassword.trim();
 
-        const res = await fetch("/api/configuracion/sifen", {
+        const res = await fetchWithSupabaseSession("/api/configuracion/sifen", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
@@ -219,7 +220,7 @@ export default function FacturacionElectronicaSifenPage() {
         if (limpiarPassword) body.certificado_password = null;
         else if (nuevaPassword.trim()) body.certificado_password = nuevaPassword.trim();
 
-        const res = await fetch("/api/configuracion/sifen", {
+        const res = await fetchWithSupabaseSession("/api/configuracion/sifen", {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
@@ -257,7 +258,7 @@ export default function FacturacionElectronicaSifenPage() {
     try {
       const fd = new FormData();
       fd.append("file", file);
-      const res = await fetch("/api/configuracion/sifen/certificado", { method: "POST", body: fd });
+      const res = await fetchWithSupabaseSession("/api/configuracion/sifen/certificado", { method: "POST", body: fd });
       const j = (await res.json()) as {
         success?: boolean;
         data?: { config?: EmpresaSifenConfigDTO };

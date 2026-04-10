@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import type { ContactHistoryDetail, HistorySearchItem } from "@/lib/chat/history-service";
+import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import { getErpAttachmentPublicUrl } from "@/lib/chat/message-erp-display";
 
 function fmtDate(iso: string | null) {
@@ -82,7 +83,7 @@ export default function HistorialPage() {
       if (channel.trim()) params.set("channel", channel.trim());
       if (from) params.set("from", new Date(from).toISOString());
       if (to) params.set("to", new Date(`${to}T23:59:59`).toISOString());
-      const res = await fetch(`/api/chat/history/search?${params.toString()}`, {
+      const res = await fetchWithSupabaseSession(`/api/chat/history/search?${params.toString()}`, {
         credentials: "same-origin",
       });
       const json = (await res.json().catch(() => ({}))) as {
@@ -116,7 +117,7 @@ export default function HistorialPage() {
       if (from) params.set("from", new Date(from).toISOString());
       if (to) params.set("to", new Date(`${to}T23:59:59`).toISOString());
       const qs = params.toString();
-      const res = await fetch(
+      const res = await fetchWithSupabaseSession(
         `/api/chat/history/contact/${contactId}${qs ? `?${qs}` : ""}`,
         { credentials: "same-origin" }
       );

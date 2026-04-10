@@ -1,13 +1,13 @@
 /**
  * Emisión de factura de suscripción desde rutas API (sin localStorage / getCurrentUser).
  */
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { AppSupabaseClient } from "@/lib/supabase/schema";
 import { montosFacturaItemParaInsert } from "./factura-item-montos";
 import { emitEvent, EVENT_TYPES } from "@/lib/integrations/events";
 import { fechaVencimientoSuscripcion, hoyYmdLocal } from "@/lib/fechas/calendario";
 
 export async function obtenerSiguienteNumeroFacturaEmpresa(
-  supabase: SupabaseClient,
+  supabase: AppSupabaseClient,
   empresaId: string
 ): Promise<string> {
   const prefijo = process.env.FACTURA_PREFIJO ?? "FAC-";
@@ -41,7 +41,7 @@ export type SuscripcionFacturaRow = {
  * Si no hay factura del mes calendario actual para esa suscripción, crea una (equivalente a emitir este mes).
  */
 export async function crearFacturaInicialSuscripcionSiCorresponde(opts: {
-  supabase: SupabaseClient;
+  supabase: AppSupabaseClient;
   empresaId: string;
   suscripcion: SuscripcionFacturaRow;
 }): Promise<void> {

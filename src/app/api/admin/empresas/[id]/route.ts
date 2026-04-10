@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { supabaseServiceRoleClientOptions } from "@/lib/supabase/schema";
 import { NextResponse } from "next/server";
 import { esRolAdminEmpresa } from "@/lib/modulos/resolve-effective-modules";
 
@@ -14,9 +15,7 @@ export async function GET(
       return NextResponse.json({ error: "Config no disponible" }, { status: 500 });
     }
 
-    const supabase = createClient(url, key, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
+    const supabase = createClient(url, key, { ...supabaseServiceRoleClientOptions });
 
     // 1. Empresa
     const { data: empresa, error: errEmpresa } = await supabase
@@ -110,9 +109,7 @@ export async function PATCH(
       return NextResponse.json({ error: "Config no disponible" }, { status: 500 });
     }
 
-    const supabase = createClient(url, key, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
+    const supabase = createClient(url, key, { ...supabaseServiceRoleClientOptions });
 
     // 1. Actualizar empresa
     const updateEmpresa: Record<string, unknown> = {};

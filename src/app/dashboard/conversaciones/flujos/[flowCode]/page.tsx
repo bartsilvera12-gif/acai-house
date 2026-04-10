@@ -4,6 +4,7 @@ import Link from "next/link";
 import { GripVertical, Trash2 } from "lucide-react";
 import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
+import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import { getSorteos } from "@/lib/sorteos/actions";
 import { parseMoneyPy } from "@/lib/sorteos/parse-money-py";
 import { optionPayloadFinalizesSorteoOrder } from "@/lib/sorteos/sorteo-order-from-chat";
@@ -344,7 +345,7 @@ export default function FlowEditorPage() {
   async function reload(): Promise<FlowNode[]> {
     setLoading(true);
     try {
-      const res = await fetch(`/api/chat/flows/${encodeURIComponent(flowCode)}/nodes`, {
+      const res = await fetchWithSupabaseSession(`/api/chat/flows/${encodeURIComponent(flowCode)}/nodes`, {
         credentials: "same-origin",
         cache: "no-store",
       });
@@ -410,7 +411,7 @@ export default function FlowEditorPage() {
       try {
         const [sorteosRows, flowRes] = await Promise.all([
           getSorteos().catch(() => []),
-          fetch(`/api/chat/flows/${encodeURIComponent(flowCode)}`, {
+          fetchWithSupabaseSession(`/api/chat/flows/${encodeURIComponent(flowCode)}`, {
             credentials: "same-origin",
             cache: "no-store",
           }).then((r) => r.json()),
@@ -441,7 +442,7 @@ export default function FlowEditorPage() {
     setError(null);
     setSuccess(null);
     try {
-      const res = await fetch(`/api/chat/flows/${encodeURIComponent(flowCode)}`, {
+      const res = await fetchWithSupabaseSession(`/api/chat/flows/${encodeURIComponent(flowCode)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
@@ -471,7 +472,7 @@ export default function FlowEditorPage() {
     setError(null);
     setSuccess(null);
     try {
-      const res = await fetch(`/api/chat/flows/${encodeURIComponent(flowCode)}`, {
+      const res = await fetchWithSupabaseSession(`/api/chat/flows/${encodeURIComponent(flowCode)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
@@ -511,7 +512,7 @@ export default function FlowEditorPage() {
     setSuccess(null);
     setCreatingNode(true);
     try {
-      const res = await fetch(`/api/chat/flows/${encodeURIComponent(flowCode)}/nodes`, {
+      const res = await fetchWithSupabaseSession(`/api/chat/flows/${encodeURIComponent(flowCode)}/nodes`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
@@ -553,7 +554,7 @@ export default function FlowEditorPage() {
       // UX: guardar el bloque media junto con el paso para evitar errores por cambios no persistidos.
       await saveBlock(node, mediaBlock);
     }
-    const res = await fetch(
+    const res = await fetchWithSupabaseSession(
       `/api/chat/flows/${encodeURIComponent(flowCode)}/nodes/${encodeURIComponent(node.node_code)}`,
       {
         method: "PATCH",
@@ -621,7 +622,7 @@ export default function FlowEditorPage() {
       setOptionPayloadDrafts((prev) => ({ ...prev, [liveOpt.id]: stringifyOptionPayload(payloadParsed) }));
     }
     const metaButtonId = resolveUniqueMetaButtonId(live, liveOpt.id, liveOpt.label);
-    const res = await fetch(
+    const res = await fetchWithSupabaseSession(
       `/api/chat/flows/${encodeURIComponent(flowCode)}/nodes/${encodeURIComponent(live.node_code)}/options/${liveOpt.id}`,
       {
         method: "PATCH",
@@ -655,7 +656,7 @@ export default function FlowEditorPage() {
         : `${Date.now().toString(36)}`;
     const metaButtonId = `opt_${sortOrder}_${uniqueSuffix}`;
     const defaultNext = nodeCodes.find((code) => code !== node.node_code) ?? null;
-    const res = await fetch(
+    const res = await fetchWithSupabaseSession(
       `/api/chat/flows/${encodeURIComponent(flowCode)}/nodes/${encodeURIComponent(node.node_code)}/options`,
       {
         method: "POST",
@@ -676,7 +677,7 @@ export default function FlowEditorPage() {
   }
 
   async function createBlock(node: FlowNode, blockType: FlowNodeBlock["block_type"]) {
-    const res = await fetch(
+    const res = await fetchWithSupabaseSession(
       `/api/chat/flows/${encodeURIComponent(flowCode)}/nodes/${encodeURIComponent(node.node_code)}/blocks`,
       {
         method: "POST",
@@ -695,7 +696,7 @@ export default function FlowEditorPage() {
   }
 
   async function saveBlock(node: FlowNode, block: FlowNodeBlock) {
-    const res = await fetch(
+    const res = await fetchWithSupabaseSession(
       `/api/chat/flows/${encodeURIComponent(flowCode)}/nodes/${encodeURIComponent(node.node_code)}/blocks/${block.id}`,
       {
         method: "PATCH",
@@ -714,7 +715,7 @@ export default function FlowEditorPage() {
   }
 
   async function deleteBlock(node: FlowNode, blockId: string) {
-    const res = await fetch(
+    const res = await fetchWithSupabaseSession(
       `/api/chat/flows/${encodeURIComponent(flowCode)}/nodes/${encodeURIComponent(node.node_code)}/blocks/${blockId}`,
       { method: "DELETE", credentials: "same-origin" }
     );
@@ -725,7 +726,7 @@ export default function FlowEditorPage() {
   async function uploadImage(file: File): Promise<string> {
     const fd = new FormData();
     fd.append("file", file);
-    const res = await fetch("/api/chat/flow-media/upload", {
+    const res = await fetchWithSupabaseSession("/api/chat/flow-media/upload", {
       method: "POST",
       body: fd,
       credentials: "same-origin",
@@ -736,7 +737,7 @@ export default function FlowEditorPage() {
   }
 
   async function deleteOption(node: FlowNode, optionId: string) {
-    const res = await fetch(
+    const res = await fetchWithSupabaseSession(
       `/api/chat/flows/${encodeURIComponent(flowCode)}/nodes/${encodeURIComponent(node.node_code)}/options/${optionId}`,
       { method: "DELETE", credentials: "same-origin" }
     );
@@ -757,7 +758,7 @@ export default function FlowEditorPage() {
     setSuccess(null);
     setDeletingNodeId(node.id);
     try {
-      const res = await fetch(
+      const res = await fetchWithSupabaseSession(
         `/api/chat/flows/${encodeURIComponent(flowCode)}/nodes/${encodeURIComponent(node.node_code)}`,
         { method: "DELETE", credentials: "same-origin" }
       );
@@ -811,7 +812,7 @@ export default function FlowEditorPage() {
         const n = nextOrder[i];
         const sortOrder = i + 1;
         if (n.sort_order === sortOrder) continue;
-        const res = await fetch(
+        const res = await fetchWithSupabaseSession(
           `/api/chat/flows/${encodeURIComponent(flowCode)}/nodes/${encodeURIComponent(n.node_code)}`,
           {
             method: "PATCH",

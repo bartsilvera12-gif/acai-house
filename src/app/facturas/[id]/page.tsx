@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useState } from "react";
+import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import { FacturaElectronicaPanel } from "@/components/sifen/FacturaElectronicaPanel";
 import type { FacturaElectronicaDTO } from "@/lib/sifen/types";
 
@@ -56,7 +57,7 @@ function FacturaDetalleInner() {
       setLoadingF(true);
       setLoadErr(null);
       try {
-        const res = await fetch(`/api/facturas/${id}`);
+        const res = await fetchWithSupabaseSession(`/api/facturas/${id}`);
         const j = (await res.json()) as { success?: boolean; data?: FacturaApiRow; error?: string };
         if (cancelled) return;
         if (res.status === 404) {
@@ -88,7 +89,7 @@ function FacturaDetalleInner() {
     (async () => {
       setLoadingS(true);
       try {
-        const res = await fetch(`/api/facturas/${id}/sifen/resumen`);
+        const res = await fetchWithSupabaseSession(`/api/facturas/${id}/sifen/resumen`);
         const j = (await res.json()) as { success?: boolean; data?: SifenResumen };
         if (cancelled) return;
         if (res.ok && j.success && j.data) setResumen(j.data);

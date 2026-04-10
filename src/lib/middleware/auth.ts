@@ -23,19 +23,11 @@ export async function getAuthWithRol(): Promise<UsuarioConEmpresaYRol | null> {
   const r = await resolveApiAuthContext(null);
   if (!r.ok || !r.ctx.empresa_id) return null;
 
-  const { data: rrows } = await r.ctx.userScopedSupabase
-    .from("usuarios")
-    .select("rol, nombre")
-    .eq("email", r.ctx.user.email)
-    .limit(1);
-
-  const row = rrows?.[0] as { rol?: string; nombre?: string } | undefined;
-
   return {
     user: r.ctx.user,
     empresa_id: r.ctx.empresa_id,
-    rol: row?.rol,
-    nombre: row?.nombre,
+    rol: r.ctx.usuarioRol ?? undefined,
+    nombre: r.ctx.usuarioNombre ?? undefined,
   };
 }
 

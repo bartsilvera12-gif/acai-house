@@ -1,4 +1,4 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { AppSupabaseClient } from "@/lib/supabase/schema";
 
 /** Orden por defecto alineado con augmentSorteoPricing / flujo sorteos. */
 export const DEFAULT_MONTO_FIELDS_PRIORIDAD = ["monto", "monto_compra", "sorteo_monto_opcion"] as const;
@@ -42,7 +42,7 @@ function parseExpectedFlowValueToGs(raw: string | null | undefined): number | nu
  * Lee chat_flow_data solo para el flow_session_id dado; primer campo con valor numérico válido según prioridad.
  */
 export async function fetchExpectedMontoGsFromFlowSession(
-  supabase: SupabaseClient,
+  supabase: AppSupabaseClient,
   flowSessionId: string,
   fieldNames: string[]
 ): Promise<number | null> {
@@ -86,7 +86,7 @@ export type ValidateReceiptAmountAgainstFlowResult =
  * Si no aplica, devuelve apply:false y audit con status omitido_*.
  */
 export async function validateReceiptAmountAgainstFlow(
-  supabase: SupabaseClient,
+  supabase: AppSupabaseClient,
   input: {
     flowSessionId: string;
     validar_monto_vs_flujo: boolean;

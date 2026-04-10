@@ -1,4 +1,4 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { AppSupabaseClient } from "@/lib/supabase/schema";
 
 export type ChatChannelRow = {
   id: string;
@@ -150,4 +150,4 @@ export type ProcessWebhookResult = {
   errors: string[];
 };
 
-export type SupabaseAdmin = SupabaseClient;
+export type SupabaseAdmin = AppSupabaseClient;

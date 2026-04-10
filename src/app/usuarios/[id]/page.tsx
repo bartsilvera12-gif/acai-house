@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { Suspense, useEffect, useState } from "react";
+import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 
 const fLabel = "block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1";
@@ -64,7 +65,7 @@ function UsuarioDetailContent() {
   useEffect(() => {
     if (!id) return;
     setLoadError(null);
-    fetch(`/api/empresas/usuarios/${id}`, { cache: "no-store" })
+    fetchWithSupabaseSession(`/api/empresas/usuarios/${id}`, { cache: "no-store" })
       .then(async (r) => {
         const data = await r.json();
         if (!r.ok) throw new Error(data.error ?? `Error ${r.status}`);
@@ -131,7 +132,7 @@ function UsuarioDetailContent() {
         body.modulo_ids = form.modulo_ids;
       }
 
-      const res = await fetch(`/api/empresas/usuarios/${id}`, {
+      const res = await fetchWithSupabaseSession(`/api/empresas/usuarios/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),

@@ -88,7 +88,7 @@ export type EmpresaSifenConfigPatchResult =
   | { ok: true; patch: Record<string, unknown>; password: SifenCertificadoPasswordPatchAction }
   | { ok: false; error: string };
 
-/** Estados del documento electrónico (public.factura_electronica). */
+/** Estados del documento electrónico (`zentra_erp.factura_electronica`). */
 export type EstadoSifen =
   | "borrador"
   | "generado"
@@ -120,7 +120,7 @@ export interface SifenConsultaLoteUltimaPersistida {
   detallePorCdc: SifenConsultaLoteDetallePersistido[];
 }
 
-/** Fila de public.factura_electronica (respuesta API). */
+/** Fila de `zentra_erp.factura_electronica` (respuesta API). */
 export interface FacturaElectronicaDTO {
   id: string;
   empresa_id: string;

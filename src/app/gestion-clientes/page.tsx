@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Calendar } from "lucide-react";
 import { SifenEstadoBadge } from "@/components/sifen/SifenEstadoBadge";
 import { useFacturaSifenEstados } from "@/hooks/useFacturaSifenEstados";
+import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import { getClientes, clienteNombre } from "@/lib/clientes/storage";
 import { getFacturas } from "@/lib/gestion-clientes/storage";
 import type { Cliente } from "@/lib/clientes/types";
@@ -254,7 +255,7 @@ function ModalFacturacion({
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/clientes/${clienteId}/facturacion`);
+      const res = await fetchWithSupabaseSession(`/api/clientes/${clienteId}/facturacion`);
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error ?? "Error al cargar");
       setData(json.data);
@@ -273,7 +274,7 @@ function ModalFacturacion({
     setEmitiendo(mes);
     setErrorEmitir(null);
     try {
-      const res = await fetch(`/api/clientes/${clienteId}/facturacion/emitir`, {
+      const res = await fetchWithSupabaseSession(`/api/clientes/${clienteId}/facturacion/emitir`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mes }),

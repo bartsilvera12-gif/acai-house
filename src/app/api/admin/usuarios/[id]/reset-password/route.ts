@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { supabaseServiceRoleClientOptions } from "@/lib/supabase/schema";
 import { NextResponse } from "next/server";
 
 export async function POST(
@@ -23,9 +24,7 @@ export async function POST(
       return NextResponse.json({ error: "Config no disponible" }, { status: 500 });
     }
 
-    const supabase = createClient(url, key, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    });
+    const supabase = createClient(url, key, { ...supabaseServiceRoleClientOptions });
 
     const { data: usuario, error: errGet } = await supabase
       .from("usuarios")

@@ -1,4 +1,4 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { AppSupabaseClient } from "@/lib/supabase/schema";
 
 /**
  * Bucket privado para archivos .p12 (separado del bucket `sifen` usado para XML).
@@ -11,7 +11,7 @@ export function buildSifenCertificadoObjectPath(empresaId: string): string {
 }
 
 export async function ensureSifenCertificadosBucket(
-  supabase: SupabaseClient
+  supabase: AppSupabaseClient
 ): Promise<{ ok: true } | { ok: false; message: string }> {
   const { data: buckets, error: listErr } = await supabase.storage.listBuckets();
   if (listErr) {
@@ -31,7 +31,7 @@ export async function ensureSifenCertificadosBucket(
 }
 
 export async function uploadSifenCertificadoP12(
-  supabase: SupabaseClient,
+  supabase: AppSupabaseClient,
   objectPath: string,
   bytes: Buffer
 ): Promise<{ ok: true } | { ok: false; message: string }> {
@@ -46,14 +46,14 @@ export async function uploadSifenCertificadoP12(
 }
 
 export async function removeSifenCertificadoObject(
-  supabase: SupabaseClient,
+  supabase: AppSupabaseClient,
   objectPath: string
 ): Promise<void> {
   await supabase.storage.from(SIFEN_CERTIFICADOS_BUCKET).remove([objectPath]);
 }
 
 export async function downloadSifenCertificadoObject(
-  supabase: SupabaseClient,
+  supabase: AppSupabaseClient,
   objectPath: string
 ): Promise<{ ok: true; data: Buffer } | { ok: false; message: string }> {
   const { data, error } = await supabase.storage.from(SIFEN_CERTIFICADOS_BUCKET).download(objectPath);

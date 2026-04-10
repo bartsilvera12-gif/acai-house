@@ -1,4 +1,4 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { AppSupabaseClient } from "@/lib/supabase/schema";
 import {
   validateAndBuildSifenPayload,
   type BuildSifenPayloadInput,
@@ -23,7 +23,7 @@ function ambienteDesdeConfigRow(raw: unknown): AmbienteSifen {
  * valida y devuelve el payload base ERP (sin eventos de auditoría).
  */
 export async function loadValidatedSifenPayload(
-  supabase: SupabaseClient,
+  supabase: AppSupabaseClient,
   empresaId: string,
   facturaId: string
 ): Promise<LoadSifenPayloadResult> {

@@ -1,3 +1,4 @@
+import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import { clearBrowserEmpresaDataSchemaCache } from "@/lib/supabase/browser-data-client";
 import { usuarioEmailLookupVariants } from "@/lib/auth/usuario-email-variants";
 import { supabase } from "./supabase";
@@ -32,7 +33,7 @@ export async function getSession() {
 }
 
 export async function createUser(email: string, password: string) {
-  const res = await fetch("/api/create-user", {
+  const res = await fetchWithSupabaseSession("/api/create-user", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password }),

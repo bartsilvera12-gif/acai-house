@@ -1,8 +1,7 @@
-import { createServerClient } from "@supabase/ssr";
-import { supabaseDbSchemaOption, supabaseServiceRoleClientOptions } from "@/lib/supabase/schema";
+import { supabaseServiceRoleClientOptions } from "@/lib/supabase/schema";
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
+import { getServiceAuthUsuario } from "@/lib/auth/get-service-auth-usuario";
 import { esRolAdminEmpresa } from "@/lib/modulos/resolve-effective-modules";
 
 function emailExistsInAuthError(msg: string): boolean {
@@ -37,36 +36,27 @@ async function findAuthUserIdByEmail(supabase: any, email: string): Promise<stri
 export async function POST(req: Request) {
   try {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!url || !anonKey || !serviceKey) {
+    if (!url || !serviceKey) {
       return NextResponse.json({ error: "Config no disponible" }, { status: 500 });
     }
 
-    const cookieStore = await cookies();
-    const supabaseAuth = createServerClient(url, anonKey, {
-      ...supabaseDbSchemaOption,
-      cookies: {
-        getAll: () => cookieStore.getAll(),
-        setAll: (c) => c.forEach(({ name, value, options }) => cookieStore.set(name, value, options)),
-      },
-    });
-    const { data: { user: authSession } } = await supabaseAuth.auth.getUser();
-    if (!authSession?.email) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 });
+    const authR = await getServiceAuthUsuario(req);
+    if (!authR.ok) {
+      return NextResponse.json({ error: "No autenticado" }, { status: authR.status });
+    }
+    if (!authR.catalogUsuario) {
+      return NextResponse.json({ error: "Perfil no encontrado" }, { status: 403 });
     }
 
     const supabase = createClient(url, serviceKey, { ...supabaseServiceRoleClientOptions });
 
-    const { data: adminRows } = await supabase
-      .from("usuarios")
-      .select("empresa_id, rol")
-      .eq("email", authSession.email)
-      .limit(1);
+    const admin = {
+      empresa_id: authR.catalogUsuario.empresa_id ?? undefined,
+      rol: authR.catalogUsuario.rol ?? undefined,
+    };
 
-    const admin = adminRows?.[0] as { empresa_id?: string; rol?: string } | undefined;
-
-    if (!admin?.empresa_id && admin?.rol !== "super_admin") {
+    if (!admin.empresa_id && admin.rol !== "super_admin") {
       return NextResponse.json({ error: "Tu usuario no tiene empresa asignada." }, { status: 403 });
     }
 

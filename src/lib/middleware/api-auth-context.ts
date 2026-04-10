@@ -1,7 +1,8 @@
 import { createServerClient } from "@supabase/ssr";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { createClient } from "@supabase/supabase-js";
 import type { User } from "@supabase/supabase-js";
+import { usuarioEmailLookupVariants } from "@/lib/auth/usuario-email-variants";
 import { supabaseDbSchemaOption, type AppSupabaseClient } from "@/lib/supabase/schema";
 
 const DIAG = process.env.NEURA_DIAG_AUTH === "1";
@@ -25,18 +26,44 @@ export type ApiAuthContext = {
   empresa_id: string | null;
   /** Cliente anon + JWT del usuario (cookies o Bearer). PostgREST respeta RLS en zentra_erp. */
   userScopedSupabase: AppSupabaseClient;
+  /** Desde `usuarios` (evita segunda query en getAuthWithRol). */
+  usuarioRol?: string | null;
+  usuarioNombre?: string | null;
 };
 
 export type ApiAuthResult =
   | { ok: true; ctx: ApiAuthContext }
   | { ok: false; code: ApiAuthFailureCode; detail?: string };
 
-function extractBearer(request?: Request | null): string | null {
+function extractBearerFromRequest(request?: Request | null): string | null {
   const h = request?.headers.get("authorization");
   if (!h?.toLowerCase().startsWith("bearer ")) return null;
   const t = h.slice(7).trim();
   return t || null;
 }
+
+/** Bearer del Request o de los headers de la petición entrante (fetch browser con JWT en localStorage). */
+async function extractBearerToken(request?: Request | null): Promise<string | null> {
+  const fromReq = extractBearerFromRequest(request);
+  if (fromReq) return fromReq;
+  try {
+    const h = await headers();
+    const a = h.get("authorization");
+    if (a?.toLowerCase().startsWith("bearer ")) {
+      const t = a.slice(7).trim();
+      if (t) return t;
+    }
+  } catch {
+    /* fuera de contexto de petición */
+  }
+  return null;
+}
+
+type UsuarioRow = {
+  empresa_id?: string | null;
+  rol?: string | null;
+  nombre?: string | null;
+};
 
 /**
  * Resuelve usuario Supabase + empresa_id + cliente PostgREST con el mismo JWT que verá RLS.
@@ -58,7 +85,7 @@ export async function resolveApiAuthContext(
     return { ok: false, code: "missing_public_env" };
   }
 
-  const bearer = extractBearer(request);
+  const bearer = await extractBearerToken(request);
   if (DIAG) {
     const cs = await cookies();
     logDiag({
@@ -79,7 +106,7 @@ export async function resolveApiAuthContext(
       ...supabaseDbSchemaOption,
     }) as AppSupabaseClient;
     const { data, error } = await userScopedSupabase.auth.getUser(bearer);
-    if (error || !data.user?.email) {
+    if (error || !data.user?.id) {
       logDiag({ step: "get_user_bearer", err: error?.message });
       return { ok: false, code: "no_session", detail: error?.message };
     }
@@ -100,31 +127,58 @@ export async function resolveApiAuthContext(
       },
     }) as AppSupabaseClient;
     const { data, error } = await userScopedSupabase.auth.getUser();
-    if (error || !data.user?.email) {
+    if (error || !data.user?.id) {
       logDiag({ step: "get_user_cookie", err: error?.message });
       return { ok: false, code: "no_session", detail: error?.message };
     }
     user = data.user;
   }
 
-  const { data: rows, error: uErr } = await userScopedSupabase
-    .from("usuarios")
-    .select("empresa_id, rol")
-    .eq("email", user.email)
-    .limit(1);
+  let row: UsuarioRow | undefined;
+  let lastUsuarioErr: string | null = null;
 
-  if (uErr) {
-    logDiag({ step: "usuario", err: uErr.message });
-    return { ok: false, code: "usuario_query_error", detail: uErr.message };
+  if (user.id) {
+    const { data: byId, error: e1 } = await userScopedSupabase
+      .from("usuarios")
+      .select("empresa_id, rol, nombre")
+      .eq("auth_user_id", user.id)
+      .limit(1);
+    if (e1) lastUsuarioErr = e1.message;
+    else if (byId?.[0]) row = byId[0] as UsuarioRow;
   }
 
-  const row = rows?.[0] as { empresa_id?: string | null; rol?: string | null } | undefined;
+  if (!row && user.email) {
+    for (const em of usuarioEmailLookupVariants(user.email)) {
+      const { data: rows, error: uErr } = await userScopedSupabase
+        .from("usuarios")
+        .select("empresa_id, rol, nombre")
+        .ilike("email", em)
+        .limit(1);
+      if (uErr) {
+        lastUsuarioErr = uErr.message;
+        logDiag({ step: "usuario", err: uErr.message });
+        break;
+      }
+      if (rows?.[0]) {
+        row = rows[0] as UsuarioRow;
+        break;
+      }
+    }
+  }
+
+  if (!row && lastUsuarioErr) {
+    return { ok: false, code: "usuario_query_error", detail: lastUsuarioErr };
+  }
+
   if (!row) {
     logDiag({ step: "usuario_rows", count: 0 });
     return { ok: false, code: "usuario_zero_rows" };
   }
 
   const empresa_id = row.empresa_id ?? null;
+  const usuarioRol = row.rol ?? null;
+  const usuarioNombre = row.nombre ?? null;
+
   if (empresa_id) {
     if (DIAG) {
       logDiag({
@@ -135,15 +189,27 @@ export async function resolveApiAuthContext(
     }
     return {
       ok: true,
-      ctx: { user, empresa_id, userScopedSupabase },
+      ctx: {
+        user,
+        empresa_id,
+        userScopedSupabase,
+        usuarioRol,
+        usuarioNombre,
+      },
     };
   }
 
-  if (opts?.forDataSchemaEndpoint && row.rol === "super_admin") {
+  if (opts?.forDataSchemaEndpoint && usuarioRol === "super_admin") {
     if (DIAG) logDiag({ step: "ok_super_admin_sin_empresa" });
     return {
       ok: true,
-      ctx: { user, empresa_id: null, userScopedSupabase },
+      ctx: {
+        user,
+        empresa_id: null,
+        userScopedSupabase,
+        usuarioRol,
+        usuarioNombre,
+      },
     };
   }
 

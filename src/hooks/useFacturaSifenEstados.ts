@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 
 /** Respuesta alineada a POST /api/facturas/sifen/estados */
 export type FacturaSifenEstadoItem = {
@@ -25,7 +26,7 @@ export function useFacturaSifenEstados(facturaIds: readonly string[]): FacturaSi
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch("/api/facturas/sifen/estados", {
+        const res = await fetchWithSupabaseSession("/api/facturas/sifen/estados", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ factura_ids: ids }),

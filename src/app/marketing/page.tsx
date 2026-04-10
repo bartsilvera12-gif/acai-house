@@ -6,6 +6,7 @@ import {
   getMetricasCumplimiento,
   updateTaskStatus,
 } from "@/lib/marketing/storage";
+import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import { getClientes, clienteNombre } from "@/lib/clientes/storage";
 import type { MarketingTask } from "@/lib/marketing/types";
 import type { Cliente } from "@/lib/clientes/types";
@@ -134,7 +135,7 @@ export default function MarketingOpsPage() {
 
   async function handlePreviewSync() {
     try {
-      const res = await fetch(`/api/marketing/sync?preview=1&mes=${mes}`);
+      const res = await fetchWithSupabaseSession(`/api/marketing/sync?preview=1&mes=${mes}`);
       const json = await res.json();
       if (res.ok && json.data) {
         setSyncPreview({
@@ -152,7 +153,7 @@ export default function MarketingOpsPage() {
   async function handleExecuteSync() {
     setSyncEjecutando(true);
     try {
-      const res = await fetch("/api/marketing/sync", {
+      const res = await fetchWithSupabaseSession("/api/marketing/sync", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mes, confirmar: true }),
@@ -195,7 +196,7 @@ export default function MarketingOpsPage() {
   async function handleRegenerarTareas(cli: Cliente) {
     setRegenerando(true);
     try {
-      const res = await fetch("/api/marketing/regenerar", {
+      const res = await fetchWithSupabaseSession("/api/marketing/regenerar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mes, cliente_id: cli.id, confirmar: true }),

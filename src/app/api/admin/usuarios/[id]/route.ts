@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { supabaseServiceRoleClientOptions } from "@/lib/supabase/schema";
 import { NextResponse } from "next/server";
 import {
   esRolAdminEmpresa,
@@ -9,7 +10,7 @@ function getSupabase() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) throw new Error("Config no disponible");
-  return createClient(url, key, { auth: { autoRefreshToken: false, persistSession: false } });
+  return createClient(url, key, { ...supabaseServiceRoleClientOptions });
 }
 
 /** Obtiene el auth user id: usa auth_user_id si existe, sino busca por email en listUsers (con paginación). */

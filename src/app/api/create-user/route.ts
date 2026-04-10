@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
+import { supabaseServiceRoleClientOptions } from "@/lib/supabase/schema";
 
 export async function POST(req: Request) {
   try {
@@ -26,12 +27,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const supabase = createClient(url, key, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-      },
-    });
+    const supabase = createClient(url, key, { ...supabaseServiceRoleClientOptions });
 
     console.log("[create-user] email recibido:", email);
 

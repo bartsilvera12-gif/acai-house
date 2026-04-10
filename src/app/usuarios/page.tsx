@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 
 type UsuarioRow = {
   id: string;
@@ -33,7 +34,7 @@ export default function UsuariosPage() {
   const [busqueda, setBusqueda] = useState("");
 
   useEffect(() => {
-    fetch("/api/empresas/usuarios", { cache: "no-store" })
+    fetchWithSupabaseSession("/api/empresas/usuarios", { cache: "no-store" })
       .then((r) => r.json())
       .then((data) => {
         if (data.error) throw new Error(data.error);

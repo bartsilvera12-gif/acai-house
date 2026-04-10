@@ -1,6 +1,7 @@
 "use client";
 
 import { Fragment, useCallback, useState } from "react";
+import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import type { FacturaElectronicaDTO, SifenConsultaLoteUltimaPersistida } from "@/lib/sifen/types";
 import { decodeXmlNumericEntities } from "@/lib/sifen/decode-xml-entities";
 import { SifenEstadoBadge, labelSifenEstado } from "./SifenEstadoBadge";
@@ -246,7 +247,7 @@ export function FacturaElectronicaPanel({
   const [flash, setFlash] = useState<{ kind: "ok" | "err"; text: string } | null>(null);
 
   const refresh = useCallback(async (): Promise<Resumen | null> => {
-    const res = await fetch(`/api/facturas/${facturaId}/sifen/resumen`, {
+    const res = await fetchWithSupabaseSession(`/api/facturas/${facturaId}/sifen/resumen`, {
       cache: "no-store",
     });
     const j = (await res.json()) as { success?: boolean; data?: Resumen };
@@ -267,7 +268,7 @@ export function FacturaElectronicaPanel({
           : kind === "xml"
             ? `/api/facturas/${facturaId}/sifen/xml`
             : `/api/facturas/${facturaId}/sifen/firmar`;
-      const res = await fetch(path, { method: "POST" });
+      const res = await fetchWithSupabaseSession(path, { method: "POST" });
       if (!res.ok) {
         setFlash({ kind: "err", text: await readApiError(res) });
         return;
@@ -296,7 +297,7 @@ export function FacturaElectronicaPanel({
     setFlash(null);
     setAction("enviar");
     try {
-      const res = await fetch(`/api/facturas/${facturaId}/sifen/enviar`, { method: "POST" });
+      const res = await fetchWithSupabaseSession(`/api/facturas/${facturaId}/sifen/enviar`, { method: "POST" });
       const j = (await res.json()) as {
         success?: boolean;
         data?: {
@@ -375,7 +376,7 @@ export function FacturaElectronicaPanel({
     setFlash(null);
     setAction("consulta-lote");
     try {
-      const res = await fetch(`/api/facturas/${facturaId}/sifen/consulta-lote`, {
+      const res = await fetchWithSupabaseSession(`/api/facturas/${facturaId}/sifen/consulta-lote`, {
         method: "POST",
       });
       const j = (await res.json()) as {

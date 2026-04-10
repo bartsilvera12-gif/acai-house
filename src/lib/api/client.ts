@@ -1,10 +1,12 @@
 /**
  * Cliente API para crear registros vía endpoints REST.
- * Usa la sesión del usuario (cookies) para autenticación.
+ * Envía JWT de Supabase (localStorage) en Authorization.
  */
 
+import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
+
 async function apiPost<T>(path: string, data: Record<string, unknown>): Promise<{ success: true; data: T } | { success: false; error: string }> {
-  const res = await fetch(path, {
+  const res = await fetchWithSupabaseSession(path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
@@ -61,7 +63,7 @@ export type BajaOperativaPreview = {
 
 /** Obtiene datos previos para dar de baja (suscripciones, facturas con saldo). */
 export async function apiGetBajaOperativaPreview(clienteId: string): Promise<BajaOperativaPreview | null> {
-  const res = await fetch(`/api/clientes/${clienteId}/baja-operativa`);
+  const res = await fetchWithSupabaseSession(`/api/clientes/${clienteId}/baja-operativa`);
   const json = await res.json();
   if (!res.ok) return null;
   return json?.data ?? null;
@@ -74,7 +76,7 @@ export async function apiBajaOperativaCliente(
   anularFacturaPendiente: boolean,
   cancelarSuscripciones = true
 ): Promise<{ ok: boolean; error?: string }> {
-  const res = await fetch(`/api/clientes/${clienteId}/baja-operativa`, {
+  const res = await fetchWithSupabaseSession(`/api/clientes/${clienteId}/baja-operativa`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -101,7 +103,7 @@ export type EliminarClientePreview = {
 
 /** Vista previa antes de eliminar (suscripciones activas, facturas con saldo, bloqueos). Solo admin. */
 export async function apiGetEliminarClientePreview(clienteId: string): Promise<EliminarClientePreview | null> {
-  const res = await fetch(`/api/clientes/${clienteId}/eliminar-preview`);
+  const res = await fetchWithSupabaseSession(`/api/clientes/${clienteId}/eliminar-preview`);
   const json = await res.json();
   if (!res.ok) return null;
   return json?.data ?? null;
@@ -113,7 +115,7 @@ export async function apiDeleteCliente(
   deletionReason: string,
   opts?: { cancelar_suscripciones?: boolean; anular_facturas_pendientes?: boolean }
 ): Promise<{ ok: boolean; error?: string }> {
-  const res = await fetch(`/api/clientes/${id}`, {
+  const res = await fetchWithSupabaseSession(`/api/clientes/${id}`, {
     method: "DELETE",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 
 type FlowRow = {
   id: string;
@@ -43,7 +44,7 @@ export default function FlowsListPage() {
   async function reload() {
     setLoading(true);
     try {
-      const res = await fetch("/api/chat/flows", { credentials: "same-origin", cache: "no-store" });
+      const res = await fetchWithSupabaseSession("/api/chat/flows", { credentials: "same-origin", cache: "no-store" });
       const json = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
         error?: string;
@@ -75,7 +76,7 @@ export default function FlowsListPage() {
     setError(null);
     setSuccess(null);
     try {
-      const res = await fetch("/api/chat/flows", {
+      const res = await fetchWithSupabaseSession("/api/chat/flows", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
@@ -104,7 +105,7 @@ export default function FlowsListPage() {
     setError(null);
     setSuccess(null);
     try {
-      const res = await fetch(`/api/chat/flows/${encodeURIComponent(flowCode)}`, {
+      const res = await fetchWithSupabaseSession(`/api/chat/flows/${encodeURIComponent(flowCode)}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
@@ -129,7 +130,7 @@ export default function FlowsListPage() {
     setError(null);
     setSuccess(null);
     try {
-      const res = await fetch("/api/chat/flows", {
+      const res = await fetchWithSupabaseSession("/api/chat/flows", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",

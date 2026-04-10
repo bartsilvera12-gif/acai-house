@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import {
   approveComprobanteValidacion,
   fetchChatChannels,
@@ -444,7 +445,7 @@ export function ConversacionesClient({
       const fd = new FormData();
       fd.set("conversation_id", selectedId);
       fd.set("file", file);
-      const res = await fetch("/api/chat/send-media", {
+      const res = await fetchWithSupabaseSession("/api/chat/send-media", {
         method: "POST",
         body: fd,
         credentials: "same-origin",
@@ -501,7 +502,7 @@ export function ConversacionesClient({
     setSendError(null);
     stickBottomRef.current = true;
     try {
-      const res = await fetch("/api/chat/send", {
+      const res = await fetchWithSupabaseSession("/api/chat/send", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",

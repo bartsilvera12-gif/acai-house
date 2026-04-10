@@ -1,4 +1,4 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { AppSupabaseClient } from "@/lib/supabase/schema";
 
 /** Bucket dedicado a archivos SIFEN (XML, luego PDF/KUDE si aplica). */
 export const SIFEN_STORAGE_BUCKET = "sifen";
@@ -16,7 +16,7 @@ export function buildSifenSignedXmlObjectPath(empresaId: string, facturaId: stri
   return `${empresaId}/${facturaId}/documento-firmado.xml`;
 }
 
-export async function ensureSifenStorageBucket(supabase: SupabaseClient): Promise<{ ok: true } | { ok: false; message: string }> {
+export async function ensureSifenStorageBucket(supabase: AppSupabaseClient): Promise<{ ok: true } | { ok: false; message: string }> {
   const { data: buckets, error: listErr } = await supabase.storage.listBuckets();
   if (listErr) {
     return { ok: false, message: listErr.message };
@@ -35,7 +35,7 @@ export async function ensureSifenStorageBucket(supabase: SupabaseClient): Promis
 }
 
 export async function uploadSifenXml(
-  supabase: SupabaseClient,
+  supabase: AppSupabaseClient,
   objectPath: string,
   xml: string
 ): Promise<{ ok: true } | { ok: false; message: string }> {
@@ -51,14 +51,14 @@ export async function uploadSifenXml(
 }
 
 export async function removeSifenObject(
-  supabase: SupabaseClient,
+  supabase: AppSupabaseClient,
   objectPath: string
 ): Promise<void> {
   await supabase.storage.from(SIFEN_STORAGE_BUCKET).remove([objectPath]);
 }
 
 export async function downloadSifenObject(
-  supabase: SupabaseClient,
+  supabase: AppSupabaseClient,
   objectPath: string
 ): Promise<{ ok: true; data: Buffer } | { ok: false; message: string }> {
   const { data, error } = await supabase.storage.from(SIFEN_STORAGE_BUCKET).download(objectPath);

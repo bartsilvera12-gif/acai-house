@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import MontoInput from "@/components/ui/MontoInput";
 import type { AreaUsuario, NivelUsuario, TipoContrato } from "@/lib/usuarios/types";
 
@@ -83,10 +84,8 @@ export default function NuevoUsuarioPage() {
 
     setGuardando(true);
 
-    console.log("Email enviado al backend:", form.email);
-
     try {
-      const res = await fetch("/api/empresas/usuarios/nuevo", {
+      const res = await fetchWithSupabaseSession("/api/empresas/usuarios/nuevo", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

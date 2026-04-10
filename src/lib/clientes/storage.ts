@@ -1,3 +1,4 @@
+import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import { getCurrentUser } from "@/lib/auth";
 import { getBrowserSupabaseForEmpresaData } from "@/lib/supabase/browser-data-client";
 import type { Cliente, EstadoCliente, NotaCliente } from "./types";
@@ -116,8 +117,7 @@ export async function getClientes(opts?: { incluirEliminados?: boolean; incluirP
     if (opts?.incluirPlanActivo) params.set("plan_activo", "1");
     if (opts?.incluirEliminados) params.set("incluir_eliminados", "1");
     const qs = params.toString();
-    const res = await fetch(`/api/clientes${qs ? `?${qs}` : ""}`, {
-      credentials: "include",
+    const res = await fetchWithSupabaseSession(`/api/clientes${qs ? `?${qs}` : ""}`, {
       cache: "no-store",
     });
     if (!res.ok) {
@@ -159,8 +159,7 @@ export async function getCliente(id: string, opts?: { incluirEliminados?: boolea
   }
 
   try {
-    const res = await fetch(`/api/clientes/${encodeURIComponent(id)}`, {
-      credentials: "include",
+    const res = await fetchWithSupabaseSession(`/api/clientes/${encodeURIComponent(id)}`, {
       cache: "no-store",
     });
     if (res.status === 404) return null;

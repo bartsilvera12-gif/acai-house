@@ -1,3 +1,4 @@
+import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import { createBrowserClient } from "@supabase/ssr";
 import {
   resolveEmpresaDataSchema,
@@ -52,10 +53,9 @@ export async function getBrowserSupabaseForEmpresaData(): Promise<AppSupabaseCli
       })
     );
   }
-  const res = await fetch("/api/empresas/data-schema", {
+  const res = await fetchWithSupabaseSession("/api/empresas/data-schema", {
     credentials: "include",
     cache: "no-store",
-    ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
   });
   if (!res.ok) {
     throw new Error("No se pudo resolver el schema de datos de la empresa");

@@ -1,4 +1,4 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { AppSupabaseClient } from "@/lib/supabase/schema";
 import { flowTrace, summarizeFlowDataForTrace } from "@/lib/chat/flow-trace-log";
 import {
   SORTEO_COMPROBANTE_ESTADO_VALIDACION_FIELD,
@@ -543,7 +543,7 @@ export function parseSorteoPricingFromFlowData(data: Record<string, string>): {
 }
 
 export async function getSorteoIdForChatFlow(
-  supabase: SupabaseClient,
+  supabase: AppSupabaseClient,
   empresaId: string,
   flowCode: string
 ): Promise<string | null> {
@@ -722,7 +722,7 @@ export function resolveComprobanteUrlFromFlowData(data: Record<string, string>):
  * Cierra compra sorteo + cupones (RPC idempotente) cuando el cliente ya confirmó y existen datos + comprobante en sesión.
  */
 export async function finalizeSorteoOrderFromConfirmedFlowData(
-  supabase: SupabaseClient,
+  supabase: AppSupabaseClient,
   input: {
     empresaId: string;
     conversationId: string;
@@ -770,7 +770,7 @@ export const SORTEO_DATOS_INCOMPLETOS_DEFAULT_MESSAGE =
   "Faltan datos para cerrar la compra. Revisá el resumen y tocá Confirmar de nuevo.";
 
 export async function getSorteoDatosIncompletosMessage(
-  supabase: SupabaseClient,
+  supabase: AppSupabaseClient,
   empresaId: string,
   flowCode: string
 ): Promise<string> {
@@ -806,7 +806,7 @@ export function buildSorteoOrderFlowVarOverrides(
  * No exige `empresa_modulos.sorteos`: el vínculo explícito chat_flows.sorteo_id basta.
  */
 export async function ensureSorteoOrderFromChat(
-  supabase: SupabaseClient,
+  supabase: AppSupabaseClient,
   input: EnsureSorteoOrderFromChatInput
 ): Promise<EnsureSorteoOrderFromChatResult> {
   const flowCode = input.flowCode.trim();

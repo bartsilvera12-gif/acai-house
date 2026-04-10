@@ -54,7 +54,7 @@ export async function getModulosEmpresa(empresaId: string): Promise<ModuloEmpres
 
 /** Obtiene los módulos habilitados para la empresa del usuario autenticado (vía API con service role). */
 export async function getMisModulos(): Promise<ModuloEmpresa[]> {
-  const res = await fetch("/api/empresas/mis-modulos", { cache: "no-store", credentials: "include" });
+  const res = await fetchWithSupabaseSession("/api/empresas/mis-modulos", { cache: "no-store" });
   if (!res.ok) {
     if (res.status === 401) return [];
     throw new Error("Error al cargar módulos");
@@ -75,7 +75,7 @@ export async function getTodosModulos(): Promise<ModuloEmpresa[]> {
 }
 
 export async function getEmpresas(): Promise<Empresa[]> {
-  const res = await fetch("/api/admin/empresas");
+  const res = await fetchWithSupabaseSession("/api/admin/empresas");
   if (!res.ok) throw new Error("Error al cargar empresas");
   return res.json();
 }
@@ -100,7 +100,7 @@ export interface CrearEmpresaData {
 }
 
 export async function crearEmpresa(data: CrearEmpresaData): Promise<{ empresa_id: string }> {
-  const res = await fetch("/api/admin/crear-empresa", {
+  const res = await fetchWithSupabaseSession("/api/admin/crear-empresa", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
@@ -132,7 +132,7 @@ export interface EmpresaDetalle {
 }
 
 export async function getEmpresaById(id: string): Promise<EmpresaDetalle> {
-  const res = await fetch(`/api/admin/empresas/${id}`, { cache: "no-store" });
+  const res = await fetchWithSupabaseSession(`/api/admin/empresas/${id}`, { cache: "no-store" });
   const json = await res.json();
   if (!res.ok) {
     throw new Error(typeof json.error === "string" ? json.error : "Empresa no encontrada");
@@ -149,7 +149,7 @@ export interface ActualizarEmpresaData {
 }
 
 export async function actualizarEmpresa(id: string, data: ActualizarEmpresaData): Promise<void> {
-  const res = await fetch(`/api/admin/empresas/${id}`, {
+  const res = await fetchWithSupabaseSession(`/api/admin/empresas/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
@@ -171,7 +171,7 @@ export interface ActualizarUsuarioData {
 }
 
 export async function actualizarUsuario(id: string, data: ActualizarUsuarioData): Promise<void> {
-  const res = await fetch(`/api/admin/usuarios/${id}`, {
+  const res = await fetchWithSupabaseSession(`/api/admin/usuarios/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
@@ -186,7 +186,7 @@ export async function actualizarUsuario(id: string, data: ActualizarUsuarioData)
 }
 
 export async function resetearPasswordUsuario(id: string, password: string): Promise<void> {
-  const res = await fetch(`/api/admin/usuarios/${id}/reset-password`, {
+  const res = await fetchWithSupabaseSession(`/api/admin/usuarios/${id}/reset-password`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ password }),

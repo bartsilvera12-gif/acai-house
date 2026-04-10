@@ -1,4 +1,4 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { AppSupabaseClient } from "@/lib/supabase/schema";
 
 /**
  * Reutiliza la misma lógica de numeración que el CRM:
@@ -6,7 +6,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
  *  - parsea CRM-XXXX
  *  - incrementa y vuelve a formatear CRM-000001
  */
-export async function generarNumeroControlFromSupabase(sb: SupabaseClient): Promise<string> {
+export async function generarNumeroControlFromSupabase(sb: AppSupabaseClient): Promise<string> {
   const { data } = await sb
     .from("crm_prospectos")
     .select("numero_control")

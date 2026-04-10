@@ -25,3 +25,6 @@ export async function fetchWithSupabaseSession(
     credentials: init?.credentials ?? "include",
   });
 }
+
+/** Alias: todas las llamadas a `/api/*` autenticadas desde el browser deben usar esto (JWT localStorage). */
+export const apiFetch = fetchWithSupabaseSession;
