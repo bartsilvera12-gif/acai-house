@@ -230,22 +230,30 @@ export async function listChatAgentsDirectory(): Promise<ChatAgentDirectoryRow[]
   const { supabase, catalogSr, empresa_id } = await requireEmpresaTenantServiceRole();
   const { data, error } = await supabase
     .from("chat_agents")
-    .select(
-      `
-      id,
-      queue_id,
-      is_online,
-      max_conversations,
-      usuario_id,
-      chat_queues!chat_agents_queue_id_fkey ( nombre )
-    `
-    )
+    .select("id, queue_id, is_online, max_conversations, usuario_id")
     .eq("empresa_id", empresa_id)
     .order("queue_id", { ascending: true });
 
   if (error) throw new Error(error.message);
 
   const rows = (data ?? []) as Record<string, unknown>[];
+  const queueIds = [...new Set(rows.map((row) => row.queue_id as string).filter(Boolean))];
+  let queueNombreById: Record<string, string> = {};
+  if (queueIds.length > 0) {
+    const { data: qrows, error: qErr } = await supabase
+      .from("chat_queues")
+      .select("id, nombre")
+      .eq("empresa_id", empresa_id)
+      .in("id", queueIds);
+    if (qErr) throw new Error(qErr.message);
+    queueNombreById = Object.fromEntries(
+      (qrows ?? []).map((r) => [
+        r.id as string,
+        String((r as { nombre?: string | null }).nombre ?? "").trim() || "Cola",
+      ])
+    );
+  }
+
   const uids = [...new Set(rows.map((row) => row.usuario_id as string).filter(Boolean))];
   let usuarioById: Record<string, { nombre: string | null; email: string | null }> = {};
   if (uids.length > 0) {
@@ -266,14 +274,15 @@ export async function listChatAgentsDirectory(): Promise<ChatAgentDirectoryRow[]
   }
 
   return rows.map((row) => {
-    const q = row.chat_queues as { nombre?: string } | null;
+    const qid = row.queue_id as string;
+    const queueNombre = queueNombreById[qid] ?? "Cola";
     const uid = row.usuario_id as string;
     const u = usuarioById[uid];
     const nombre = (u?.nombre?.trim() || u?.email?.trim() || "—") as string;
     return {
       id: row.id as string,
-      queue_id: row.queue_id as string,
-      queue_nombre: (q?.nombre as string) ?? "Cola",
+      queue_id: qid,
+      queue_nombre: queueNombre,
       usuario_id: uid,
       nombre,
       email: (u?.email as string) ?? "",

@@ -53,6 +53,7 @@ export async function fetchChatConversations(
   filters?: ChatInboxFilters
 ): Promise<InboxConversation[]> {
   const { supabase, catalogSr, empresa_id, usuario_id } = await requireEmpresaTenantServiceRole();
+  /** Sin embed de `chat_queues` / `chat_agents`: en esquemas tenant PostgREST a veces no expone esa FK en caché y falla toda la petición. */
   let q = supabase
     .from("chat_conversations")
     .select(
@@ -69,9 +70,7 @@ export async function fetchChatConversations(
       channel_id,
       flow_status,
       human_taken_over,
-      chat_channels!chat_conversations_channel_id_fkey ( id, type, nombre ),
-      chat_queues!chat_conversations_queue_id_fkey ( id, nombre ),
-      chat_agents!chat_conversations_assigned_agent_id_fkey ( id, usuario_id, queue_id, is_online, max_conversations )
+      chat_channels!chat_conversations_channel_id_fkey ( id, type, nombre )
     `
     )
     .eq("empresa_id", empresa_id);
@@ -119,6 +118,47 @@ export async function fetchChatConversations(
   const list = convs ?? [];
   if (list.length === 0) return [];
 
+  const queueIds = [
+    ...new Set(
+      list
+        .map((c) => (c.queue_id as string | null | undefined)?.trim())
+        .filter((x): x is string => Boolean(x && x.length > 0))
+    ),
+  ];
+  const assignedAgentIds = [
+    ...new Set(
+      list
+        .map((c) => (c.assigned_agent_id as string | null | undefined)?.trim())
+        .filter((x): x is string => Boolean(x && x.length > 0))
+    ),
+  ];
+
+  let queueNombreById: Record<string, string | null> = {};
+  if (queueIds.length > 0) {
+    const { data: qrows, error: qErr } = await supabase
+      .from("chat_queues")
+      .select("id, nombre")
+      .eq("empresa_id", empresa_id)
+      .in("id", queueIds);
+    if (qErr) throw new Error(qErr.message);
+    queueNombreById = Object.fromEntries(
+      (qrows ?? []).map((r) => [r.id as string, (r as { nombre?: string | null }).nombre ?? null])
+    );
+  }
+
+  let agentUsuarioById: Record<string, string> = {};
+  if (assignedAgentIds.length > 0) {
+    const { data: arows, error: aErr } = await supabase
+      .from("chat_agents")
+      .select("id, usuario_id")
+      .eq("empresa_id", empresa_id)
+      .in("id", assignedAgentIds);
+    if (aErr) throw new Error(aErr.message);
+    agentUsuarioById = Object.fromEntries(
+      (arows ?? []).map((r) => [r.id as string, (r as { usuario_id: string }).usuario_id])
+    );
+  }
+
   const contactIds = [...new Set(list.map((c) => c.contact_id as string))];
   const { data: contacts, error: e2 } = await supabase
     .from("chat_contacts")
@@ -132,8 +172,9 @@ export async function fetchChatConversations(
     ...new Set(
       list
         .map((row) => {
-          const ag = row.chat_agents as { usuario_id?: string } | null | undefined;
-          return ag?.usuario_id as string | undefined;
+          const aid = (row.assigned_agent_id as string | null | undefined)?.trim();
+          const uid = aid ? agentUsuarioById[aid] : undefined;
+          return uid;
         })
         .filter(Boolean) as string[]
     ),
@@ -166,17 +207,10 @@ export async function fetchChatConversations(
     const channelId = (row.channel_id as string) ?? chRaw?.id ?? "";
     const channelType = (chRaw?.type as string) ?? "whatsapp";
     const channelNombre = (chRaw?.nombre as string | null) ?? null;
-    const qRow = row.chat_queues as { id?: string; nombre?: string | null } | null | undefined;
-    const ag = row.chat_agents as
-      | {
-          id?: string;
-          usuario_id?: string;
-          queue_id?: string;
-          chat_queues?: { nombre?: string | null } | null;
-        }
-      | null
-      | undefined;
-    const uid = ag?.usuario_id as string | undefined;
+    const qid = (row.queue_id as string | null | undefined)?.trim() || null;
+    const qRowNombre = qid ? queueNombreById[qid] : null;
+    const aid = (row.assigned_agent_id as string | null | undefined)?.trim();
+    const uid = aid ? agentUsuarioById[aid] : undefined;
     const uMeta = uid ? usuarioNombreById[uid] : undefined;
     const assignedName =
       (uMeta?.nombre?.trim() || uMeta?.email?.trim() || null) as string | null;
@@ -185,7 +219,7 @@ export async function fetchChatConversations(
       status: row.status as string,
       priority: (row.priority as string) ?? "medium",
       queue_id: (row.queue_id as string | null) ?? null,
-      queue_name: (qRow?.nombre as string | null) ?? null,
+      queue_name: qRowNombre ?? null,
       assigned_agent_id: (row.assigned_agent_id as string | null) ?? null,
       assigned_agent_name: assignedName,
       last_message_at: row.last_message_at as string | null,
