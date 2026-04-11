@@ -5,6 +5,7 @@ import {
 import { createFlowEngine } from "@/lib/chat/flow-engine-service";
 import { flowTrace } from "@/lib/chat/flow-trace-log";
 import { persistInboundChatMessageAndBump } from "@/lib/chat/incoming-message-service";
+import { syncOmnichannelRouteForWhatsappChannel } from "@/lib/chat/omnichannel-route-sync";
 import { createWhatsappConversationWithActiveFlow } from "@/lib/chat/whatsapp-conversation-bootstrap";
 import { getConversationWhatsAppSendContext } from "@/lib/chat/conversation-send-context";
 import { attachInboundMessageMedia } from "@/lib/chat/inbound-media-attach";
@@ -157,6 +158,60 @@ async function messageExists(
   return !!data?.id;
 }
 
+type WhatsappChannelRow = {
+  id: string;
+  empresa_id: string;
+  meta_phone_number_id: string;
+  activo: boolean | null;
+};
+
+/**
+ * Si el canal vive en un esquema tenant (`er_*`) pero falta la fila en
+ * `zentra_erp.omnichannel_routes` (migración antigua, sync fallido, etc.),
+ * el webhook solo miraba `zentra_erp.chat_channels` y fallaba. Recorremos
+ * empresas con `data_schema` y reparamos la ruta al encontrar coincidencia.
+ */
+async function findWhatsappChannelInTenantSchemas(
+  catalogSupabase: SupabaseAdmin,
+  phoneNumberId: string
+): Promise<{ channel: WhatsappChannelRow; dataSupabase: SupabaseAdmin; dataSchema: string } | null> {
+  const { data: empresas, error } = await catalogSupabase
+    .from("empresas")
+    .select("id, data_schema")
+    .not("data_schema", "is", null);
+
+  if (error) {
+    console.error("[webhook] listar empresas (data_schema):", error.message);
+    return null;
+  }
+
+  for (const e of (empresas ?? []) as Array<{ id: string; data_schema: string | null }>) {
+    const schema = resolveEmpresaDataSchema(e.data_schema);
+    if (schema === SUPABASE_APP_SCHEMA) continue;
+
+    const tenantSb = createServiceRoleClientWithDbSchema(schema) as SupabaseAdmin;
+    const { data: ch, error: chErr } = await tenantSb
+      .from("chat_channels")
+      .select("id, empresa_id, meta_phone_number_id, activo")
+      .eq("meta_phone_number_id", phoneNumberId)
+      .eq("empresa_id", e.id)
+      .maybeSingle();
+
+    if (chErr) {
+      console.warn("[webhook] scan tenant chat_channels", { schema, err: chErr.message });
+      continue;
+    }
+    if (ch) {
+      return {
+        channel: ch as WhatsappChannelRow,
+        dataSupabase: tenantSb,
+        dataSchema: schema,
+      };
+    }
+  }
+  return null;
+}
+
 async function resolveInitialCrmEtapaCodigo(
   supabase: SupabaseAdmin,
   empresaId: string
@@ -203,15 +258,8 @@ export async function processInboundWebhookValue(
     };
   }
 
-  type ChannelRow = {
-    id: string;
-    empresa_id: string;
-    meta_phone_number_id: string;
-    activo: boolean | null;
-  };
-
   let dataSupabase: SupabaseAdmin = catalogSupabase;
-  let channel: ChannelRow | null = null;
+  let channel: WhatsappChannelRow | null = null;
 
   const { data: routeRow } = await catalogSupabase
     .from("omnichannel_routes")
@@ -239,7 +287,7 @@ export async function processInboundWebhookValue(
         errors: [errT.message],
       };
     }
-    const row = chT as ChannelRow | null;
+    const row = chT as WhatsappChannelRow | null;
     if (!row || row.empresa_id !== r.empresa_id) {
       return {
         ok: false,
@@ -265,8 +313,30 @@ export async function processInboundWebhookValue(
       };
     }
 
-    channel = ch0 as ChannelRow | null;
+    channel = ch0 as WhatsappChannelRow | null;
     dataSupabase = catalogSupabase;
+
+    if (!channel) {
+      const tenantHit = await findWhatsappChannelInTenantSchemas(catalogSupabase, phoneNumberId);
+      if (tenantHit) {
+        channel = tenantHit.channel;
+        dataSupabase = tenantHit.dataSupabase;
+        try {
+          await syncOmnichannelRouteForWhatsappChannel({
+            metaPhoneNumberId: phoneNumberId,
+            empresaId: tenantHit.channel.empresa_id,
+            channelId: tenantHit.channel.id,
+            activo: tenantHit.channel.activo !== false,
+            dataSchema: tenantHit.dataSchema,
+          });
+        } catch (e) {
+          console.warn(
+            "[webhook] no se pudo reparar omnichannel_routes (el mensaje sigue con el canal encontrado):",
+            e instanceof Error ? e.message : e
+          );
+        }
+      }
+    }
 
     if (!channel && provisionEnv) {
       await provisionChannelFromWebhookEnv(catalogSupabase, phoneNumberId, provisionEnv);
@@ -288,14 +358,14 @@ export async function processInboundWebhookValue(
           .select("id, empresa_id, meta_phone_number_id, activo")
           .eq("id", r.channel_id)
           .maybeSingle();
-        channel = chTenant as ChannelRow | null;
+        channel = chTenant as WhatsappChannelRow | null;
       } else {
         const { data: ch1 } = await catalogSupabase
           .from("chat_channels")
           .select("id, empresa_id, meta_phone_number_id, activo")
           .eq("meta_phone_number_id", phoneNumberId)
           .maybeSingle();
-        channel = ch1 as ChannelRow | null;
+        channel = ch1 as WhatsappChannelRow | null;
         dataSupabase = catalogSupabase;
       }
     }

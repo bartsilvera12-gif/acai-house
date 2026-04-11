@@ -237,7 +237,7 @@ export async function listChatAgentsDirectory(): Promise<ChatAgentDirectoryRow[]
       is_online,
       max_conversations,
       usuario_id,
-      chat_queues ( nombre )
+      chat_queues!chat_agents_queue_id_fkey ( nombre )
     `
     )
     .eq("empresa_id", empresa_id)
