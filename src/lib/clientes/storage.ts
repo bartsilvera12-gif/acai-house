@@ -63,9 +63,10 @@ function parseNotas(notas: unknown): NotaCliente[] {
 function rowToCliente(row: SupabaseRow): Cliente {
   const nombreContacto = row.nombre_contacto ?? row.nombre ?? "";
   const now = new Date().toISOString();
+  const idRow = typeof row.id === "string" && row.id ? row.id : "";
   return {
-    id:                  row.id,
-    codigo_cliente:      `CL-${row.id.slice(0, 8).toUpperCase()}`,
+    id:                  idRow,
+    codigo_cliente:      idRow ? `CL-${idRow.slice(0, 8).toUpperCase()}` : "CL-????????",
     tipo_cliente:        (row.tipo_cliente === "persona" ? "persona" : "empresa") as Cliente["tipo_cliente"],
     empresa:             row.empresa ?? undefined,
     nombre_contacto:     nombreContacto,
@@ -159,18 +160,30 @@ export async function getCliente(id: string, opts?: { incluirEliminados?: boolea
   }
 
   try {
-    const res = await fetchWithSupabaseSession(`/api/clientes/${encodeURIComponent(id)}`, {
+    const qs = opts?.incluirEliminados ? "?incluir_eliminados=1" : "";
+    const res = await fetchWithSupabaseSession(`/api/clientes/${encodeURIComponent(id)}${qs}`, {
       cache: "no-store",
     });
-    if (res.status === 404) return null;
+    if (res.status === 404) {
+      console.warn("[clientes] getCliente 404", { id });
+      return null;
+    }
     if (!res.ok) {
       const text = await res.text().catch(() => "");
-      console.error("[clientes] getCliente API:", res.status, text);
+      console.error("[clientes] getCliente API:", res.status, { id, body: text.slice(0, 500) });
       return null;
     }
     const json = (await res.json()) as { success: boolean; data?: unknown };
-    if (!json.success || !json.data || typeof json.data !== "object") return null;
-    return rowToCliente(json.data as SupabaseRow);
+    if (!json.success || !json.data || typeof json.data !== "object") {
+      console.warn("[clientes] getCliente respuesta inválida", { id, success: json.success, dataType: typeof json.data });
+      return null;
+    }
+    const row = json.data as SupabaseRow;
+    if (typeof row.id !== "string" || !row.id) {
+      console.error("[clientes] getCliente fila sin id", { id });
+      return null;
+    }
+    return rowToCliente(row);
   } catch (e) {
     console.error("[clientes] getCliente:", e);
     return null;

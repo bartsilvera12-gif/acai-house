@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   addNotaCliente,
   clienteNombre,
@@ -101,11 +101,14 @@ function PlaceholderTab({ icon, title, desc }: { icon: string; title: string; de
 export default function ClienteDetailPage() {
   const params = useParams();
   const router = useRouter();
-  if (!params) return null;
-  const id = params.id as string;
+  const rawId = params?.id;
+  const id =
+    typeof rawId === "string" ? rawId : Array.isArray(rawId) ? (rawId[0] ?? "") : "";
 
   const [cliente,   setCliente]   = useState<Cliente | null>(null);
   const [notFound,  setNotFound]  = useState(false);
+  const [cargandoCliente, setCargandoCliente] = useState(true);
+  const [errorCarga, setErrorCarga] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>("informacion");
   const [esAdmin, setEsAdmin] = useState(false);
   const [confirmarEliminar, setConfirmarEliminar] = useState(false);
@@ -190,37 +193,64 @@ export default function ClienteDetailPage() {
 
   const sifenPorFactura = useFacturaSifenEstados(facturas.map((f) => f.id));
 
-  async function cargar() {
-    const c = await getCliente(id);
-    if (!c) { setNotFound(true); return; }
-    c.notas = await getNotasCliente(id);
-    setCliente(c);
-    setForm({
-      tipo_cliente:        c.tipo_cliente,
-      empresa:             c.empresa             ?? "",
-      nombre_contacto:     c.nombre_contacto,
-      ruc:                 c.ruc                 ?? "",
-      documento:           c.documento           ?? "",
-      telefono:            c.telefono            ?? "",
-      telefono_secundario: c.telefono_secundario ?? "",
-      email:               c.email               ?? "",
-      email_secundario:    c.email_secundario    ?? "",
-      direccion:           c.direccion           ?? "",
-      ciudad:              c.ciudad              ?? "",
-      pais:                c.pais                ?? "",
-      sitio_web:           c.sitio_web           ?? "",
-      instagram:           c.instagram           ?? "",
-      linkedin:            c.linkedin            ?? "",
-      valor_cliente:       c.valor_cliente != null ? String(c.valor_cliente) : "",
-      condicion_pago:       c.condicion_pago      ?? "",
-      moneda_preferida:     c.moneda_preferida    ?? "GS",
-      vendedor_asignado:    c.vendedor_asignado   ?? "",
-      tipo_servicio_cliente: c.tipo_servicio_cliente ?? "",
-      estado:               c.estado,
-    });
-  }
+  const cargar = useCallback(async () => {
+    setCargandoCliente(true);
+    setErrorCarga(null);
+    setNotFound(false);
+    setCliente(null);
+    try {
+      if (process.env.NODE_ENV === "development") console.info("[cliente detalle] cargar inicio", { id });
+      const c = await getCliente(id);
+      if (!c) {
+        setCliente(null);
+        setNotFound(true);
+        if (process.env.NODE_ENV === "development") console.warn("[cliente detalle] getCliente null", { id });
+        return;
+      }
+      c.notas = await getNotasCliente(id);
+      setCliente(c);
+      setForm({
+        tipo_cliente:        c.tipo_cliente,
+        empresa:             c.empresa             ?? "",
+        nombre_contacto:     c.nombre_contacto,
+        ruc:                 c.ruc                 ?? "",
+        documento:           c.documento           ?? "",
+        telefono:            c.telefono            ?? "",
+        telefono_secundario: c.telefono_secundario ?? "",
+        email:               c.email               ?? "",
+        email_secundario:    c.email_secundario    ?? "",
+        direccion:           c.direccion           ?? "",
+        ciudad:              c.ciudad              ?? "",
+        pais:                c.pais                ?? "",
+        sitio_web:           c.sitio_web           ?? "",
+        instagram:           c.instagram           ?? "",
+        linkedin:            c.linkedin            ?? "",
+        valor_cliente:       c.valor_cliente != null ? String(c.valor_cliente) : "",
+        condicion_pago:       c.condicion_pago      ?? "",
+        moneda_preferida:     c.moneda_preferida    ?? "GS",
+        vendedor_asignado:    c.vendedor_asignado   ?? "",
+        tipo_servicio_cliente: c.tipo_servicio_cliente ?? "",
+        estado:               c.estado,
+      });
+      if (process.env.NODE_ENV === "development") console.info("[cliente detalle] cargar ok", { id });
+    } catch (e) {
+      console.error("[cliente detalle] cargar excepción", { id, e });
+      setErrorCarga(e instanceof Error ? e.message : "Error al cargar el cliente");
+      setCliente(null);
+      setNotFound(false);
+    } finally {
+      setCargandoCliente(false);
+    }
+  }, [id]);
 
-  useEffect(() => { if (id) cargar(); else setNotFound(true); }, [id]);
+  useEffect(() => {
+    if (!id.trim()) {
+      setNotFound(true);
+      setCargandoCliente(false);
+      return;
+    }
+    void cargar();
+  }, [id, cargar]);
 
   useEffect(() => {
     getCurrentUser().then((u) => {
@@ -513,10 +543,20 @@ export default function ClienteDetailPage() {
     }
   }
 
+  if (cargandoCliente) {
+    return (
+      <div className="max-w-5xl py-24 flex flex-col items-center justify-center gap-2 text-slate-500">
+        <p className="text-sm font-medium text-slate-600">Cargando cliente…</p>
+        <p className="text-xs font-mono text-slate-400 break-all px-4 text-center">{id}</p>
+      </div>
+    );
+  }
+
   if (notFound) {
     return (
-      <div className="space-y-4">
+      <div className="space-y-4 max-w-5xl">
         <h1 className="text-2xl font-bold text-gray-800">Cliente no encontrado</h1>
+        <p className="text-xs font-mono text-gray-400 break-all">ID en URL: {id || "—"}</p>
         <button onClick={() => router.push("/clientes")} className="text-sm text-gray-500 underline">
           ← Volver a Clientes
         </button>
@@ -524,7 +564,33 @@ export default function ClienteDetailPage() {
     );
   }
 
-  if (!cliente) return null;
+  if (errorCarga) {
+    return (
+      <div className="space-y-4 max-w-5xl">
+        <h1 className="text-xl font-bold text-gray-800">No se pudo cargar el cliente</h1>
+        <p className="text-sm text-red-600">{errorCarga}</p>
+        <p className="text-xs font-mono text-gray-400 break-all">ID: {id}</p>
+        <button type="button" onClick={() => void cargar()} className="text-sm text-[#0EA5E9] underline">
+          Reintentar
+        </button>
+        <button type="button" onClick={() => router.push("/clientes")} className="ml-4 text-sm text-gray-500 underline">
+          ← Volver a Clientes
+        </button>
+      </div>
+    );
+  }
+
+  if (!cliente) {
+    return (
+      <div className="space-y-4 max-w-5xl">
+        <p className="text-sm text-gray-600">No hay datos del cliente.</p>
+        <p className="text-xs font-mono text-gray-400 break-all">ID: {id}</p>
+        <button type="button" onClick={() => router.push("/clientes")} className="text-sm text-gray-500 underline">
+          ← Volver a Clientes
+        </button>
+      </div>
+    );
+  }
 
   const nombre = clienteNombre(cliente);
 

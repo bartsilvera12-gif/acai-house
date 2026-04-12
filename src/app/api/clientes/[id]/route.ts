@@ -22,18 +22,27 @@ export async function GET(
       return NextResponse.json(errorResponse("id es obligatorio"), { status: 400 });
     }
 
+    const incluirEliminados = request.nextUrl.searchParams.get("incluir_eliminados") === "1";
+
+    /** Sin `.is("deleted_at", null)` en PostgREST: en algunos tenants clonados la columna no existe y devolvía 400. */
     const { data, error } = await supabase
       .from("clientes")
       .select("*")
       .eq("id", clienteId)
       .eq("empresa_id", auth.empresa_id)
-      .is("deleted_at", null)
       .maybeSingle();
 
     if (error) {
+      console.error("[api/clientes/[id]] GET supabase", { clienteId, empresa_id: auth.empresa_id, message: error.message });
       return NextResponse.json(errorResponse(error.message), { status: 400 });
     }
     if (!data) {
+      console.warn("[api/clientes/[id]] GET sin fila", { clienteId, empresa_id: auth.empresa_id });
+      return NextResponse.json(errorResponse("Cliente no encontrado"), { status: 404 });
+    }
+
+    const deletedAt = (data as { deleted_at?: string | null }).deleted_at;
+    if (!incluirEliminados && deletedAt != null && String(deletedAt).trim() !== "") {
       return NextResponse.json(errorResponse("Cliente no encontrado"), { status: 404 });
     }
 
