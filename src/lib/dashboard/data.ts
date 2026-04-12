@@ -121,6 +121,11 @@ export interface SuscripcionDashRow {
   created_at: string;
 }
 
+/** True si la factura está anulada (cualquier capitalización). */
+export function esFacturaAnulada(estado: string | null | undefined): boolean {
+  return String(estado ?? "").trim().toLowerCase() === "anulado";
+}
+
 export interface DashboardData {
   prospectos: ProspectoRaw[];
   clientes: ClienteRaw[];

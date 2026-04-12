@@ -4,20 +4,21 @@ import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { getConfig } from "@/lib/config/storage";
 import { getUsuarios } from "@/lib/usuarios/storage";
-import { getDashboardData } from "@/lib/dashboard/data";
 import type { ConfigGlobal } from "@/lib/config/types";
 import type { Usuario } from "@/lib/usuarios/types";
-import type {
-  ProspectoRaw,
-  ClienteRaw,
-  FacturaRaw,
-  PagoRaw,
-  TipificacionRaw,
-  ProductoRaw,
-  VentaRaw,
-  CompraRaw,
-  GastoRaw,
-  SuscripcionDashRow,
+import {
+  esFacturaAnulada,
+  getDashboardData,
+  type ProspectoRaw,
+  type ClienteRaw,
+  type FacturaRaw,
+  type PagoRaw,
+  type TipificacionRaw,
+  type ProductoRaw,
+  type VentaRaw,
+  type CompraRaw,
+  type GastoRaw,
+  type SuscripcionDashRow,
 } from "@/lib/dashboard/data";
 import { enRangoCalendario, enMesCalendarioActual, toCalendarDateStr } from "@/lib/fechas/calendario";
 
@@ -490,7 +491,7 @@ function valorComercialClienteEnPeriodo(
 ): { monto: number; fuente: "facturas" | "suscripcion" | "sin_dato" } {
   const id = String(clienteId);
   const sumF = facturas
-    .filter((f) => String(f.cliente_id) === id && f.estado !== "Anulado" && enRango(f.fecha, desde, hasta))
+    .filter((f) => String(f.cliente_id) === id && !esFacturaAnulada(f.estado) && enRango(f.fecha, desde, hasta))
     .reduce((s, f) => s + (Number(f.monto) || 0), 0);
   if (sumF > 0) return { monto: sumF, fuente: "facturas" };
 
@@ -839,33 +840,100 @@ function DashFinanciero({
   const { desde, hasta } = useMemo(() => getRango(periodo), [periodo]);
 
   // Bloque principal: métricas del período (misma ventana que el filtro superior: enRango + fechas calendario)
-  const facturasValidas = facturas.filter(f => f.estado !== "Anulado");
-  const facturasPeriodo = facturasValidas.filter(f => enRango(f.fecha, desde, hasta));
+  const facturasValidas = facturas.filter((f) => !esFacturaAnulada(f.estado));
+  const facturasPeriodo = facturasValidas.filter((f) => enRango(f.fecha, desde, hasta));
   const sumMonto = <T extends { monto?: unknown }>(arr: T[]) =>
-    arr.reduce((acc, x) => { const v = Number(x.monto); return acc + (Number.isFinite(v) ? v : 0); }, 0);
+    arr.reduce((acc, x) => {
+      const v = Number(x.monto);
+      return acc + (Number.isFinite(v) ? v : 0);
+    }, 0);
   const aCobrarPeriodo = sumMonto(facturasPeriodo);
-  const pagosPeriodo    = pagos.filter(p => enRango(p.fecha_pago, desde, hasta));
-  const cobradoPeriodo  = sumMonto(pagosPeriodo);
-  const pendientePeriodo = aCobrarPeriodo - cobradoPeriodo;
-  const pctCobranza =
-    aCobrarPeriodo > 0 ? (cobradoPeriodo / aCobrarPeriodo) * 100 : null;
-  const facturaNumById  = useMemo(
-    () => Object.fromEntries(facturas.map(f => [String(f.id), f.numero_factura])),
+
+  /** Suma de pagos registrados por factura (todas las fechas; para imputar contado sin filas en `pagos`). */
+  const montoPagadoPorFacturaId = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const p of pagos) {
+      const fid = String(p.factura_id ?? "");
+      if (!fid) continue;
+      const v = Number(p.monto);
+      m.set(fid, (m.get(fid) ?? 0) + (Number.isFinite(v) ? v : 0));
+    }
+    return m;
+  }, [pagos]);
+
+  const facturaEstadoById = useMemo(
+    () => Object.fromEntries(facturas.map((f) => [String(f.id), f.estado])),
     [facturas]
   );
-  const cobradoDetalle  = useMemo(
+
+  /** Pagos con fecha en el período cuya factura no está anulada. */
+  const pagosPeriodo = useMemo(
     () =>
-      [...pagosPeriodo]
-        .sort((a, b) => (a.fecha_pago < b.fecha_pago ? 1 : a.fecha_pago > b.fecha_pago ? -1 : 0))
-        .map((p) => ({
-          id: p.id,
-          factura_id: p.factura_id,
-          numero_factura: facturaNumById[String(p.factura_id)] ?? "—",
-          monto: Number(p.monto) || 0,
-          fecha_pago: toCalendarDateStr(p.fecha_pago),
-        })),
-    [pagosPeriodo, facturaNumById]
+      pagos.filter((p) => {
+        if (!enRango(p.fecha_pago, desde, hasta)) return false;
+        const est = facturaEstadoById[String(p.factura_id)];
+        return !esFacturaAnulada(est);
+      }),
+    [pagos, desde, hasta, facturaEstadoById]
   );
+
+  const cobradoDesdePagos = sumMonto(pagosPeriodo);
+
+  /**
+   * Facturas al contado emitidas en el período sin ningún registro en `pagos`:
+   * en el ERP el cobro es implícito al emitir; antes quedaban fuera del KPI y el cobrado veía 0.
+   */
+  const cobradoImputadoContado = useMemo(() => {
+    let s = 0;
+    for (const f of facturasPeriodo) {
+      if ((f.tipo ?? "").toLowerCase() !== "contado") continue;
+      if (esFacturaAnulada(f.estado)) continue;
+      const fid = String(f.id);
+      const yaRegistrado = (montoPagadoPorFacturaId.get(fid) ?? 0) > 0;
+      if (yaRegistrado) continue;
+      const m = Number(f.monto);
+      if (Number.isFinite(m) && m > 0) s += m;
+    }
+    return s;
+  }, [facturasPeriodo, montoPagadoPorFacturaId]);
+
+  const cobradoPeriodo = cobradoDesdePagos + cobradoImputadoContado;
+  const pendientePeriodo = aCobrarPeriodo - cobradoPeriodo;
+  const pctCobranza = aCobrarPeriodo > 0 ? (cobradoPeriodo / aCobrarPeriodo) * 100 : null;
+
+  const facturaNumById = useMemo(
+    () => Object.fromEntries(facturas.map((f) => [String(f.id), f.numero_factura])),
+    [facturas]
+  );
+
+  const cobradoDetalle = useMemo(() => {
+    const filasPagos = pagosPeriodo
+      .map((p) => ({
+        id: p.id,
+        factura_id: p.factura_id,
+        numero_factura: facturaNumById[String(p.factura_id)] ?? "—",
+        monto: Number(p.monto) || 0,
+        fecha_pago: toCalendarDateStr(p.fecha_pago),
+        nota: "" as string,
+      }))
+      .sort((a, b) => (a.fecha_pago < b.fecha_pago ? 1 : a.fecha_pago > b.fecha_pago ? -1 : 0));
+
+    const filasImputadas = facturasPeriodo
+      .filter((f) => (f.tipo ?? "").toLowerCase() === "contado" && !esFacturaAnulada(f.estado))
+      .filter((f) => (montoPagadoPorFacturaId.get(String(f.id)) ?? 0) === 0)
+      .map((f) => ({
+        id: `__contado__${f.id}`,
+        factura_id: String(f.id),
+        numero_factura: f.numero_factura,
+        monto: Number(f.monto) || 0,
+        fecha_pago: toCalendarDateStr(f.fecha),
+        nota: "Contado (sin registro en pagos)",
+      }));
+
+    return [...filasPagos, ...filasImputadas].sort((a, b) =>
+      a.fecha_pago < b.fecha_pago ? 1 : a.fecha_pago > b.fecha_pago ? -1 : 0
+    );
+  }, [pagosPeriodo, facturaNumById, facturasPeriodo, montoPagadoPorFacturaId]);
 
   /** Prioridad: tipo de servicio → condición de pago → origen */
   const { dimCliente, segmentosClientes } = useMemo(() => {
@@ -967,7 +1035,9 @@ function DashFinanciero({
           Desglose cobrado · {periodo}
         </h3>
         <p className="mt-2 max-w-3xl text-xs leading-relaxed" style={{ color: Z.muted }}>
-          Pagos cuya <strong style={{ color: Z.text }}>fecha de pago</strong> está en el rango del filtro. Total:{" "}
+          Suma de <strong style={{ color: Z.text }}>pagos</strong> con fecha de pago en el rango (excluye facturas
+          anuladas) más <strong style={{ color: Z.text }}>facturas al contado</strong> del período sin registros en
+          la tabla de pagos (cobro implícito al emitir). Total:{" "}
           <span style={{ color: Z.text }}>Gs. {formatGs(cobradoPeriodo)}</span> (coincide con Cobrado del período).
         </p>
         {cobradoDetalle.length === 0 ? (
@@ -997,7 +1067,12 @@ function DashFinanciero({
                 {cobradoDetalle.map((row) => (
                   <tr key={row.id} className="transition-colors hover:bg-white/[0.04]">
                     <td className="px-4 py-2.5 font-mono text-xs" style={{ color: Z.text }}>
-                      {row.numero_factura}
+                      <span className="block">{row.numero_factura}</span>
+                      {row.nota ? (
+                        <span className="mt-0.5 block text-[10px] font-normal normal-case opacity-80" style={{ color: Z.muted }}>
+                          {row.nota}
+                        </span>
+                      ) : null}
                     </td>
                     <td className="px-4 py-2.5 text-xs" style={{ color: Z.muted }}>
                       {formatFecha(row.fecha_pago)}
