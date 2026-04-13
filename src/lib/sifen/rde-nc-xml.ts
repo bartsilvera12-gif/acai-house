@@ -1,6 +1,7 @@
 /**
  * rDE SIFEN v150 — Nota de crédito electrónica (iTiDE=5).
- * Estructura alineada a pysifen/de/samples/v150/nota_credito.xml (sin dTotOpeGs / dTotalGs en PYG).
+ * `gTotSub` (tgTotSub): misma secuencia estricta que `rde-xml.ts` / DE_v150.xsd
+ * (dTotIVA antes de dBaseGrav* / dTBasGraIVA; dTotalGs solo si moneda ≠ PYG).
  */
 import type { AmbienteSifen, SifenNotaCreditoPayload } from "./types";
 import {
@@ -76,6 +77,44 @@ export function numeroDocumentoNcDesdeId(ncId: string): string {
 /**
  * Mapea texto libre del ERP a par (iMotEmi, dDesMotEmi) del XSD tgCamNCDE.
  */
+/**
+ * Comprueba orden DE_v150 `tgTotSub` en el fragmento generado (evita regresión tipo SET
+ * "elemento esperado es: dTotalGs en lugar de: dTotIVA" por dTotIVA mal posicionado).
+ */
+export function assertNcXmlGtotSubTotalsDe150Order(xml: string): void {
+  const open = xml.indexOf("<gTotSub>");
+  const close = xml.indexOf("</gTotSub>");
+  if (open === -1 || close === -1 || close < open) {
+    throw new Error("XML NC: bloque gTotSub no encontrado.");
+  }
+  const block = xml.slice(open, close);
+  const iTot = block.indexOf("<dTotIVA");
+  if (iTot === -1) {
+    throw new Error("XML NC: falta dTotIVA en gTotSub.");
+  }
+  if (block.indexOf("<dTotIVA", iTot + 1) !== -1) {
+    throw new Error("XML NC: dTotIVA duplicado en gTotSub.");
+  }
+  const iB5 = block.indexOf("<dBaseGrav5");
+  const iB10 = block.indexOf("<dBaseGrav10");
+  const iTB = block.indexOf("<dTBasGraIVA");
+  if (iB5 !== -1 && !(iTot < iB5)) {
+    throw new Error("XML NC: orden gTotSub — dTotIVA debe preceder a dBaseGrav5 (DE_v150).");
+  }
+  if (iB10 !== -1 && !(iTot < iB10)) {
+    throw new Error("XML NC: orden gTotSub — dTotIVA debe preceder a dBaseGrav10 (DE_v150).");
+  }
+  if (iTB !== -1 && !(iTot < iTB)) {
+    throw new Error("XML NC: orden gTotSub — dTotIVA debe preceder a dTBasGraIVA (DE_v150).");
+  }
+  if (iB5 !== -1 && iTB !== -1 && !(iB5 < iTB)) {
+    throw new Error("XML NC: orden gTotSub — dBaseGrav5 debe preceder a dTBasGraIVA (DE_v150).");
+  }
+  if (iB10 !== -1 && iTB !== -1 && !(iB10 < iTB)) {
+    throw new Error("XML NC: orden gTotSub — dBaseGrav10 debe preceder a dTBasGraIVA (DE_v150).");
+  }
+}
+
 export function mapMotivoNcSifen(motivo: string): { iMotEmi: string; dDesMotEmi: string } {
   const t = motivo.toLowerCase();
   if (/descuent/.test(t)) return { iMotEmi: "3", dDesMotEmi: "Descuento" };
@@ -265,6 +304,7 @@ export function buildOfficialRdeNotaCreditoElectronicaXml(
     "</gCamItem>",
   ].join("");
 
+  /** Secuencia estricta `tgTotSub` en DE_v150.xsd (igual que `buildOfficialRdeElectronicaXml` en rde-xml.ts). */
   const totParts: string[] = ["<gTotSub>"];
   totParts.push(textEl("dSub10", dTotOpeItem));
   totParts.push(
@@ -280,9 +320,13 @@ export function buildOfficialRdeNotaCreditoElectronicaXml(
     textEl("dTotGralOpe", dTotOpeItem)
   );
   totParts.push(textEl("dIVA10", dLiq));
+  totParts.push(textEl("dTotIVA", dLiq));
   totParts.push(textEl("dBaseGrav10", baseGrav));
   totParts.push(textEl("dTBasGraIVA", baseGrav));
-  totParts.push(textEl("dTotIVA", dLiq));
+  /**
+   * `dTotalGs` (minOccurs=0): solo si `cMoneOpe` ≠ PYG. Con Guaraníes, omitir (SET 2389),
+   * coherente con factura electrónica en `rde-xml.ts`.
+   */
   totParts.push("</gTotSub>");
 
   const gCamCondXml = [
@@ -351,11 +395,13 @@ export function buildOfficialRdeNotaCreditoElectronicaXml(
 
   const de = `<DE Id="${escapeXml(cdc)}">${deInner}</DE>`;
 
-  return (
+  const out =
     `<?xml version="1.0" encoding="UTF-8"?>\n` +
     `<rDE xmlns="${NS}" xmlns:xsi="${XMLNS_XSI}" xsi:schemaLocation="${escapeXml(RDE_XSI_SCHEMA_LOCATION)}">` +
     textEl("dVerFor", "150") +
     de +
-    `</rDE>\n`
-  );
+    `</rDE>\n`;
+
+  assertNcXmlGtotSubTotalsDe150Order(out);
+  return out;
 }
