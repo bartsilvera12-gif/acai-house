@@ -56,6 +56,10 @@ export type NotaCreditoListItemDTO = {
   cdc: string | null;
   cdc_factura_origen: string | null;
   last_error: string | null;
+  /** Rutas en bucket SIFEN (`nota_credito_electronica`) para diagnóstico. */
+  xml_path: string | null;
+  /** Ruta del XML firmado de la NC en storage. */
+  xml_firmado_path: string | null;
   /** Últimas respuestas SET (recibe-lote / consulta-lote) para diagnóstico en UI. */
   sifen_respuestas_set: Record<string, unknown> | null;
 };

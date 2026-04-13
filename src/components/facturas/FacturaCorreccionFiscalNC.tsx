@@ -563,6 +563,35 @@ export function FacturaCorreccionFiscalNC({
                       {nc.created_by_nombre_snapshot ?? nc.created_by_email_snapshot ?? "—"}
                     </p>
                   </div>
+                  <div className="px-3 sm:px-4 py-2.5 space-y-2 text-[11px] border-b border-slate-100 bg-slate-50/40">
+                    <p className="font-semibold text-slate-600 uppercase tracking-wide text-[10px]">
+                      Rutas storage SIFEN (NC)
+                    </p>
+                    <div className="space-y-1">
+                      <p className="text-slate-500">
+                        <span className="font-semibold text-slate-600">XML generado</span>{" "}
+                        <span className="text-slate-400">(xml_path)</span>
+                      </p>
+                      <p
+                        className="font-mono text-[10px] text-slate-800 break-all select-all rounded border border-slate-200 bg-white px-2 py-1.5"
+                        title={nc.xml_path ?? undefined}
+                      >
+                        {nc.xml_path ?? "—"}
+                      </p>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-slate-500">
+                        <span className="font-semibold text-slate-600">XML firmado</span>{" "}
+                        <span className="text-slate-400">(xml_firmado_path)</span>
+                      </p>
+                      <p
+                        className="font-mono text-[10px] text-slate-800 break-all select-all rounded border border-slate-200 bg-white px-2 py-1.5"
+                        title={nc.xml_firmado_path ?? undefined}
+                      >
+                        {nc.xml_firmado_path ?? "—"}
+                      </p>
+                    </div>
+                  </div>
                   <details className="px-3 sm:px-4 py-2 bg-white text-[11px] group">
                     <summary className="cursor-pointer font-semibold text-slate-600 select-none list-none flex items-center gap-2 [&::-webkit-details-marker]:hidden">
                       <span className="text-slate-400 group-open:rotate-90 transition-transform inline-block">▸</span>
