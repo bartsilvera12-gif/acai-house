@@ -41,7 +41,8 @@ function buildCsv(rows: FinalizedClosureListRow[]): string {
     "Canal (tipo)",
     "Canal (nombre)",
     "Cola",
-    "Agente",
+    "Agente asignado",
+    "Cerrado por",
     "Estado",
     "Subestado",
     "Comentario de cierre",
@@ -61,7 +62,8 @@ function buildCsv(rows: FinalizedClosureListRow[]): string {
         escapeCsvCell(canalTipo),
         escapeCsvCell(canalNombre),
         escapeCsvCell(r.queue_nombre ?? ""),
-        escapeCsvCell(r.agent_nombre ?? ""),
+        escapeCsvCell(r.assigned_agent_nombre ?? ""),
+        escapeCsvCell(r.closed_by_nombre ?? ""),
         escapeCsvCell(r.state_label),
         escapeCsvCell(r.substate_label),
         escapeCsvCell(r.comment ?? ""),
@@ -84,7 +86,8 @@ export default function FinalizedClosuresClient({ filterOptions }: { filterOptio
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [queueId, setQueueId] = useState("");
-  const [agentId, setAgentId] = useState("");
+  const [assignedUsuarioId, setAssignedUsuarioId] = useState("");
+  const [closedByUsuarioId, setClosedByUsuarioId] = useState("");
   const [channelId, setChannelId] = useState("");
   const [stateLabel, setStateLabel] = useState("");
   const [substateLabel, setSubstateLabel] = useState("");
@@ -109,6 +112,7 @@ export default function FinalizedClosuresClient({ filterOptions }: { filterOptio
     if (applied.date_from?.trim()) f.date_from = applied.date_from.trim();
     if (applied.date_to?.trim()) f.date_to = applied.date_to.trim();
     if (applied.queue_id?.trim()) f.queue_id = applied.queue_id.trim();
+    if (applied.assigned_usuario_id?.trim()) f.assigned_usuario_id = applied.assigned_usuario_id.trim();
     if (applied.closed_by_usuario_id?.trim()) f.closed_by_usuario_id = applied.closed_by_usuario_id.trim();
     if (applied.channel_id?.trim()) f.channel_id = applied.channel_id.trim();
     if (applied.state_label?.trim()) f.state_label = applied.state_label.trim();
@@ -144,7 +148,8 @@ export default function FinalizedClosuresClient({ filterOptions }: { filterOptio
       date_from: dateFrom || null,
       date_to: dateTo || null,
       queue_id: queueId || null,
-      closed_by_usuario_id: agentId || null,
+      assigned_usuario_id: assignedUsuarioId || null,
+      closed_by_usuario_id: closedByUsuarioId || null,
       channel_id: channelId || null,
       state_label: stateLabel || null,
       substate_label: substateLabel || null,
@@ -293,10 +298,10 @@ export default function FinalizedClosuresClient({ filterOptions }: { filterOptio
             </select>
           </label>
           <label className="flex flex-col gap-1 text-xs font-medium text-slate-600">
-            Agente
+            Agente asignado
             <select
-              value={agentId}
-              onChange={(e) => setAgentId(e.target.value)}
+              value={assignedUsuarioId}
+              onChange={(e) => setAssignedUsuarioId(e.target.value)}
               className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 bg-white"
             >
               <option value="">Todos</option>
@@ -363,6 +368,34 @@ export default function FinalizedClosuresClient({ filterOptions }: { filterOptio
             />
           </label>
         </div>
+
+        <details className="rounded-xl border border-slate-100 bg-slate-50/60 px-4 py-3">
+          <summary className="cursor-pointer text-sm font-semibold text-slate-700 select-none">
+            Filtros secundarios
+          </summary>
+          <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            <label className="flex flex-col gap-1 text-xs font-medium text-slate-600">
+              Cerrado por
+              <select
+                value={closedByUsuarioId}
+                onChange={(e) => setClosedByUsuarioId(e.target.value)}
+                className="rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-900 bg-white"
+              >
+                <option value="">Todos</option>
+                {(filterOptions.closed_by_users ?? []).map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.nombre}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <p className="text-xs text-slate-500 sm:col-span-2 self-end pb-1">
+              Usuarios que aparecen en cierres recientes (muestra). Para auditoría puntual del cierre, no del agente
+              asignado.
+            </p>
+          </div>
+        </details>
+
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
@@ -377,7 +410,8 @@ export default function FinalizedClosuresClient({ filterOptions }: { filterOptio
               setDateFrom("");
               setDateTo("");
               setQueueId("");
-              setAgentId("");
+              setAssignedUsuarioId("");
+              setClosedByUsuarioId("");
               setChannelId("");
               setStateLabel("");
               setSubstateLabel("");
@@ -404,7 +438,8 @@ export default function FinalizedClosuresClient({ filterOptions }: { filterOptio
                 <th className="px-3 py-3 whitespace-nowrap">Número</th>
                 <th className="px-3 py-3">Canal</th>
                 <th className="px-3 py-3">Cola</th>
-                <th className="px-3 py-3">Agente</th>
+                <th className="px-3 py-3">Agente asignado</th>
+                <th className="px-3 py-3">Cerrado por</th>
                 <th className="px-3 py-3">Estado</th>
                 <th className="px-3 py-3">Subestado</th>
                 <th className="px-3 py-3 min-w-[140px]">Comentario</th>
@@ -414,13 +449,13 @@ export default function FinalizedClosuresClient({ filterOptions }: { filterOptio
             <tbody className="divide-y divide-slate-100">
               {loading ? (
                 <tr>
-                  <td colSpan={10} className="px-3 py-10 text-center text-slate-400">
+                  <td colSpan={11} className="px-3 py-10 text-center text-slate-400">
                     Cargando…
                   </td>
                 </tr>
               ) : rows.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-3 py-10 text-center text-slate-500">
+                  <td colSpan={11} className="px-3 py-10 text-center text-slate-500">
                     No hay conversaciones finalizadas con estos filtros.
                   </td>
                 </tr>
@@ -436,7 +471,8 @@ export default function FinalizedClosuresClient({ filterOptions }: { filterOptio
                     <td className="px-3 py-2.5 whitespace-nowrap text-slate-600">{r.phone_number}</td>
                     <td className="px-3 py-2.5 text-slate-700">{channelLabel(r)}</td>
                     <td className="px-3 py-2.5 text-slate-700">{r.queue_nombre ?? "—"}</td>
-                    <td className="px-3 py-2.5 text-slate-700">{r.agent_nombre ?? "—"}</td>
+                    <td className="px-3 py-2.5 text-slate-700">{r.assigned_agent_nombre ?? "—"}</td>
+                    <td className="px-3 py-2.5 text-slate-700">{r.closed_by_nombre ?? "—"}</td>
                     <td className="px-3 py-2.5 text-slate-700">{r.state_label}</td>
                     <td className="px-3 py-2.5 text-slate-700">{r.substate_label}</td>
                     <td className="px-3 py-2.5 text-slate-600 max-w-[200px] truncate" title={r.comment}>
@@ -527,8 +563,12 @@ export default function FinalizedClosuresClient({ filterOptions }: { filterOptio
                   <dd className="text-slate-900">{formatDateTime(detail.closed_at)}</dd>
                 </div>
                 <div>
-                  <dt className="text-xs font-semibold text-slate-500">Agente</dt>
-                  <dd className="text-slate-900">{detail.agent_nombre ?? "—"}</dd>
+                  <dt className="text-xs font-semibold text-slate-500">Agente asignado</dt>
+                  <dd className="text-slate-900">{detail.assigned_agent_nombre ?? "—"}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs font-semibold text-slate-500">Cerrado por</dt>
+                  <dd className="text-slate-900">{detail.closed_by_nombre ?? "—"}</dd>
                 </div>
                 <div>
                   <dt className="text-xs font-semibold text-slate-500">Cola</dt>

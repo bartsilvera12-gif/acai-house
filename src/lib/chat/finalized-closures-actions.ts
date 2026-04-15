@@ -11,7 +11,10 @@ export type FinalizedClosureListRow = {
   channel_type: string;
   channel_nombre: string | null;
   queue_nombre: string | null;
-  agent_nombre: string | null;
+  /** Usuario operador vía chat_agents / assigned_agent_id */
+  assigned_agent_nombre: string | null;
+  /** Usuario que registró el cierre (auditoría) */
+  closed_by_nombre: string | null;
   state_label: string;
   substate_label: string;
   comment: string;
@@ -22,6 +25,9 @@ export type FinalizedClosuresFilters = {
   date_from?: string | null;
   date_to?: string | null;
   queue_id?: string | null;
+  /** Filtro principal: usuario asignado (chat_agents.usuario_id → conversación.assigned_agent_id) */
+  assigned_usuario_id?: string | null;
+  /** Filtro secundario: quién ejecutó el cierre */
   closed_by_usuario_id?: string | null;
   channel_id?: string | null;
   state_label?: string | null;
@@ -39,7 +45,10 @@ export type FinalizedClosuresListResult = {
 export type FinalizedFilterOptions = {
   queues: { id: string; nombre: string }[];
   channels: { id: string; nombre: string | null; type: string }[];
+  /** Usuarios con fila en chat_agents (operadores); id = usuarios.id */
   agents: { id: string; nombre: string }[];
+  /** Usuarios vistos como closed_by en muestra de cierres (combo “Cerrado por”) */
+  closed_by_users: { id: string; nombre: string }[];
   state_labels: string[];
   substate_labels: string[];
 };
@@ -69,16 +78,43 @@ export async function loadFinalizedFilterOptions(): Promise<FinalizedFilterOptio
     queues: [],
     channels: [],
     agents: [],
+    closed_by_users: [],
     state_labels: [],
     substate_labels: [],
   };
 
-  const [{ data: queues, error: qe }, { data: channels, error: che }] = await Promise.all([
-    supabase.from("chat_queues").select("id, nombre").eq("empresa_id", empresa_id).order("nombre", { ascending: true }),
-    supabase.from("chat_channels").select("id, nombre, type").eq("empresa_id", empresa_id).order("nombre", { ascending: true }),
-  ]);
+  const [{ data: queues, error: qe }, { data: channels, error: che }, { data: chatAgentRows, error: gae }] =
+    await Promise.all([
+      supabase.from("chat_queues").select("id, nombre").eq("empresa_id", empresa_id).order("nombre", { ascending: true }),
+      supabase.from("chat_channels").select("id, nombre, type").eq("empresa_id", empresa_id).order("nombre", { ascending: true }),
+      supabase.from("chat_agents").select("usuario_id").eq("empresa_id", empresa_id).limit(8000),
+    ]);
   if (qe) console.warn("[loadFinalizedFilterOptions] queues:", qe.message);
   if (che) console.warn("[loadFinalizedFilterOptions] channels:", che.message);
+  if (gae) console.warn("[loadFinalizedFilterOptions] chat_agents:", gae.message);
+
+  const operatorUsuarioIds = [
+    ...new Set(
+      (chatAgentRows ?? [])
+        .map((r) => String((r as { usuario_id?: string | null }).usuario_id ?? "").trim())
+        .filter(Boolean)
+    ),
+  ];
+
+  let agents: { id: string; nombre: string }[] = [];
+  if (operatorUsuarioIds.length > 0) {
+    const { data: urows, error: ue } = await catalogSr
+      .from("usuarios")
+      .select("id, nombre, email")
+      .in("id", operatorUsuarioIds.slice(0, 500));
+    if (!ue && urows) {
+      agents = (urows as { id: string; nombre?: string | null; email?: string | null }[]).map((u) => ({
+        id: u.id,
+        nombre: (u.nombre?.trim() || u.email?.trim() || u.id) as string,
+      }));
+      agents.sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+    }
+  }
 
   const { data: closureSample, error: ce } = await supabase
     .from("chat_conversation_closures")
@@ -92,13 +128,14 @@ export async function loadFinalizedFilterOptions(): Promise<FinalizedFilterOptio
         ...empty,
         queues: mapQueues(queues),
         channels: mapChannels(channels),
+        agents,
       };
     }
     console.warn("[loadFinalizedFilterOptions] closures:", ce.message);
-    return { ...empty, queues: mapQueues(queues), channels: mapChannels(channels) };
+    return { ...empty, queues: mapQueues(queues), channels: mapChannels(channels), agents };
   }
 
-  const agentIds = [
+  const closerIds = [
     ...new Set(
       (closureSample ?? [])
         .map((r) => String((r as { closed_by_usuario_id?: string | null }).closed_by_usuario_id ?? "").trim())
@@ -114,18 +151,18 @@ export async function loadFinalizedFilterOptions(): Promise<FinalizedFilterOptio
     if (su) subs.add(su);
   }
 
-  let agents: { id: string; nombre: string }[] = [];
-  if (agentIds.length > 0) {
-    const { data: urows, error: ue } = await catalogSr
+  let closed_by_users: { id: string; nombre: string }[] = [];
+  if (closerIds.length > 0) {
+    const { data: uc, error: uce } = await catalogSr
       .from("usuarios")
       .select("id, nombre, email")
-      .in("id", agentIds.slice(0, 500));
-    if (!ue && urows) {
-      agents = (urows as { id: string; nombre?: string | null; email?: string | null }[]).map((u) => ({
+      .in("id", closerIds.slice(0, 500));
+    if (!uce && uc) {
+      closed_by_users = (uc as { id: string; nombre?: string | null; email?: string | null }[]).map((u) => ({
         id: u.id,
         nombre: (u.nombre?.trim() || u.email?.trim() || u.id) as string,
       }));
-      agents.sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+      closed_by_users.sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
     }
   }
 
@@ -133,6 +170,7 @@ export async function loadFinalizedFilterOptions(): Promise<FinalizedFilterOptio
     queues: mapQueues(queues),
     channels: mapChannels(channels),
     agents,
+    closed_by_users,
     state_labels: [...states].sort((a, b) => a.localeCompare(b, "es")),
     substate_labels: [...subs].sort((a, b) => a.localeCompare(b, "es")),
   };
@@ -222,6 +260,39 @@ export async function listFinalizedClosures(
     }
   }
 
+  if (filters.assigned_usuario_id?.trim()) {
+    const uid = filters.assigned_usuario_id.trim();
+    const { data: caRows, error: cae } = await supabase
+      .from("chat_agents")
+      .select("id")
+      .eq("empresa_id", empresa_id)
+      .eq("usuario_id", uid);
+    if (cae) {
+      console.warn("[listFinalizedClosures] chat_agents by usuario:", cae.message);
+      return { rows: [], total: 0, page: p, page_size: ps };
+    } else {
+      const caIds = (caRows ?? []).map((x) => String((x as { id?: string }).id ?? "").trim()).filter(Boolean);
+      if (caIds.length === 0) {
+        return { rows: [], total: 0, page: p, page_size: ps };
+      }
+      const { data: convA, error: convAe } = await supabase
+        .from("chat_conversations")
+        .select("id")
+        .eq("empresa_id", empresa_id)
+        .in("assigned_agent_id", caIds)
+        .limit(8000);
+      if (convAe) {
+        console.warn("[listFinalizedClosures] conv by assigned agent:", convAe.message);
+        return { rows: [], total: 0, page: p, page_size: ps };
+      }
+      const ids = (convA ?? []).map((x) => x.id as string).filter(Boolean);
+      conversationIdFilter = intersectIds(conversationIdFilter, ids);
+      if (conversationIdFilter !== null && conversationIdFilter.length === 0) {
+        return { rows: [], total: 0, page: p, page_size: ps };
+      }
+    }
+  }
+
   let countQuery = supabase
     .from("chat_conversation_closures")
     .select("id", { count: "exact", head: true })
@@ -296,11 +367,10 @@ export async function listFinalizedClosures(
 
   const convIds = [...new Set(cl.map((c) => c.conversation_id).filter(Boolean))];
   const queueIds = [...new Set(cl.map((c) => c.queue_id).filter(Boolean) as string[])];
-  const agentIds = [...new Set(cl.map((c) => c.closed_by_usuario_id).filter(Boolean))];
 
   const { data: convRows, error: convErr } = await supabase
     .from("chat_conversations")
-    .select("id, contact_id, channel_id, last_message_preview")
+    .select("id, contact_id, channel_id, last_message_preview, assigned_agent_id")
     .eq("empresa_id", empresa_id)
     .in("id", convIds);
   if (convErr) throw new Error(convErr.message);
@@ -311,10 +381,38 @@ export async function listFinalizedClosures(
         contact_id: string;
         channel_id: string;
         last_message_preview: string | null;
+        assigned_agent_id: string | null;
       };
       return [row.id, row] as const;
     })
   );
+
+  const assignedFkIds = [
+    ...new Set([...convById.values()].map((c) => c.assigned_agent_id).filter(Boolean) as string[]),
+  ];
+  const chatAgentIdToUsuarioId = new Map<string, string>();
+  if (assignedFkIds.length > 0) {
+    const { data: caJoin, error: cjErr } = await supabase
+      .from("chat_agents")
+      .select("id, usuario_id")
+      .eq("empresa_id", empresa_id)
+      .in("id", assignedFkIds);
+    if (!cjErr && caJoin) {
+      for (const r of caJoin as { id: string; usuario_id: string }[]) {
+        if (r.id && r.usuario_id) chatAgentIdToUsuarioId.set(r.id, r.usuario_id);
+      }
+    }
+  }
+
+  const usuarioIdsForNames = new Set<string>();
+  for (const row of cl) {
+    if (row.closed_by_usuario_id) usuarioIdsForNames.add(row.closed_by_usuario_id);
+  }
+  for (const conv of convById.values()) {
+    const ua = conv.assigned_agent_id ? chatAgentIdToUsuarioId.get(conv.assigned_agent_id) : undefined;
+    if (ua) usuarioIdsForNames.add(ua);
+  }
+  const agentIds = [...usuarioIdsForNames];
 
   const contactIds = [...new Set([...convById.values()].map((c) => c.contact_id).filter(Boolean))];
   const channelIds = [...new Set([...convById.values()].map((c) => c.channel_id).filter(Boolean))];
@@ -379,6 +477,8 @@ export async function listFinalizedClosures(
     const conv = convById.get(row.conversation_id);
     const contact = conv ? contactById.get(conv.contact_id) : undefined;
     const ch = conv ? channelById.get(conv.channel_id) : undefined;
+    const assignedUid =
+      conv?.assigned_agent_id ? chatAgentIdToUsuarioId.get(conv.assigned_agent_id) : undefined;
     return {
       closure_id: row.id,
       conversation_id: row.conversation_id,
@@ -388,7 +488,8 @@ export async function listFinalizedClosures(
       channel_type: String(ch?.type ?? "whatsapp"),
       channel_nombre: ch?.nombre ?? null,
       queue_nombre: row.queue_id ? queueById.get(row.queue_id) ?? null : null,
-      agent_nombre: usuarioNombre.get(row.closed_by_usuario_id) ?? null,
+      assigned_agent_nombre: assignedUid ? usuarioNombre.get(assignedUid) ?? null : null,
+      closed_by_nombre: usuarioNombre.get(row.closed_by_usuario_id) ?? null,
       state_label: row.closure_state_label,
       substate_label: row.closure_substate_label,
       comment: row.comment,
