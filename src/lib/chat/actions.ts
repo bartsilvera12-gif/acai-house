@@ -139,13 +139,12 @@ export async function fetchChatConversations(
   if (error) throw new Error(error.message);
   let list = convs ?? [];
   if (vista === "inbox") {
-    list = list.filter(
-      (row) =>
-        !(
-          String((row as { flow_status?: string }).flow_status ?? "bot") === "bot" &&
-          !(row as { human_taken_over?: boolean }).human_taken_over
-        )
-    );
+    list = list.filter((row) => {
+      const fs = String((row as { flow_status?: string | null }).flow_status ?? "");
+      const humanTaken = Boolean((row as { human_taken_over?: boolean }).human_taken_over);
+      if (fs === "bot" && !humanTaken) return false;
+      return true;
+    });
   }
   if (list.length === 0) return [];
 
