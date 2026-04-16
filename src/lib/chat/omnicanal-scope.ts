@@ -41,7 +41,15 @@ async function usuarioTieneFilaChatAgents(
 
   if (error) {
     const m = (error.message ?? "").toLowerCase();
-    if (m.includes("chat_agents") && m.includes("does not exist")) return false;
+    const c = String((error as { code?: string }).code ?? "");
+    const missingChatAgents =
+      m.includes("chat_agents") &&
+      (c.toLowerCase() === "pgrst205" ||
+        m.includes("does not exist") ||
+        m.includes("schema cache") ||
+        m.includes("could not find") ||
+        m.includes("not found"));
+    if (missingChatAgents) return false;
     throw new Error(error.message);
   }
   return (count ?? 0) > 0;
@@ -183,7 +191,9 @@ export async function appendOmnicanalConversationScopeToQuery(
     return q.eq("id", NO_CONVERSATION_MATCH);
   }
   if (queueIds.length > 0 && agentFkIds.length > 0) {
-    return q.or(`queue_id.in.(${queueIds.join(",")}),assigned_agent_id.in.(${agentFkIds.join(",")})`);
+    const qIn = queueIds.map((id) => `"${normalizeId(id)}"`).join(",");
+    const aIn = agentFkIds.map((id) => `"${normalizeId(id)}"`).join(",");
+    return q.or(`queue_id.in.(${qIn}),assigned_agent_id.in.(${aIn})`);
   }
   if (queueIds.length > 0) {
     return q.in("queue_id", queueIds);

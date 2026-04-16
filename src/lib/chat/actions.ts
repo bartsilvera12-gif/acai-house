@@ -123,10 +123,14 @@ export async function fetchChatConversations(
   }
 
   if (vista !== "historial") {
-    const scope = await getOmnicanalScope(supabase, empresa_id, usuario_id);
-    const bypass = await shouldBypassOmnicanalConversationScope(catalogSr, usuario_id, scope);
-    if (!bypass) {
-      q = await appendOmnicanalConversationScopeToQuery(supabase, empresa_id, scope, q);
+    try {
+      const scope = await getOmnicanalScope(supabase, empresa_id, usuario_id);
+      const bypass = await shouldBypassOmnicanalConversationScope(catalogSr, usuario_id, scope);
+      if (!bypass) {
+        q = await appendOmnicanalConversationScopeToQuery(supabase, empresa_id, scope, q);
+      }
+    } catch (e) {
+      console.error("[fetchChatConversations] alcance omnicanal omitido (inbox estable):", e);
     }
   }
 

@@ -4,13 +4,26 @@ export type OmnicanalOperatorRole = "admin" | "supervisor" | "agente";
 
 const ROLES: ReadonlySet<string> = new Set(["admin", "supervisor", "agente"]);
 
-function isMissingSupervisionTable(err: { message?: string } | null): boolean {
-  const m = (err?.message ?? "").toLowerCase();
+/**
+ * PostgREST/Supabase suele devolver "schema cache" / "could not find" cuando la tabla
+ * aún no está expuesta o no existe en el tenant; no siempre incluye "does not exist".
+ */
+function isMissingSupervisionTable(err: { message?: string; code?: string } | null): boolean {
+  if (!err) return false;
+  const m = (err.message ?? "").toLowerCase();
+  const c = String(err.code ?? "").toLowerCase();
+  const mentions =
+    m.includes("chat_empresa_operator_roles") ||
+    m.includes("chat_queue_supervisors") ||
+    m.includes("chat_supervisor_agents");
+  if (!mentions) return false;
+  if (c === "pgrst205") return true; // tabla no resuelta en caché de esquema
   return (
-    (m.includes("chat_empresa_operator_roles") ||
-      m.includes("chat_queue_supervisors") ||
-      m.includes("chat_supervisor_agents")) &&
-    m.includes("does not exist")
+    m.includes("does not exist") ||
+    m.includes("schema cache") ||
+    m.includes("could not find") ||
+    m.includes("not found") ||
+    m.includes("undefined_table")
   );
 }
 
