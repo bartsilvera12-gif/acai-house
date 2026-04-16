@@ -740,3 +740,39 @@ export async function countUnassignedOpenConversations(): Promise<number> {
   if (error) throw new Error(error.message);
   return count ?? 0;
 }
+
+export type ChatAgentOperationalStatus = "ready" | "offline";
+
+/**
+ * Presencia omnicanal del usuario logueado en todas sus filas `chat_agents`.
+ * Si no participa en ninguna cola, `in_queues: false`.
+ */
+export async function getMyAgentOperationalPresence(): Promise<
+  { in_queues: false } | { in_queues: true; status: ChatAgentOperationalStatus }
+> {
+  const { supabase, empresa_id, usuario_id } = await requireEmpresaTenantServiceRole();
+  const { data, error } = await supabase
+    .from("chat_agents")
+    .select("operational_status")
+    .eq("empresa_id", empresa_id)
+    .eq("usuario_id", usuario_id);
+  if (error) throw new Error(error.message);
+  const rows = (data ?? []) as { operational_status?: string | null }[];
+  if (rows.length === 0) return { in_queues: false };
+  const anyOffline = rows.some((r) => r.operational_status === "offline");
+  return { in_queues: true, status: anyOffline ? "offline" : "ready" };
+}
+
+/** Sincroniza el estado operativo en todas las colas donde el usuario es agente. */
+export async function setMyAgentOperationalPresence(status: ChatAgentOperationalStatus): Promise<void> {
+  if (status !== "ready" && status !== "offline") {
+    throw new Error("Estado operativo inválido");
+  }
+  const { supabase, empresa_id, usuario_id } = await requireEmpresaTenantServiceRole();
+  const { error } = await supabase
+    .from("chat_agents")
+    .update({ operational_status: status, updated_at: new Date().toISOString() })
+    .eq("empresa_id", empresa_id)
+    .eq("usuario_id", usuario_id);
+  if (error) throw new Error(error.message);
+}

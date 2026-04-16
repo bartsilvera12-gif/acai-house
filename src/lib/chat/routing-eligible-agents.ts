@@ -23,7 +23,8 @@ export async function loadEligibleAgentsForQueue(
     .eq("empresa_id", empresaId)
     .eq("queue_id", queueId)
     .eq("is_active", true)
-    .eq("receives_new_chats", true);
+    .eq("receives_new_chats", true)
+    .eq("operational_status", "ready");
   if (error) throw new Error(error.message);
   return (data ?? []) as EligibleAgentRow[];
 }

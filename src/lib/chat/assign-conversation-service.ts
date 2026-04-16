@@ -5,6 +5,12 @@
 import type { SupabaseAdmin } from "@/lib/chat/types";
 import { parseQueueRoutingConfig } from "@/lib/chat/queue-routing-config";
 import {
+  parseAssignmentState,
+  pickLeastLoad,
+  pickRoundRobin,
+  type EligibleAgentForPick,
+} from "@/lib/chat/queue-assignment-strategy";
+import {
   countActiveConversationsByAgent,
   filterAgentsUnderCap,
   loadEligibleAgentsForQueue,
@@ -26,9 +32,7 @@ type QueueRow = {
   assignment_state?: unknown;
 };
 
-type EligibleAgent = { id: string; max_conversations: number; priority_in_queue: number };
-
-type QueueAssignmentState = { rr_last_agent_id?: string | null };
+type EligibleAgent = EligibleAgentForPick;
 
 function pickQueueForChannel(queues: QueueRow[], channelType: string): QueueRow | null {
   const t = channelType.trim().toLowerCase();
@@ -57,45 +61,6 @@ function pickFromLinkedQueues(linked: QueueRow[]): QueueRow | null {
 function sameAdvisorWindowMs(value: number, unit: "hours" | "days"): number {
   const v = Math.max(1, value);
   return unit === "days" ? v * 86_400_000 : v * 3_600_000;
-}
-
-function parseAssignmentState(raw: unknown): QueueAssignmentState {
-  if (raw == null || typeof raw !== "object" || Array.isArray(raw)) return {};
-  const o = raw as Record<string, unknown>;
-  const id = o.rr_last_agent_id;
-  return { rr_last_agent_id: typeof id === "string" && id.trim() ? id.trim() : null };
-}
-
-function pickRoundRobin(
-  eligible: EligibleAgent[],
-  assignmentState: QueueAssignmentState
-): EligibleAgent {
-  const sorted = [...eligible].sort((a, b) => {
-    if (b.priority_in_queue !== a.priority_in_queue) return b.priority_in_queue - a.priority_in_queue;
-    return a.id.localeCompare(b.id);
-  });
-  const ids = sorted.map((a) => a.id);
-  const last = assignmentState.rr_last_agent_id?.trim() || "";
-  let idx = 0;
-  if (last) {
-    const pos = ids.indexOf(last);
-    if (pos >= 0) idx = (pos + 1) % ids.length;
-  }
-  return sorted[idx]!;
-}
-
-function pickLeastLoad(
-  eligible: EligibleAgent[],
-  loadById: Map<string, number>
-): EligibleAgent {
-  const sorted = [...eligible].sort((a, b) => {
-    const la = loadById.get(a.id) ?? 0;
-    const lb = loadById.get(b.id) ?? 0;
-    if (la !== lb) return la - lb;
-    if (b.priority_in_queue !== a.priority_in_queue) return b.priority_in_queue - a.priority_in_queue;
-    return a.id.localeCompare(b.id);
-  });
-  return sorted[0]!;
 }
 
 /**
@@ -184,8 +149,9 @@ export async function assignConversation(
 
   const routing = parseQueueRoutingConfig(queue.routing_config);
   const assignState = parseAssignmentState(queue.assignment_state);
+  const distributionStrategy = String(queue.distribution_strategy ?? "").trim();
 
-  if (queue.distribution_strategy === "manual_pull") {
+  if (distributionStrategy === "manual_pull") {
     const ts = new Date().toISOString();
     const { error: upQ } = await supabase
       .from("chat_conversations")
@@ -270,17 +236,16 @@ export async function assignConversation(
       conversation_id: cid,
       queue_id: queue.id,
       event_type: "no_eligible_agent",
-      payload: { strategy: queue.distribution_strategy },
+      payload: { strategy: distributionStrategy },
     });
     return { ok: true, assigned: false, reason: "no_agent" };
   }
 
-  const strategy = queue.distribution_strategy;
   let best: EligibleAgent;
 
   if (sameAdvisorPick) {
     best = sameAdvisorPick;
-  } else if (strategy === "round_robin") {
+  } else if (distributionStrategy === "round_robin") {
     best = pickRoundRobin(eligible, assignState);
   } else {
     best = pickLeastLoad(eligible, loadById);
@@ -302,7 +267,7 @@ export async function assignConversation(
 
   if (upErr) return { ok: false, error: upErr.message };
 
-  if (strategy === "round_robin") {
+  if (distributionStrategy === "round_robin") {
     const rawSt = queue.assignment_state;
     const merged: Record<string, unknown> =
       rawSt != null && typeof rawSt === "object" && !Array.isArray(rawSt)
@@ -336,7 +301,7 @@ export async function assignConversation(
     queue_id: queue.id,
     event_type: sameAdvisorPick ? "same_advisor_route" : "assigned_auto",
     payload: {
-      strategy,
+      strategy: distributionStrategy,
       to_agent_id: best.id,
       same_advisor: Boolean(sameAdvisorPick),
     },

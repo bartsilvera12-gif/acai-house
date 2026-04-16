@@ -1,5 +1,6 @@
 import type { Pool } from "pg";
 import type { AssignConversationResult } from "@/lib/chat/assign-conversation-service";
+import { parseAssignmentState, pickLeastLoad, pickRoundRobin } from "@/lib/chat/queue-assignment-strategy";
 import { quoteSchemaTable } from "@/lib/supabase/chat-pg-pool";
 import { assertAllowedChatDataSchema } from "@/lib/supabase/chat-data-schema";
 import { parseQueueRoutingConfig } from "@/lib/chat/queue-routing-config";
@@ -110,33 +111,39 @@ export async function assignConversationPg(
   if (!queue) queue = pickQueueForChannel(allQueues, channelType);
   if (!queue) return { ok: true, assigned: false, reason: "no_queue" };
 
-  if (queue.distribution_strategy === "manual_pull") {
+  const distributionStrategy = String(queue.distribution_strategy ?? "").trim();
+
+  if (distributionStrategy === "manual_pull") {
     const ts = new Date().toISOString();
-    await pool.query(`UPDATE ${convT} SET queue_id = $1::uuid, updated_at = $2::timestamptz WHERE id = $3::uuid AND empresa_id = $4::uuid`, [
-      queue.id,
-      ts,
-      cid,
-      empresaId,
-    ]);
+    await pool.query(
+      `UPDATE ${convT}
+       SET queue_id = $1::uuid,
+           initial_assignment_at = NULL,
+           first_human_response_at = NULL,
+           updated_at = $2::timestamptz
+       WHERE id = $3::uuid AND empresa_id = $4::uuid`,
+      [queue.id, ts, cid, empresaId]
+    );
     return { ok: true, assigned: false, reason: "manual_pull" };
   }
 
   const agentsRes = await pool.query(
     `SELECT id, max_conversations, priority_in_queue
      FROM ${agT}
-     WHERE empresa_id = $1::uuid AND queue_id = $2::uuid AND is_active = true AND receives_new_chats = true
+     WHERE empresa_id = $1::uuid AND queue_id = $2::uuid
+       AND is_active = true AND receives_new_chats = true AND operational_status = 'ready'
      ORDER BY priority_in_queue DESC, id ASC`,
     [empresaId, queue.id]
   );
   const agents = agentsRes.rows as { id: string; max_conversations: number; priority_in_queue: number }[];
   if (agents.length === 0) {
     const ts = new Date().toISOString();
-    await pool.query(`UPDATE ${convT} SET queue_id = $1::uuid, updated_at = $2::timestamptz WHERE id = $3::uuid AND empresa_id = $4::uuid`, [
-      queue.id,
-      ts,
-      cid,
-      empresaId,
-    ]);
+    await pool.query(
+      `UPDATE ${convT}
+       SET queue_id = $1::uuid, initial_assignment_at = NULL, updated_at = $2::timestamptz
+       WHERE id = $3::uuid AND empresa_id = $4::uuid`,
+      [queue.id, ts, cid, empresaId]
+    );
     return { ok: true, assigned: false, reason: "no_agent" };
   }
 
@@ -160,12 +167,12 @@ export async function assignConversationPg(
   });
   if (eligible.length === 0) {
     const ts = new Date().toISOString();
-    await pool.query(`UPDATE ${convT} SET queue_id = $1::uuid, updated_at = $2::timestamptz WHERE id = $3::uuid AND empresa_id = $4::uuid`, [
-      queue.id,
-      ts,
-      cid,
-      empresaId,
-    ]);
+    await pool.query(
+      `UPDATE ${convT}
+       SET queue_id = $1::uuid, initial_assignment_at = NULL, updated_at = $2::timestamptz
+       WHERE id = $3::uuid AND empresa_id = $4::uuid`,
+      [queue.id, ts, cid, empresaId]
+    );
     return { ok: true, assigned: false, reason: "no_agent" };
   }
 
@@ -202,18 +209,10 @@ export async function assignConversationPg(
   let best: (typeof eligible)[0];
   if (sameAdvisorPick) {
     best = sameAdvisorPick;
-  } else if (queue.distribution_strategy === "round_robin") {
-    const sorted = [...eligible].sort((a, b) => a.id.localeCompare(b.id));
-    best = sorted[0]!;
+  } else if (distributionStrategy === "round_robin") {
+    best = pickRoundRobin(eligible, parseAssignmentState(queue.assignment_state));
   } else {
-    const sorted = [...eligible].sort((a, b) => {
-      const la = loadById.get(a.id) ?? 0;
-      const lb = loadById.get(b.id) ?? 0;
-      if (la !== lb) return la - lb;
-      if (b.priority_in_queue !== a.priority_in_queue) return b.priority_in_queue - a.priority_in_queue;
-      return a.id.localeCompare(b.id);
-    });
-    best = sorted[0]!;
+    best = pickLeastLoad(eligible, loadById);
   }
 
   const ts = new Date().toISOString();
@@ -239,6 +238,23 @@ export async function assignConversationPg(
        WHERE id = $4::uuid AND empresa_id = $5::uuid`,
       [best.id, ts, channelId, conv.contact_id, empresaId]
     );
+  }
+
+  if (distributionStrategy === "round_robin") {
+    const rawSt = queue.assignment_state;
+    const merged: Record<string, unknown> =
+      rawSt != null && typeof rawSt === "object" && !Array.isArray(rawSt)
+        ? { ...(rawSt as Record<string, unknown>) }
+        : {};
+    merged.rr_last_agent_id = best.id;
+    try {
+      await pool.query(
+        `UPDATE ${qT} SET assignment_state = $1::jsonb, updated_at = $2::timestamptz WHERE id = $3::uuid AND empresa_id = $4::uuid`,
+        [JSON.stringify(merged), ts, queue.id, empresaId]
+      );
+    } catch (e) {
+      console.warn("[assignConversationPg] assignment_state", e);
+    }
   }
 
   return { ok: true, assigned: true, agent_id: best.id, queue_id: queue.id };

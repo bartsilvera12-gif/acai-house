@@ -22,9 +22,12 @@ import {
   assignConversationToAgent,
   changeConversationQueue,
   changeConversationStatus,
+  getMyAgentOperationalPresence,
   listChatAgentsDirectory,
   listChatQueues,
+  setMyAgentOperationalPresence,
   type ChatAgentDirectoryRow,
+  type ChatAgentOperationalStatus,
   type ChatQueueListRow,
 } from "@/lib/chat/chat-ops-actions";
 import {
@@ -107,6 +110,13 @@ function tabClass(active: boolean) {
   return `px-3 py-2 text-xs font-semibold rounded-lg transition-colors ${
     active ? "bg-white text-slate-800 shadow-sm border border-slate-200" : "text-slate-500 hover:text-slate-700"
   }`;
+}
+
+function opPresenceToggleClass(active: boolean, variant: "ready" | "offline") {
+  const base = "px-3 py-1.5 text-xs font-semibold rounded-md transition-colors disabled:opacity-50";
+  if (!active) return `${base} text-slate-600 hover:bg-slate-50`;
+  if (variant === "ready") return `${base} bg-emerald-600 text-white shadow-sm`;
+  return `${base} bg-slate-700 text-white shadow-sm`;
 }
 
 function parseInboxFilters(sp: URLSearchParams): ChatInboxFilters | undefined {
@@ -198,6 +208,11 @@ export function ConversacionesClient({
   const [listSearch, setListSearch] = useState("");
   const [finalizeOpen, setFinalizeOpen] = useState(false);
   const [finalizeLoading, setFinalizeLoading] = useState(false);
+  const [opPresenceLoaded, setOpPresenceLoaded] = useState(false);
+  const [opInQueues, setOpInQueues] = useState(false);
+  const [opStatus, setOpStatus] = useState<ChatAgentOperationalStatus | null>(null);
+  const [opPresenceBusy, setOpPresenceBusy] = useState(false);
+  const [opPresenceErr, setOpPresenceErr] = useState<string | null>(null);
   const [finalizeSaving, setFinalizeSaving] = useState(false);
   const [finalizeOptions, setFinalizeOptions] = useState<FinalizeOptionsResult | null>(null);
   const [finalizeStateId, setFinalizeStateId] = useState("");
@@ -319,6 +334,55 @@ export function ConversacionesClient({
       setBotFlowsChecked(true);
     });
   }, [mode]);
+
+  useEffect(() => {
+    if (mode !== "inbox") {
+      setOpPresenceLoaded(true);
+      setOpInQueues(false);
+      setOpStatus(null);
+      setOpPresenceErr(null);
+      return;
+    }
+    let cancelled = false;
+    setOpPresenceLoaded(false);
+    setOpPresenceErr(null);
+    void getMyAgentOperationalPresence()
+      .then((p) => {
+        if (cancelled) return;
+        if (p.in_queues) {
+          setOpInQueues(true);
+          setOpStatus(p.status);
+        } else {
+          setOpInQueues(false);
+          setOpStatus(null);
+        }
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setOpInQueues(false);
+        setOpStatus(null);
+        setOpPresenceErr(e instanceof Error ? e.message : "No se pudo cargar estado operativo");
+      })
+      .finally(() => {
+        if (!cancelled) setOpPresenceLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [mode]);
+
+  const applyOperationalStatus = useCallback(async (next: ChatAgentOperationalStatus) => {
+    setOpPresenceErr(null);
+    setOpPresenceBusy(true);
+    try {
+      await setMyAgentOperationalPresence(next);
+      setOpStatus(next);
+    } catch (e) {
+      setOpPresenceErr(e instanceof Error ? e.message : "No se pudo guardar el estado");
+    } finally {
+      setOpPresenceBusy(false);
+    }
+  }, []);
 
   /** URL legacy: ?vista=historial en inbox → ruta dedicada */
   useEffect(() => {
@@ -827,7 +891,7 @@ export function ConversacionesClient({
         </div>
       ) : null}
 
-      <div className="flex flex-wrap items-center justify-between gap-2 shrink-0">
+      <div className="flex flex-wrap items-center justify-between gap-3 shrink-0">
         <div className="min-w-0">
           <h1 className="text-xl sm:text-2xl font-bold text-slate-800 leading-tight truncate">
             {agentDisplayName}
@@ -849,7 +913,41 @@ export function ConversacionesClient({
             ) : null}
           </p>
         </div>
+        {mode === "inbox" && opPresenceLoaded && opInQueues && opStatus !== null ? (
+          <div
+            className="flex flex-col items-end gap-1 shrink-0"
+            role="group"
+            aria-label="Estado operativo para nuevas conversaciones"
+          >
+            <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50/90 p-0.5">
+              <button
+                type="button"
+                disabled={opPresenceBusy}
+                className={opPresenceToggleClass(opStatus === "ready", "ready")}
+                onClick={() => void applyOperationalStatus("ready")}
+              >
+                Ready
+              </button>
+              <button
+                type="button"
+                disabled={opPresenceBusy}
+                className={opPresenceToggleClass(opStatus === "offline", "offline")}
+                onClick={() => void applyOperationalStatus("offline")}
+              >
+                Offline
+              </button>
+            </div>
+            <span className="text-[10px] text-slate-500 max-w-[14rem] text-right leading-tight hidden sm:block">
+              Solo en Ready recibís chats nuevos por autoasignación.
+            </span>
+          </div>
+        ) : null}
       </div>
+      {mode === "inbox" && opPresenceErr ? (
+        <div className="bg-amber-50 border border-amber-200 text-amber-900 text-xs rounded-lg px-2 py-1.5 shrink-0">
+          {opPresenceErr}
+        </div>
+      ) : null}
 
       {mode === "inbox" ? (
         <div className="flex flex-wrap items-stretch gap-2 shrink-0 min-w-0">
