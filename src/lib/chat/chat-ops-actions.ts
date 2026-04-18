@@ -10,7 +10,7 @@ import {
 } from "@/lib/chat/omnicanal-scope";
 import { insertChatRoutingEvent, updateContactLastRouted } from "@/lib/chat/routing-audit";
 import { isMissingColumnError } from "@/lib/chat/postgres-column-error";
-import type { OmnicanalOperatorRole } from "@/lib/chat/omnicanal-supervision-read";
+import { batchFetchOmnicanalOperatorRoles, type OmnicanalOperatorRole } from "@/lib/chat/omnicanal-supervision-read";
 import type { AppSupabaseClient } from "@/lib/supabase/schema";
 
 /** Fila imposible para forzar 0 resultados en consultas `in`/count cuando el alcance no admite filas. */
@@ -909,12 +909,20 @@ export type SupervisorAgentLoadRow = ChatAgentDirectoryRow & {
   active_conversations: number;
   /** Chats asignados sin primera respuesta humana saliente aún. */
   pending_first_reply: number;
+  /** Rol operativo en la empresa (tabla `chat_empresa_operator_roles`), si existe. */
+  omnicanal_role: OmnicanalOperatorRole | null;
 };
 
 export async function fetchSupervisorAgentLoads(): Promise<SupervisorAgentLoadRow[]> {
   const { supabase, catalogSr, empresa_id, usuario_id } = await requireEmpresaTenantServiceRole();
   const agents = await listChatAgentsDirectory();
   if (agents.length === 0) return [];
+
+  const roleByUsuario = await batchFetchOmnicanalOperatorRoles(
+    supabase,
+    empresa_id,
+    agents.map((a) => a.usuario_id)
+  );
 
   const agentIds = agents.map((a) => a.id);
   const scope = await getOmnicanalScope(supabase, empresa_id, usuario_id);
@@ -952,6 +960,7 @@ export async function fetchSupervisorAgentLoads(): Promise<SupervisorAgentLoadRo
     ...a,
     active_conversations: tally.get(a.id) ?? 0,
     pending_first_reply: pendingFirst.get(a.id) ?? 0,
+    omnicanal_role: roleByUsuario.get(a.usuario_id) ?? null,
   }));
 }
 

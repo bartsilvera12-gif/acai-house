@@ -22,18 +22,18 @@ import {
   assignConversationToAgent,
   changeConversationQueue,
   changeConversationStatus,
+  fetchSupervisorAgentLoads,
   getMyAgentOperationalPresence,
-  listChatAgentsDirectory,
   listChatQueues,
   setMyAgentOperationalPresence,
   touchChatAgentInboxHeartbeat,
-  type ChatAgentDirectoryRow,
   type ChatAgentOperationalStatus,
   type ChatQueueListRow,
   type InboxCabeceraInsignia,
+  type SupervisorAgentLoadRow,
 } from "@/lib/chat/chat-ops-actions";
 import { formatWaitHuman } from "@/lib/chat/format-wait-human";
-import { Flame, UserRound } from "lucide-react";
+import { ArrowLeftRight, Flame, UserRound } from "lucide-react";
 import {
   finalizeConversationWithClosure,
   loadFinalizeOptionsForConversation,
@@ -239,6 +239,21 @@ function badgeEstadoClass(s: string) {
   return "text-slate-600 bg-slate-50 border-slate-200";
 }
 
+function omnicanalRoleBadgeClass(role: string | null): string {
+  if (role === "admin") return "text-slate-800 bg-slate-100 border-slate-200";
+  if (role === "supervisor") return "text-sky-800 bg-sky-50 border-sky-200";
+  if (role === "agente") return "text-indigo-900 bg-indigo-50 border-indigo-200";
+  return "text-slate-600 bg-slate-50 border-slate-200";
+}
+
+function omnicanalRoleShortLabel(role: string | null): string | null {
+  if (!role) return null;
+  if (role === "admin") return "Admin";
+  if (role === "supervisor") return "Supervisor";
+  if (role === "agente") return "Agente";
+  return null;
+}
+
 export type ConversacionesClientMode = "inbox" | "historial";
 
 /** Presencia operativa precargada en el servidor (evita parpadeo y fallos solo-cliente). */
@@ -293,8 +308,13 @@ export function ConversacionesClient({
   const [compActionId, setCompActionId] = useState<string | null>(null);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [opsQueues, setOpsQueues] = useState<ChatQueueListRow[]>([]);
-  const [opsAgents, setOpsAgents] = useState<ChatAgentDirectoryRow[]>([]);
+  const [opsAgentLoads, setOpsAgentLoads] = useState<SupervisorAgentLoadRow[]>([]);
   const [opsBusy, setOpsBusy] = useState(false);
+  const [transferModalOpen, setTransferModalOpen] = useState(false);
+  /** Cola elegida: transferencia a cola y filtro de agentes en el modal. */
+  const [transferQueueTarget, setTransferQueueTarget] = useState("");
+  const [transferAgentSearch, setTransferAgentSearch] = useState("");
+  const [transferLoadsRefreshing, setTransferLoadsRefreshing] = useState(false);
   const [hasActiveBotFlows, setHasActiveBotFlows] = useState(false);
   const [botFlowsChecked, setBotFlowsChecked] = useState(false);
   const [compValidacionesOpen, setCompValidacionesOpen] = useState(false);
@@ -510,10 +530,43 @@ export function ConversacionesClient({
     listChatQueues()
       .then(setOpsQueues)
       .catch(() => setOpsQueues([]));
-    listChatAgentsDirectory()
-      .then(setOpsAgents)
-      .catch(() => setOpsAgents([]));
+    fetchSupervisorAgentLoads()
+      .then(setOpsAgentLoads)
+      .catch(() => setOpsAgentLoads([]));
   }, []);
+
+  useEffect(() => {
+    if (!transferModalOpen) return;
+    let cancelled = false;
+    setTransferLoadsRefreshing(true);
+    void fetchSupervisorAgentLoads()
+      .then((rows) => {
+        if (!cancelled) setOpsAgentLoads(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setOpsAgentLoads([]);
+      })
+      .finally(() => {
+        if (!cancelled) setTransferLoadsRefreshing(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [transferModalOpen]);
+
+  const filteredTransferAgents = useMemo(() => {
+    const q = transferAgentSearch.trim().toLowerCase();
+    let rows = opsAgentLoads.filter((a) =>
+      transferQueueTarget === "" ? true : a.queue_id === transferQueueTarget
+    );
+    if (!q) return rows;
+    return rows.filter(
+      (a) =>
+        a.nombre.toLowerCase().includes(q) ||
+        (a.email && a.email.toLowerCase().includes(q)) ||
+        a.queue_nombre.toLowerCase().includes(q)
+    );
+  }, [opsAgentLoads, transferAgentSearch, transferQueueTarget]);
 
   function setVista(next: ConversacionesVista) {
     if (mode === "historial") {
@@ -1175,6 +1228,156 @@ export function ConversacionesClient({
         </div>
       ) : null}
 
+      {transferModalOpen && selected && vista !== "bot" ? (
+        <div
+          className="fixed inset-0 z-[115] flex items-center justify-center bg-black/40 p-4"
+          role="presentation"
+          onClick={() => setTransferModalOpen(false)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="transfer-chat-title"
+            className="w-full max-w-lg max-h-[min(92vh,720px)] overflow-hidden flex flex-col rounded-2xl border border-slate-200 bg-white shadow-xl"
+            onClick={(ev) => ev.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4 shrink-0">
+              <div>
+                <h2 id="transfer-chat-title" className="text-lg font-semibold text-slate-900">
+                  Transferir conversación
+                </h2>
+                <p className="mt-0.5 text-xs text-slate-500">
+                  Elegí cola y/o agente. Los números reflejan chats abiertos asignados al agente.
+                </p>
+              </div>
+              <button
+                type="button"
+                className="rounded-lg border border-slate-200 px-2.5 py-1 text-sm text-slate-600 hover:bg-slate-50 shrink-0"
+                onClick={() => setTransferModalOpen(false)}
+                aria-label="Cerrar"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="px-5 py-4 space-y-5 overflow-y-auto overscroll-contain flex-1 min-h-0">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wide mb-2">
+                  Colas
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  <select
+                    disabled={opsBusy}
+                    className="flex-1 min-w-[12rem] border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white"
+                    value={transferQueueTarget}
+                    onChange={(e) => setTransferQueueTarget(e.target.value)}
+                    aria-label="Cola destino y filtro de agentes"
+                  >
+                    <option value="">Todas las colas</option>
+                    {opsQueues
+                      .filter((q) => q.is_active)
+                      .map((q) => (
+                        <option key={q.id} value={q.id}>
+                          {q.nombre}
+                        </option>
+                      ))}
+                  </select>
+                  <button
+                    type="button"
+                    disabled={opsBusy || !transferQueueTarget}
+                    onClick={() =>
+                      void runConversationOp(async () => {
+                        await changeConversationQueue(selected.id, transferQueueTarget);
+                        setTransferModalOpen(false);
+                      })
+                    }
+                    className="shrink-0 rounded-xl bg-sky-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-sky-700 disabled:opacity-50 disabled:pointer-events-none"
+                  >
+                    Transferir
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                  <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wide">
+                    Agentes
+                  </label>
+                  <input
+                    type="search"
+                    value={transferAgentSearch}
+                    onChange={(e) => setTransferAgentSearch(e.target.value)}
+                    placeholder="Buscar"
+                    className="w-full max-w-[14rem] border border-slate-200 rounded-xl px-3 py-2 text-sm bg-white placeholder:text-slate-400 outline-none focus:ring-1 focus:ring-sky-400/50 focus:border-sky-300"
+                    aria-label="Buscar agente"
+                  />
+                </div>
+                {transferLoadsRefreshing ? (
+                  <p className="text-sm text-slate-500 py-6 text-center">Actualizando agentes…</p>
+                ) : (
+                  <div className="rounded-xl border border-slate-200 divide-y divide-slate-100 max-h-[min(42vh,320px)] overflow-y-auto overscroll-contain bg-slate-50/40">
+                    {filteredTransferAgents.length === 0 ? (
+                      <p className="text-sm text-slate-500 px-4 py-6 text-center">
+                        No hay agentes para mostrar con estos filtros.
+                      </p>
+                    ) : (
+                      filteredTransferAgents.map((a) => {
+                        const roleLabel = omnicanalRoleShortLabel(a.omnicanal_role);
+                        const isCurrent = a.id === selected.assigned_agent_id;
+                        return (
+                          <button
+                            key={a.id}
+                            type="button"
+                            disabled={opsBusy || isCurrent}
+                            onClick={() =>
+                              void runConversationOp(async () => {
+                                await assignConversationToAgent(selected.id, a.id);
+                                setTransferModalOpen(false);
+                              })
+                            }
+                            className={`w-full text-left px-4 py-3 transition-colors hover:bg-white disabled:opacity-50 disabled:pointer-events-none ${
+                              isCurrent ? "bg-emerald-50/80" : ""
+                            }`}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <span className="font-semibold text-slate-900 text-sm leading-snug">{a.nombre}</span>
+                              {roleLabel ? (
+                                <span
+                                  className={`text-[10px] font-semibold px-2 py-0.5 rounded-md border shrink-0 ${omnicanalRoleBadgeClass(a.omnicanal_role)}`}
+                                >
+                                  {roleLabel}
+                                </span>
+                              ) : null}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
+                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-white text-slate-700 border border-slate-200">
+                                {a.queue_nombre}
+                              </span>
+                              <span className="text-[11px] text-slate-500">
+                                {a.operational_status === "offline" ? "En pausa" : "Disponible"}
+                                {!a.is_online ? " · sin sesión" : ""}
+                              </span>
+                            </div>
+                            <div className="flex justify-end mt-2">
+                              <span className="text-[11px] text-slate-600 tabular-nums">
+                                <span className="inline-flex items-center rounded border border-slate-200 bg-white px-1.5 py-0.5 font-semibold text-slate-800">
+                                  {a.active_conversations}
+                                </span>{" "}
+                                Activos
+                              </span>
+                            </div>
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <div className="flex flex-wrap items-center justify-between gap-3 shrink-0">
         <div className="min-w-0">
           <h1 className="text-xl sm:text-2xl font-bold text-slate-800 leading-tight truncate">
@@ -1564,101 +1767,75 @@ export function ConversacionesClient({
                       </div>
                     ) : null}
 
-                    <div className="flex flex-wrap items-center gap-1 w-full sm:justify-end">
-                      <span className="text-[10px] font-semibold text-slate-600 shrink-0">Transferir a</span>
-                      <select
-                        disabled={opsBusy}
-                        className="text-[10px] border border-slate-200 rounded px-1 py-0.5 max-w-[10rem] min-h-[1.5rem] bg-white"
-                        value=""
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          (e.target as HTMLSelectElement).value = "";
-                          if (v && selected) {
-                            void runConversationOp(() => changeConversationQueue(selected.id, v));
-                          }
-                        }}
-                        aria-label="Transferir conversación a otra cola"
-                      >
-                        <option value="">Cola…</option>
-                        {opsQueues
-                          .filter((q) => q.is_active)
-                          .map((q) => (
-                            <option key={q.id} value={q.id}>
-                              {q.nombre}
-                            </option>
-                          ))}
-                      </select>
-                      <select
-                        disabled={opsBusy}
-                        className="text-[10px] border border-slate-200 rounded px-1 py-0.5 max-w-[11rem] min-h-[1.5rem] bg-white"
-                        value=""
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          (e.target as HTMLSelectElement).value = "";
-                          if (v && selected) {
-                            void runConversationOp(() => assignConversationToAgent(selected.id, v));
-                          }
-                        }}
-                        aria-label="Transferir conversación a otro agente"
-                      >
-                        <option value="">Agente…</option>
-                        {opsAgents
-                          .filter((a) => a.id !== selected.assigned_agent_id)
-                          .map((a) => (
-                            <option key={a.id} value={a.id}>
-                              {a.nombre} · {a.queue_nombre}
-                            </option>
-                          ))}
-                      </select>
-                      {isHumanActive ? (
-                        <button
-                          type="button"
-                          disabled={releasingBot}
-                          onClick={() => void handleReleaseToBot()}
-                          className="text-[10px] font-medium text-slate-600 hover:text-slate-800 border border-slate-200 rounded px-1.5 py-0.5 bg-white disabled:opacity-50"
-                        >
-                          {releasingBot ? "…" : "Modo bot"}
-                        </button>
-                      ) : null}
-                      {selected.status !== "closed" && mode === "inbox" ? (
-                        <button
-                          type="button"
-                          disabled={opsBusy || finalizeSaving}
-                          onClick={() => void openFinalizeModal()}
-                          className="text-[10px] font-medium text-slate-700 border border-slate-300 rounded px-1.5 py-0.5 hover:bg-slate-50 disabled:opacity-50"
-                        >
-                          Finalizar
-                        </button>
-                      ) : selected.status === "closed" ? (
-                        <button
-                          type="button"
-                          disabled={opsBusy}
-                          onClick={() =>
-                            void runConversationOp(() =>
-                              changeConversationStatus(selected.id, "open")
-                            )
-                          }
-                          className="text-[10px] font-medium text-emerald-800 border border-emerald-300 rounded px-1.5 py-0.5 bg-emerald-50 hover:bg-emerald-100 disabled:opacity-50"
-                        >
-                          Reabrir
-                        </button>
-                      ) : null}
-                      {selected.contact.cliente_id ? (
-                        <Link
-                          href={`/clientes/${selected.contact.cliente_id}`}
-                          className="text-[10px] text-[#0EA5E9] hover:underline shrink-0"
-                        >
-                          Cliente
-                        </Link>
-                      ) : null}
-                      {selected.contact.crm_prospecto_id ? (
-                        <Link
-                          href={`/crm/${selected.contact.crm_prospecto_id}`}
-                          className="text-[10px] text-violet-600 hover:underline shrink-0"
-                        >
-                          CRM
-                        </Link>
-                      ) : null}
+                    <div className="flex flex-wrap items-center gap-2 w-full justify-between gap-y-2">
+                      <div className="flex flex-wrap items-center gap-2 min-w-0">
+                        {vista !== "bot" ? (
+                          <button
+                            type="button"
+                            disabled={opsBusy}
+                            onClick={() => {
+                              setTransferAgentSearch("");
+                              setTransferQueueTarget(selected.queue_id?.trim() ? selected.queue_id : "");
+                              setTransferModalOpen(true);
+                            }}
+                            className="inline-flex items-center gap-2 rounded-xl bg-sky-600 text-white px-4 py-2.5 text-sm font-semibold shadow-md shadow-sky-900/15 hover:bg-sky-700 disabled:opacity-50 transition-colors"
+                          >
+                            <ArrowLeftRight className="w-4 h-4 shrink-0" aria-hidden />
+                            Transferir
+                          </button>
+                        ) : null}
+                        {isHumanActive ? (
+                          <button
+                            type="button"
+                            disabled={releasingBot}
+                            onClick={() => void handleReleaseToBot()}
+                            className="text-xs font-semibold text-slate-700 hover:text-slate-900 border border-slate-300 rounded-xl px-3 py-2 bg-white disabled:opacity-50 shadow-sm"
+                          >
+                            {releasingBot ? "…" : "Modo bot"}
+                          </button>
+                        ) : null}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2 shrink-0 justify-end">
+                        {selected.status !== "closed" && mode === "inbox" ? (
+                          <button
+                            type="button"
+                            disabled={opsBusy || finalizeSaving}
+                            onClick={() => void openFinalizeModal()}
+                            className="text-xs font-semibold text-slate-800 border-2 border-slate-300 rounded-xl px-4 py-2.5 bg-white hover:bg-slate-50 disabled:opacity-50 shadow-sm"
+                          >
+                            Finalizar
+                          </button>
+                        ) : selected.status === "closed" ? (
+                          <button
+                            type="button"
+                            disabled={opsBusy}
+                            onClick={() =>
+                              void runConversationOp(() =>
+                                changeConversationStatus(selected.id, "open")
+                              )
+                            }
+                            className="text-xs font-semibold text-emerald-800 border-2 border-emerald-400 rounded-xl px-4 py-2.5 bg-emerald-50 hover:bg-emerald-100 disabled:opacity-50 shadow-sm"
+                          >
+                            Reabrir
+                          </button>
+                        ) : null}
+                        {selected.contact.cliente_id ? (
+                          <Link
+                            href={`/clientes/${selected.contact.cliente_id}`}
+                            className="text-xs font-semibold text-[#0EA5E9] hover:underline shrink-0 px-1"
+                          >
+                            Cliente
+                          </Link>
+                        ) : null}
+                        {selected.contact.crm_prospecto_id ? (
+                          <Link
+                            href={`/crm/${selected.contact.crm_prospecto_id}`}
+                            className="text-xs font-semibold text-violet-600 hover:underline shrink-0 px-1"
+                          >
+                            CRM
+                          </Link>
+                        ) : null}
+                      </div>
                     </div>
                   </div>
                 ) : null}

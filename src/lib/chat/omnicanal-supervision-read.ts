@@ -125,3 +125,36 @@ export async function fetchAgentsForSupervisorUsuarioIds(
   const rows = (data ?? []) as { agent_usuario_id?: string }[];
   return [...new Set(rows.map((r) => String(r.agent_usuario_id ?? "").trim()).filter(Boolean))];
 }
+
+/**
+ * Roles omnicanal por lote (`chat_empresa_operator_roles`).
+ * Si la tabla no existe en el tenant, devuelve mapa vacío.
+ */
+export async function batchFetchOmnicanalOperatorRoles(
+  supabase: AppSupabaseClient,
+  empresaId: string,
+  usuarioIds: string[]
+): Promise<Map<string, OmnicanalOperatorRole>> {
+  const uniq = [...new Set(usuarioIds.map((id) => String(id ?? "").trim()).filter(Boolean))];
+  if (uniq.length === 0) return new Map();
+
+  const { data, error } = await supabase
+    .from("chat_empresa_operator_roles")
+    .select("usuario_id, role")
+    .eq("empresa_id", empresaId)
+    .in("usuario_id", uniq);
+
+  if (error) {
+    if (isMissingSupervisionTable(error)) return new Map();
+    console.warn("[batchFetchOmnicanalOperatorRoles]", error.message);
+    return new Map();
+  }
+
+  const m = new Map<string, OmnicanalOperatorRole>();
+  for (const row of data ?? []) {
+    const uid = String((row as { usuario_id?: string }).usuario_id ?? "").trim();
+    const r = asRole((row as { role?: string }).role);
+    if (uid && r) m.set(uid, r);
+  }
+  return m;
+}
