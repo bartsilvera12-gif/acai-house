@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import MontoInput from "@/components/ui/MontoInput";
 import { saveCompra } from "@/lib/compras/storage";
-import { getProveedores, proveedorExiste, saveProveedor } from "@/lib/proveedores/storage";
+import { getProveedores, proveedorExiste, createProveedor } from "@/lib/proveedores/storage";
 import {
   getProductos,
   productoExiste,
@@ -119,8 +119,8 @@ export default function NuevaCompraPage() {
 
   // ── Carga inicial ────────────────────────────────────────────────────────
 
-  function recargarProveedores() {
-    const data = getProveedores();
+  async function recargarProveedores() {
+    const data = await getProveedores();
     setProveedores(data.filter((p) => p.estado === "activo"));
   }
 
@@ -192,9 +192,8 @@ export default function NuevaCompraPage() {
     e.preventDefault();
     if (subtotal === 0 || precioVentaNum === 0) return;
 
-    const todosProveedores = getProveedores();
     const todosProductos = await getProductos();
-    const proveedor = todosProveedores.find((p) => String(p.id) === form.proveedor_id);
+    const proveedor = proveedores.find((p) => String(p.id) === form.proveedor_id);
     const producto = todosProductos.find((p) => p.id === form.producto_id);
     if (!proveedor || !producto) return;
 
@@ -237,15 +236,15 @@ export default function NuevaCompraPage() {
     setFormProveedor((prev) => ({ ...prev, [name]: normalized }));
   }
 
-  function handleAgregarProveedor() {
+  async function handleAgregarProveedor() {
     if (!formProveedor.nombre.trim() || !formProveedor.ruc.trim()) return;
     setErrorRuc(null);
-    const dup = proveedorExiste(formProveedor.ruc);
+    const dup = await proveedorExiste(formProveedor.ruc);
     if (dup) {
       setErrorRuc(`RUC ya registrado para "${dup.nombre}".`);
       return;
     }
-    const creado = saveProveedor({
+    const resultado = await createProveedor({
       nombre: formProveedor.nombre.trim().toUpperCase(),
       ruc: formProveedor.ruc.trim(),
       telefono: formProveedor.telefono.trim(),
@@ -254,7 +253,12 @@ export default function NuevaCompraPage() {
       direccion: "",
       estado: "activo",
     });
-    recargarProveedores();
+    if (!resultado.ok) {
+      setErrorRuc(resultado.error);
+      return;
+    }
+    const creado = resultado.proveedor;
+    await recargarProveedores();
     setForm((prev) => ({ ...prev, proveedor_id: String(creado.id) }));
     setProveedorCreado(creado.nombre);
     setMostrarFormProveedor(false);

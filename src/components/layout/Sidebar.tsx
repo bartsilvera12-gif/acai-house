@@ -115,7 +115,17 @@ const MENU_STRUCTURE: MenuItem[] = [
     { label: "Movimientos", href: "/inventario/movimientos" },
   ]},
   { key: "clientes", slug: "clientes", label: "Clientes", href: "/clientes", icon: Users },
-  { key: "compras", slug: "compras", label: "Compras", href: "/compras", icon: Package },
+  {
+    key: "compras",
+    slug: "compras",
+    label: "Compras",
+    href: "/compras",
+    icon: Package,
+    children: [
+      { label: "Órdenes", href: "/compras" },
+      { label: "Proveedores", href: "/proveedores" },
+    ],
+  },
   { key: "gastos", slug: "gastos", label: "Gastos", href: "/gastos", icon: Receipt },
   { key: "pagos", slug: "pagos", label: "Pagos", href: "/pagos", icon: Banknote },
   {
@@ -279,6 +289,7 @@ export default function Sidebar() {
   const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({
     inventario: true,
     sorteos: true,
+    compras: true,
   });
   const [cargando, setCargando] = useState(true);
   const [esSuperAdmin, setEsSuperAdmin] = useState(false);

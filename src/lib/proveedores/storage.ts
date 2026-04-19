@@ -1,100 +1,163 @@
-import type { Proveedor } from "./types";
+import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
+import type { Proveedor, NuevoProveedorInput, ProveedorCategoria } from "./types";
 
-// ─── Datos de ejemplo ─────────────────────────────────────────────────────────
-
-const PROVEEDORES_MOCK: Proveedor[] = [
-  {
-    id: 1,
-    nombre: "Textiles del Sur S.A.",
-    ruc: "80012345-1",
-    telefono: "0981 111 222",
-    email: "ventas@textilesdelsur.com.py",
-    direccion: "Ruta 1 km 12, Luque",
-    contacto: "Carlos Mendoza",
-    estado: "activo",
-    fecha_creacion: "2026-01-10T08:00:00.000Z",
-  },
-  {
-    id: 2,
-    nombre: "Importadora Asunción",
-    ruc: "80056789-2",
-    telefono: "021 456 789",
-    email: "info@importadoraasuncion.com.py",
-    direccion: "Avda. Mariscal López 1500, Asunción",
-    contacto: "Laura Giménez",
-    estado: "activo",
-    fecha_creacion: "2026-01-15T09:30:00.000Z",
-  },
-  {
-    id: 3,
-    nombre: "Distribuidora Norte SRL",
-    ruc: "80098765-3",
-    telefono: "0991 333 444",
-    email: "contacto@disnorte.com.py",
-    direccion: "Mcal. Estigarribia 320, Concepción",
-    contacto: "Pedro Ávalos",
-    estado: "inactivo",
-    fecha_creacion: "2026-02-01T10:00:00.000Z",
-  },
-];
-
-// ─── Clave de localStorage ────────────────────────────────────────────────────
-
-const KEY = "neura_proveedores";
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function safeGet<T>(key: string, fallback: T): T {
+export async function getProveedores(): Promise<Proveedor[]> {
   try {
-    const item = localStorage.getItem(key);
-    return item ? (JSON.parse(item) as T) : fallback;
-  } catch {
-    return fallback;
+    const res = await fetchWithSupabaseSession("/api/proveedores", { cache: "no-store" });
+    const json = (await res.json()) as {
+      success?: boolean;
+      data?: { proveedores?: Proveedor[] };
+      error?: string;
+    };
+    if (!res.ok || !json.success || !json.data?.proveedores) {
+      console.error("[proveedores] getProveedores:", json.error ?? res.statusText);
+      return [];
+    }
+    return json.data.proveedores;
+  } catch (e) {
+    console.error("[proveedores] getProveedores:", e);
+    return [];
   }
 }
 
-function safeSet(key: string, value: unknown): void {
+export async function getProveedor(id: string): Promise<Proveedor | null> {
   try {
-    localStorage.setItem(key, JSON.stringify(value));
+    const res = await fetchWithSupabaseSession(`/api/proveedores/${encodeURIComponent(id)}`, {
+      cache: "no-store",
+    });
+    const json = (await res.json()) as {
+      success?: boolean;
+      data?: { proveedor?: Proveedor };
+      error?: string;
+    };
+    if (!res.ok || !json.success || !json.data?.proveedor) {
+      return null;
+    }
+    return json.data.proveedor;
   } catch {
-    // localStorage no disponible
+    return null;
   }
 }
 
-// ─── API ─────────────────────────────────────────────────────────────────────
+/** Coincidencia por RUC / identificación (normalizada). */
+export async function proveedorExiste(ruc: string): Promise<Proveedor | null> {
+  const t = ruc.trim();
+  if (!t) return null;
+  const todos = await getProveedores();
+  const lower = t.toLowerCase();
+  return todos.find((p) => (p.ruc ?? "").trim().toLowerCase() === lower) ?? null;
+}
 
-/**
- * Devuelve todos los proveedores. Si no hay datos guardados,
- * inicializa con los mocks y los persiste para futuras ediciones.
- */
-export function getProveedores(): Proveedor[] {
-  const stored = safeGet<Proveedor[]>(KEY, []);
-  if (stored.length === 0) {
-    safeSet(KEY, PROVEEDORES_MOCK);
-    return PROVEEDORES_MOCK;
+export async function createProveedor(datos: NuevoProveedorInput): Promise<{ ok: true; proveedor: Proveedor } | { ok: false; error: string }> {
+  try {
+    const res = await fetchWithSupabaseSession("/api/proveedores", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(datos),
+    });
+    const json = (await res.json()) as {
+      success?: boolean;
+      data?: { proveedor?: Proveedor };
+      error?: string;
+    };
+    if (!res.ok || !json.success || !json.data?.proveedor) {
+      return { ok: false, error: json.error ?? `Error ${res.status}` };
+    }
+    return { ok: true, proveedor: json.data.proveedor };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Error de red." };
   }
-  return stored;
 }
 
-/**
- * Comprueba si ya existe un proveedor con el mismo RUC (case-insensitive).
- * Devuelve el proveedor encontrado o null.
- */
-export function proveedorExiste(ruc: string): Proveedor | null {
-  const todos = getProveedores();
-  return todos.find((p) => p.ruc.toLowerCase() === ruc.toLowerCase()) ?? null;
+export async function updateProveedor(
+  id: string,
+  datos: Partial<NuevoProveedorInput> & { categoria_ids?: string[] }
+): Promise<{ ok: true; proveedor: Proveedor } | { ok: false; error: string }> {
+  try {
+    const res = await fetchWithSupabaseSession(`/api/proveedores/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(datos),
+    });
+    const json = (await res.json()) as {
+      success?: boolean;
+      data?: { proveedor?: Proveedor };
+      error?: string;
+    };
+    if (!res.ok || !json.success || !json.data?.proveedor) {
+      return { ok: false, error: json.error ?? `Error ${res.status}` };
+    }
+    return { ok: true, proveedor: json.data.proveedor };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Error de red." };
+  }
 }
 
-/**
- * Guarda un nuevo proveedor en localStorage.
- */
-export function saveProveedor(datos: Omit<Proveedor, "id" | "fecha_creacion">): Proveedor {
-  const nuevo: Proveedor = {
-    id: Date.now(),
-    fecha_creacion: new Date().toISOString(),
-    ...datos,
-  };
-  const existentes = getProveedores();
-  safeSet(KEY, [...existentes, nuevo]);
-  return nuevo;
+export async function getCategoriasProveedor(options?: { todas?: boolean }): Promise<ProveedorCategoria[]> {
+  const q = options?.todas ? "?todas=1" : "";
+  try {
+    const res = await fetchWithSupabaseSession(`/api/proveedores/categorias${q}`, { cache: "no-store" });
+    const json = (await res.json()) as {
+      success?: boolean;
+      data?: { categorias?: ProveedorCategoria[] };
+      error?: string;
+    };
+    if (!res.ok || !json.success || !json.data?.categorias) {
+      console.error("[proveedores] getCategoriasProveedor:", json.error ?? res.statusText);
+      return [];
+    }
+    return json.data.categorias;
+  } catch (e) {
+    console.error("[proveedores] getCategoriasProveedor:", e);
+    return [];
+  }
+}
+
+export async function createCategoriaProveedor(input: {
+  nombre: string;
+  descripcion?: string | null;
+  activo?: boolean;
+}): Promise<{ ok: true; categoria: ProveedorCategoria } | { ok: false; error: string }> {
+  try {
+    const res = await fetchWithSupabaseSession("/api/proveedores/categorias", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    const json = (await res.json()) as {
+      success?: boolean;
+      data?: { categoria?: ProveedorCategoria };
+      error?: string;
+    };
+    if (!res.ok || !json.success || !json.data?.categoria) {
+      return { ok: false, error: json.error ?? `Error ${res.status}` };
+    }
+    return { ok: true, categoria: json.data.categoria };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Error de red." };
+  }
+}
+
+export async function updateCategoriaProveedor(
+  id: string,
+  patch: Partial<{ nombre: string; descripcion: string | null; activo: boolean }>
+): Promise<{ ok: true; categoria: ProveedorCategoria } | { ok: false; error: string }> {
+  try {
+    const res = await fetchWithSupabaseSession(`/api/proveedores/categorias/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    const json = (await res.json()) as {
+      success?: boolean;
+      data?: { categoria?: ProveedorCategoria };
+      error?: string;
+    };
+    if (!res.ok || !json.success || !json.data?.categoria) {
+      return { ok: false, error: json.error ?? `Error ${res.status}` };
+    }
+    return { ok: true, categoria: json.data.categoria };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Error de red." };
+  }
 }
