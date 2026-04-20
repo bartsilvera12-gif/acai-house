@@ -25,6 +25,9 @@ import {
   syncOmnichannelRouteForWhatsappChannel,
 } from "@/lib/chat/omnichannel-route-sync";
 import type { AppSupabaseClient } from "@/lib/supabase/schema";
+import { getChatPostgresPool, quoteSchemaTable } from "@/lib/supabase/chat-pg-pool";
+import { isLikelyUnexposedTenantChatSchema } from "@/lib/supabase/chat-data-schema";
+import { isInvalidPostgrestSchemaError } from "@/lib/chat/postgrest-schema-error";
 import { normalizeChannelType } from "@/lib/chat/channel-type-utils";
 
 export type ConversacionesVista = "inbox" | "bot" | "historial";
@@ -702,8 +705,15 @@ export type ChatChannelRow = {
   updated_at?: string;
 };
 
+function isoFromPgOrJson(v: unknown): string {
+  if (typeof v === "string") return v;
+  if (v instanceof Date) return v.toISOString();
+  return String(v ?? "");
+}
+
 function mapChatChannelRow(r: Record<string, unknown>): ChatChannelRow {
   const mp = r.meta_phone_number_id;
+  const upd = r.updated_at;
   return {
     id: r.id as string,
     empresa_id: r.empresa_id as string,
@@ -716,13 +726,66 @@ function mapChatChannelRow(r: Record<string, unknown>): ChatChannelRow {
     connection_mode: (r.connection_mode as string | null) ?? null,
     config_status: (r.config_status as string) ?? "incomplete",
     config: (typeof r.config === "object" && r.config !== null ? r.config : {}) as Record<string, unknown>,
-    created_at: (r.created_at as string) ?? "",
-    updated_at: r.updated_at as string | undefined,
+    created_at: isoFromPgOrJson(r.created_at),
+    updated_at:
+      upd === null || upd === undefined
+        ? undefined
+        : typeof upd === "string"
+          ? upd
+          : upd instanceof Date
+            ? upd.toISOString()
+            : String(upd),
   };
 }
 
+const POSTGREST_TENANT_SCHEMA_HINT =
+  "PostgREST no puede usar el schema de datos de esta empresa. Configurá SUPABASE_DB_URL o DIRECT_URL (pooler Postgres) en el entorno del servidor, o agregá el schema en Supabase → Settings → API → Exposed schemas.";
+
+async function tryFetchChatChannelsFromPg(
+  dataSchema: string,
+  empresaId: string
+): Promise<ChatChannelRow[] | undefined> {
+  const pool = getChatPostgresPool();
+  if (!pool) return undefined;
+  const q = `
+    SELECT id, empresa_id, type, meta_phone_number_id, nombre, provider, provider_channel_id,
+           activo, connection_mode, config_status, config, created_at, updated_at
+    FROM ${quoteSchemaTable(dataSchema, "chat_channels")}
+    WHERE empresa_id = $1::uuid
+    ORDER BY created_at ASC
+  `;
+  const r = await pool.query(q, [empresaId]);
+  return (r.rows ?? []).map((row) => mapChatChannelRow(row as Record<string, unknown>));
+}
+
+async function tryFetchChatChannelByIdFromPg(
+  dataSchema: string,
+  empresaId: string,
+  channelId: string
+): Promise<ChatChannelRow | null | undefined> {
+  const pool = getChatPostgresPool();
+  if (!pool) return undefined;
+  const q = `
+    SELECT id, empresa_id, type, meta_phone_number_id, nombre, provider, provider_channel_id,
+           activo, connection_mode, config_status, config, created_at, updated_at
+    FROM ${quoteSchemaTable(dataSchema, "chat_channels")}
+    WHERE id = $1::uuid AND empresa_id = $2::uuid
+    LIMIT 1
+  `;
+  const r = await pool.query(q, [channelId, empresaId]);
+  const row = r.rows?.[0];
+  if (!row) return null;
+  return mapChatChannelRow(row as Record<string, unknown>);
+}
+
 export async function fetchChatChannels(): Promise<ChatChannelRow[]> {
-  const { supabase, empresa_id } = await requireEmpresaTenantServiceRole();
+  const { supabase, empresa_id, dataSchema } = await requireEmpresaTenantServiceRole();
+
+  if (isLikelyUnexposedTenantChatSchema(dataSchema)) {
+    const rows = await tryFetchChatChannelsFromPg(dataSchema, empresa_id);
+    if (rows !== undefined) return rows;
+  }
+
   const { data, error } = await supabase
     .from("chat_channels")
     .select(
@@ -731,14 +794,25 @@ export async function fetchChatChannels(): Promise<ChatChannelRow[]> {
     .eq("empresa_id", empresa_id)
     .order("created_at", { ascending: true });
 
-  if (error) throw new Error(error.message);
+  if (error) {
+    if (isLikelyUnexposedTenantChatSchema(dataSchema) && isInvalidPostgrestSchemaError(error.message)) {
+      throw new Error(POSTGREST_TENANT_SCHEMA_HINT);
+    }
+    throw new Error(error.message);
+  }
   return (data ?? []).map((r) => mapChatChannelRow(r as Record<string, unknown>));
 }
 
 export async function fetchChatChannelById(channelId: string): Promise<ChatChannelRow | null> {
-  const { supabase, empresa_id } = await requireEmpresaTenantServiceRole();
+  const { supabase, empresa_id, dataSchema } = await requireEmpresaTenantServiceRole();
   const id = channelId.trim();
   if (!id) return null;
+
+  if (isLikelyUnexposedTenantChatSchema(dataSchema)) {
+    const row = await tryFetchChatChannelByIdFromPg(dataSchema, empresa_id, id);
+    if (row !== undefined) return row;
+  }
+
   const { data, error } = await supabase
     .from("chat_channels")
     .select(
@@ -748,7 +822,12 @@ export async function fetchChatChannelById(channelId: string): Promise<ChatChann
     .eq("empresa_id", empresa_id)
     .maybeSingle();
 
-  if (error) throw new Error(error.message);
+  if (error) {
+    if (isLikelyUnexposedTenantChatSchema(dataSchema) && isInvalidPostgrestSchemaError(error.message)) {
+      throw new Error(POSTGREST_TENANT_SCHEMA_HINT);
+    }
+    throw new Error(error.message);
+  }
   if (!data) return null;
   return mapChatChannelRow(data as Record<string, unknown>);
 }

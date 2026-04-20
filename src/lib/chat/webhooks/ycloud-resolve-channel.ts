@@ -4,6 +4,7 @@ import { resolveEmpresaDataSchema } from "@/lib/supabase/schema";
 import { getChatPostgresPool, quoteSchemaTable } from "@/lib/supabase/chat-pg-pool";
 import { isLikelyUnexposedTenantChatSchema } from "@/lib/supabase/chat-data-schema";
 import type { SupabaseAdmin } from "@/lib/chat/types";
+import { isInvalidPostgrestSchemaError } from "@/lib/chat/postgrest-schema-error";
 import { verifyYCloudWebhookSignatureWithDebug } from "@/lib/chat/webhooks/ycloud-signature";
 import { explainYCloudChannelMatch, type YCloudInboundIdentifiers } from "@/lib/chat/webhooks/ycloud-match";
 
@@ -15,11 +16,6 @@ const LOG_IN = "[ycloud-incoming]";
 function cfgStr(cfg: Record<string, unknown>, key: string): string {
   const v = cfg[key];
   return typeof v === "string" ? v.trim() : "";
-}
-
-function isInvalidPostgrestSchemaError(msg: string): boolean {
-  const m = msg.toLowerCase();
-  return m.includes("invalid schema") || m.includes("pgrst106") || m.includes("schema must be one of");
 }
 
 function summarizeSigHeader(h: string | null): { present: boolean; has_t: boolean; has_s: boolean; preview: string } {
