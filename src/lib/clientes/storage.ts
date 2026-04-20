@@ -1,7 +1,7 @@
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import { getCurrentUser } from "@/lib/auth";
 import { getBrowserSupabaseForEmpresaData } from "@/lib/supabase/browser-data-client";
-import type { Cliente, EstadoCliente, NotaCliente } from "./types";
+import type { Cliente, EstadoCliente, NotaCliente, PerfilTributarioCliente } from "./types";
 
 // ─── Tipo de fila Supabase ────────────────────────────────────────────────────
 // RLS maneja empresa_id automáticamente; no filtrar manualmente en SELECT
@@ -45,6 +45,8 @@ interface SupabaseRow {
   notas:              unknown;
   created_at:         string | null;
   updated_at:         string | null;
+  perfil_tributario_activo?: boolean;
+  perfil_tributario?: PerfilTributarioCliente | null;
 }
 
 // ─── Mapping fila → Cliente ───────────────────────────────────────────────────
@@ -64,7 +66,7 @@ function rowToCliente(row: SupabaseRow): Cliente {
   const nombreContacto = row.nombre_contacto ?? row.nombre ?? "";
   const now = new Date().toISOString();
   const idRow = typeof row.id === "string" && row.id ? row.id : "";
-  return {
+  const c: Cliente = {
     id:                  idRow,
     codigo_cliente:      idRow ? `CL-${idRow.slice(0, 8).toUpperCase()}` : "CL-????????",
     tipo_cliente:        (row.tipo_cliente === "persona" ? "persona" : "empresa") as Cliente["tipo_cliente"],
@@ -104,6 +106,9 @@ function rowToCliente(row: SupabaseRow): Cliente {
     created_at:          row.created_at ?? now,
     updated_at:          row.updated_at ?? row.created_at ?? now,
   };
+  if (row.perfil_tributario_activo === true) c.perfil_tributario_activo = true;
+  if (row.perfil_tributario != null) c.perfil_tributario = row.perfil_tributario;
+  return c;
 }
 
 // ─── API pública ──────────────────────────────────────────────────────────────

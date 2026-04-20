@@ -74,4 +74,24 @@ export interface Cliente {
 
   /** Nombre del plan activo (suscripción activa). Solo cuando se solicita en listado. */
   plan_activo?:        string | null;
+
+  /** Indicador de UI: el perfil tributario está activo (no implica que la empresa tenga la función encendida). */
+  perfil_tributario_activo?: boolean;
+
+  /** Detalle de obligaciones y metadatos fiscales (sin clave en claro). */
+  perfil_tributario?:  PerfilTributarioCliente | null;
+}
+
+/** Perfil fiscal extendido; la clave nunca se expone, solo el hecho de que exista. */
+export interface PerfilTributarioCliente {
+  perfil_activo: boolean;
+  dv: string | null;
+  razon_social_fiscal: string | null;
+  fecha_vencimiento: string | null;
+  honorario_mensual: number | null;
+  honorario_anual: number | null;
+  notas_tributarias: string | null;
+  obligacion_otro_detalle: string | null;
+  clave_tributaria_configurada: boolean;
+  obligaciones: { id: string; slug: string; nombre: string }[];
 }

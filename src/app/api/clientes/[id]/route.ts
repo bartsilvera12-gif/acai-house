@@ -4,6 +4,7 @@ import { successResponse, errorResponse } from "@/lib/api/response";
 import { API_ERRORS } from "@/lib/api/errors";
 import { getTenantSupabaseFromAuthWithRol } from "@/lib/supabase/tenant-api";
 import { createServiceRoleClient } from "@/lib/supabase/service-admin";
+import { fetchPerfilTributarioDetalle } from "@/lib/clientes/tributario-server";
 
 /**
  * GET /api/clientes/:id — un cliente de la empresa (mismo schema que el resto de APIs tenant).
@@ -70,6 +71,16 @@ export async function GET(
       } catch (e) {
         console.warn("[api/clientes/[id]] GET enriquecer creador:", e);
       }
+    }
+
+    try {
+      const perfil = await fetchPerfilTributarioDetalle(supabase, auth.empresa_id, clienteId);
+      row.perfil_tributario = perfil;
+      row.perfil_tributario_activo = perfil?.perfil_activo === true;
+    } catch (e) {
+      console.warn("[api/clientes/[id]] GET perfil tributario:", e);
+      row.perfil_tributario = null;
+      row.perfil_tributario_activo = false;
     }
 
     return NextResponse.json(successResponse(row));

@@ -2,7 +2,20 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { apiCreateCliente, apiCreateFactura, apiCreateSuscripcion } from "@/lib/api/client";
+import {
+  apiCreateCliente,
+  apiCreateFactura,
+  apiCreateSuscripcion,
+  apiGetGestionTributariaClientes,
+  apiGetObligacionesTributariasCatalogo,
+  apiPutClientePerfilTributario,
+} from "@/lib/api/client";
+import {
+  ClientePerfilTributarioForm,
+  buildPerfilTributarioPutBody,
+  emptyTributarioForm,
+  type TributarioFormState,
+} from "@/components/clientes/ClientePerfilTributarioForm";
 import { getProspecto, updateProspecto } from "@/lib/crm/storage";
 import MontoInput from "@/components/ui/MontoInput";
 import { getPlanes } from "@/lib/planes/storage";
@@ -79,8 +92,30 @@ function NuevoClienteForm() {
     descripcion:   "Venta al contado",
   });
 
+  const [gestionTributariaEmpresa, setGestionTributariaEmpresa] = useState(false);
+  const [catalogoObligaciones, setCatalogoObligaciones] = useState<
+    { id: string; slug: string; nombre: string; requiere_detalle_otro: boolean }[]
+  >([]);
+  const [formTributario, setFormTributario] = useState<TributarioFormState>(() => emptyTributarioForm());
+
   useEffect(() => {
     getPlanes().then(setPlanes);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const on = await apiGetGestionTributariaClientes();
+      if (cancelled) return;
+      setGestionTributariaEmpresa(on);
+      if (on) {
+        const cat = await apiGetObligacionesTributariasCatalogo();
+        if (!cancelled) setCatalogoObligaciones(cat);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Contado: al elegir plan, precargar monto de factura con el precio del plan (editable después).
@@ -151,6 +186,13 @@ function NuevoClienteForm() {
       if (monto <= 0) return setError("El monto de la factura debe ser mayor a 0.");
     }
 
+    if (gestionTributariaEmpresa && formTributario.perfil_activo) {
+      const otro = catalogoObligaciones.find((c) => c.slug === "otro");
+      if (otro && formTributario.obligacion_catalogo_ids.includes(otro.id) && !formTributario.obligacion_otro_detalle.trim()) {
+        return setError('Completá el detalle cuando seleccionás la obligación "Otro".');
+      }
+    }
+
     setGuardando(true);
 
     const creado = await apiCreateCliente({
@@ -176,6 +218,14 @@ function NuevoClienteForm() {
       return setError(creado.error || "Error al guardar. Revisá la consola.");
     }
     const clienteId = creado.data.id;
+
+    if (gestionTributariaEmpresa && formTributario.perfil_activo) {
+      const put = await apiPutClientePerfilTributario(clienteId, buildPerfilTributarioPutBody(formTributario));
+      if (!put.ok) {
+        setGuardando(false);
+        return setError(put.error ?? "El cliente se creó, pero no se pudo guardar el perfil tributario.");
+      }
+    }
 
     // Crear suscripción automática si condicion_pago = MENSUAL y estado activo
     if (form.condicion_pago === "MENSUAL" && form.estado === "activo") {
@@ -637,6 +687,17 @@ function NuevoClienteForm() {
               </div>
             )}
           </section>
+
+          {gestionTributariaEmpresa && (
+            <section className="space-y-4">
+              <ClientePerfilTributarioForm
+                catalog={catalogoObligaciones}
+                value={formTributario}
+                onChange={setFormTributario}
+                tipoCliente={form.tipo_cliente}
+              />
+            </section>
+          )}
 
           {/* Error */}
           {error && (

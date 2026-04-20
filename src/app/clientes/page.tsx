@@ -245,9 +245,16 @@ export default function ClientesPage() {
                         {c.tipo_cliente === "empresa" ? "E" : "P"}
                       </div>
                       <div>
-                        <p className="text-sm font-semibold text-gray-800 group-hover:text-gray-900">
-                          {clienteNombre(c)}
-                        </p>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-sm font-semibold text-gray-800 group-hover:text-gray-900">
+                            {clienteNombre(c)}
+                          </p>
+                          {c.perfil_tributario_activo && (
+                            <span className="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100">
+                              Tributario
+                            </span>
+                          )}
+                        </div>
                         {c.tipo_cliente === "empresa" && c.ruc && (
                           <p className="text-xs text-gray-400">RUC: {c.ruc}</p>
                         )}

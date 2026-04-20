@@ -15,13 +15,18 @@ import {
   apiGetBajaOperativaPreview,
   apiBajaOperativaCliente,
   apiGetEliminarClientePreview,
+  apiGetGestionTributariaClientes,
+  apiGetObligacionesTributariasCatalogo,
+  apiPutClientePerfilTributario,
+  apiCreateFactura,
+  apiCreatePago,
+  apiCreateSuscripcion,
   type BajaOperativaPreview,
   type EliminarClientePreview,
 } from "@/lib/api/client";
 import { getFacturas, getSuscripciones } from "@/lib/facturacion/storage";
 import { getMarketingTasks, createMarketingTask, updateTaskStatus } from "@/lib/marketing/storage";
 import { getUsuariosActivosEmpresa } from "@/lib/usuarios/empresa";
-import { apiCreateFactura, apiCreatePago, apiCreateSuscripcion } from "@/lib/api/client";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import { SifenEstadoBadge } from "@/components/sifen/SifenEstadoBadge";
 import { useFacturaSifenEstados } from "@/hooks/useFacturaSifenEstados";
@@ -39,6 +44,13 @@ import type { Suscripcion } from "@/lib/facturacion/types";
 import type { Plan } from "@/lib/planes/types";
 import type { MarketingTask } from "@/lib/marketing/types";
 import { TIPOS_CONTENIDO, ESTADOS_TASK } from "@/lib/marketing/types";
+import {
+  ClientePerfilTributarioForm,
+  buildPerfilTributarioPutBody,
+  emptyTributarioForm,
+  formStateFromPerfil,
+  type TributarioFormState,
+} from "@/components/clientes/ClientePerfilTributarioForm";
 // ── Estilos ────────────────────────────────────────────────────────────────────
 
 const inputClass =
@@ -198,6 +210,12 @@ export default function ClienteDetailPage() {
     emitir_factura: false, monto: "", descripcion: "Venta al contado",
   });
 
+  const [gestionTributariaEmpresa, setGestionTributariaEmpresa] = useState(false);
+  const [catalogoObligacionesTrib, setCatalogoObligacionesTrib] = useState<
+    { id: string; slug: string; nombre: string; requiere_detalle_otro: boolean }[]
+  >([]);
+  const [formTributario, setFormTributario] = useState<TributarioFormState>(() => emptyTributarioForm());
+
   // Estados de notas
   const [nuevaNota,     setNuevaNota]     = useState("");
   const [guardandoNota, setGuardandoNota] = useState(false);
@@ -283,6 +301,7 @@ export default function ClienteDetailPage() {
         tipo_servicio_cliente: c.tipo_servicio_cliente ?? "",
         estado:               c.estado,
       });
+      setFormTributario(formStateFromPerfil(c.perfil_tributario ?? null));
       setCargandoCliente(false);
       setCargandoDetalleCliente(true);
       try {
@@ -338,6 +357,22 @@ export default function ClienteDetailPage() {
       }
       if (cancelled) return;
       setEsAdmin(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const on = await apiGetGestionTributariaClientes();
+      if (cancelled) return;
+      setGestionTributariaEmpresa(on);
+      if (on) {
+        const cat = await apiGetObligacionesTributariasCatalogo();
+        if (!cancelled) setCatalogoObligacionesTrib(cat);
+      }
     })();
     return () => {
       cancelled = true;
@@ -405,6 +440,13 @@ export default function ClienteDetailPage() {
       if (monto <= 0) return setFormError("El monto de la factura debe ser mayor a 0.");
     }
 
+    if (gestionTributariaEmpresa && formTributario.perfil_activo) {
+      const otro = catalogoObligacionesTrib.find((c) => c.slug === "otro");
+      if (otro && formTributario.obligacion_catalogo_ids.includes(otro.id) && !formTributario.obligacion_otro_detalle.trim()) {
+        return setFormError('Completá el detalle cuando seleccionás la obligación "Otro".');
+      }
+    }
+
     await updateCliente(id, {
       tipo_cliente:        form.tipo_cliente,
       empresa:             form.tipo_cliente === "empresa" ? form.empresa.trim().toUpperCase() : undefined,
@@ -428,6 +470,11 @@ export default function ClienteDetailPage() {
       tipo_servicio_cliente: form.tipo_servicio_cliente || undefined,
       estado:               form.estado,
     });
+
+    if (gestionTributariaEmpresa) {
+      const put = await apiPutClientePerfilTributario(id, buildPerfilTributarioPutBody(formTributario));
+      if (!put.ok) return setFormError(put.error ?? "No se pudo guardar el perfil tributario.");
+    }
 
     // Crear factura si condicion_pago = CONTADO y Emitir factura
     if (form.condicion_pago === "CONTADO" && formContadoEdit.emitir_factura) {
@@ -726,6 +773,11 @@ export default function ClienteDetailPage() {
                   }`}>
                     ● {cliente.estado === "activo" ? "Activo" : "Inactivo"}
                   </span>
+                  {cliente.perfil_tributario_activo && (
+                    <span className="text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full bg-white/15 text-white border border-white/25">
+                      Tributario
+                    </span>
+                  )}
                   <span className="text-xs text-gray-400">
                     Cliente desde {formatFecha(cliente.created_at)}
                   </span>
@@ -1515,6 +1567,18 @@ export default function ClienteDetailPage() {
                   </div>
                 )}
               </section>
+
+              {gestionTributariaEmpresa && (
+                <section className="space-y-4">
+                  <ClientePerfilTributarioForm
+                    catalog={catalogoObligacionesTrib}
+                    value={formTributario}
+                    onChange={setFormTributario}
+                    tipoCliente={form.tipo_cliente}
+                    claveYaConfigurada={Boolean(cliente.perfil_tributario?.clave_tributaria_configurada)}
+                  />
+                </section>
+              )}
 
               {formError && (
                 <div className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700">

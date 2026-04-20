@@ -5,6 +5,7 @@ import { emitEvent, EVENT_TYPES } from "@/lib/integrations/events";
 import type { TipoServicioCliente } from "@/lib/clientes/types";
 import type { AppSupabaseClient } from "@/lib/supabase/schema";
 import { getTenantSupabaseFromAuthWithRol } from "@/lib/supabase/tenant-api";
+import { fetchPerfilTributarioActivosMap } from "@/lib/clientes/tributario-server";
 
 const TIPOS_SERVICIO_VALIDOS: TipoServicioCliente[] = ["marketing", "saas", "branding", "web", "otro"];
 
@@ -85,6 +86,15 @@ export async function GET(request: NextRequest) {
       const ids = rows.map((r) => r.id).filter((id): id is string => typeof id === "string");
       const planMap = await buildPlanActivoMap(supabase, auth.empresa_id, ids);
       attachPlanesActivos(rows, planMap);
+    }
+
+    if (rows.length > 0) {
+      const ids = rows.map((r) => r.id).filter((id): id is string => typeof id === "string");
+      const perfilMap = await fetchPerfilTributarioActivosMap(supabase, auth.empresa_id, ids);
+      for (const r of rows) {
+        const id = typeof r.id === "string" ? r.id : "";
+        r.perfil_tributario_activo = id ? perfilMap.get(id) === true : false;
+      }
     }
 
     return NextResponse.json(successResponse(rows));

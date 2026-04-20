@@ -27,6 +27,50 @@ async function apiPost<T>(path: string, data: Record<string, unknown>): Promise<
   return { success: true, data: body.data };
 }
 
+async function apiPatch<T>(path: string, data: Record<string, unknown>): Promise<{ success: true; data: T } | { success: false; error: string }> {
+  const res = await fetchWithSupabaseSession(path, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  let json: unknown;
+  try {
+    json = await res.json();
+  } catch {
+    return { success: false, error: res.ok ? "Respuesta inválida del servidor" : `Error ${res.status}` };
+  }
+  const body = json as { success?: boolean; data?: T; error?: string };
+  if (!res.ok) {
+    return { success: false, error: body?.error ?? `Error ${res.status}` };
+  }
+  if (body?.success !== true || body.data === undefined || body.data === null) {
+    return { success: false, error: body?.error ?? "Respuesta inválida del servidor" };
+  }
+  return { success: true, data: body.data };
+}
+
+async function apiPut<T>(path: string, data: Record<string, unknown>): Promise<{ success: true; data: T } | { success: false; error: string }> {
+  const res = await fetchWithSupabaseSession(path, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  let json: unknown;
+  try {
+    json = await res.json();
+  } catch {
+    return { success: false, error: res.ok ? "Respuesta inválida del servidor" : `Error ${res.status}` };
+  }
+  const body = json as { success?: boolean; data?: T; error?: string };
+  if (!res.ok) {
+    return { success: false, error: body?.error ?? `Error ${res.status}` };
+  }
+  if (body?.success !== true || body.data === undefined || body.data === null) {
+    return { success: false, error: body?.error ?? "Respuesta inválida del servidor" };
+  }
+  return { success: true, data: body.data };
+}
+
 export async function apiCreateCliente(data: {
   tipo_cliente?: string;
   tipo_servicio_cliente?: string;
@@ -89,6 +133,49 @@ export async function apiBajaOperativaCliente(
   if (!res.ok) {
     return { ok: false, error: json?.error ?? `Error ${res.status}` };
   }
+  return { ok: true };
+}
+
+export async function apiGetGestionTributariaClientes(): Promise<boolean> {
+  const res = await fetchWithSupabaseSession("/api/empresas/gestion-tributaria-clientes", { cache: "no-store" });
+  const json = (await res.json()) as { success?: boolean; data?: { gestion_tributaria_clientes?: boolean } };
+  if (!res.ok || !json.success || !json.data) return false;
+  return Boolean(json.data.gestion_tributaria_clientes);
+}
+
+export async function apiPatchGestionTributariaClientes(on: boolean): Promise<{ ok: boolean; error?: string }> {
+  const r = await apiPatch<{ gestion_tributaria_clientes: boolean }>(
+    "/api/empresas/gestion-tributaria-clientes",
+    { gestion_tributaria_clientes: on }
+  );
+  if (!r.success) return { ok: false, error: r.error };
+  return { ok: true };
+}
+
+export type ObligacionCatalogoApi = {
+  id: string;
+  slug: string;
+  nombre: string;
+  requiere_detalle_otro: boolean;
+};
+
+export async function apiGetObligacionesTributariasCatalogo(): Promise<ObligacionCatalogoApi[]> {
+  const res = await fetchWithSupabaseSession("/api/clientes/obligaciones-tributarias-catalogo", { cache: "no-store" });
+  const json = (await res.json()) as { success?: boolean; data?: { items?: ObligacionCatalogoApi[] } };
+  if (!res.ok || json.success !== true || !json.data?.items) return [];
+  return json.data.items;
+}
+
+/** Actualiza perfil tributario del cliente (PUT). Omitir `clave_tributaria` para conservar la actual; `null` limpia. */
+export async function apiPutClientePerfilTributario(
+  clienteId: string,
+  payload: Record<string, unknown>
+): Promise<{ ok: boolean; error?: string }> {
+  const r = await apiPut<{ perfil: unknown }>(
+    `/api/clientes/${encodeURIComponent(clienteId)}/perfil-tributario`,
+    payload
+  );
+  if (!r.success) return { ok: false, error: r.error };
   return { ok: true };
 }
 
