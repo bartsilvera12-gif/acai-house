@@ -502,29 +502,40 @@ export default function ClienteDetailPage() {
       }
     }
 
-    await updateCliente(id, {
-      tipo_cliente:        form.tipo_cliente,
-      empresa:             form.tipo_cliente === "empresa" ? form.empresa.trim().toUpperCase() : undefined,
-      nombre_contacto:     form.nombre_contacto.trim().toUpperCase(),
-      ruc:                 form.ruc.trim()                 || undefined,
-      documento:           form.documento.trim()           || undefined,
-      telefono:            form.telefono.trim()            || undefined,
-      telefono_secundario: form.telefono_secundario.trim() || undefined,
-      email:               form.email.trim()               || undefined,
-      email_secundario:    form.email_secundario.trim()    || undefined,
-      direccion:           form.direccion.trim()           || undefined,
-      ciudad:              form.ciudad.trim().toUpperCase()  || undefined,
-      pais:                form.pais.trim().toUpperCase()    || undefined,
-      sitio_web:           form.sitio_web.trim()           || undefined,
-      instagram:           form.instagram.trim()           || undefined,
-      linkedin:            form.linkedin.trim()            || undefined,
-      valor_cliente:       parseFloat(form.valor_cliente) || undefined,
-      condicion_pago:      form.condicion_pago.trim().toUpperCase()    || undefined,
-      moneda_preferida:    form.moneda_preferida,
-      vendedor_asignado:    form.vendedor_asignado.trim().toUpperCase() || undefined,
-      tipo_servicio_cliente: form.tipo_servicio_cliente || undefined,
-      estado:               form.estado,
-    });
+    const tipoTs = (form.tipo_servicio_cliente || "").trim().toLowerCase();
+    try {
+      await updateCliente(id, {
+        tipo_cliente:        form.tipo_cliente,
+        empresa:             form.tipo_cliente === "empresa" ? form.empresa.trim().toUpperCase() : undefined,
+        nombre_contacto:     form.nombre_contacto.trim().toUpperCase(),
+        ruc:                 form.ruc.trim()                 || undefined,
+        documento:           form.documento.trim()           || undefined,
+        telefono:            form.telefono.trim()            || undefined,
+        telefono_secundario: form.telefono_secundario.trim() || undefined,
+        email:               form.email.trim()               || undefined,
+        email_secundario:    form.email_secundario.trim()    || undefined,
+        direccion:           form.direccion.trim()           || undefined,
+        ciudad:              form.ciudad.trim().toUpperCase()  || undefined,
+        pais:                form.pais.trim().toUpperCase()    || undefined,
+        sitio_web:           form.sitio_web.trim()           || undefined,
+        instagram:           form.instagram.trim()           || undefined,
+        linkedin:            form.linkedin.trim()            || undefined,
+        valor_cliente:       parseFloat(form.valor_cliente) || undefined,
+        condicion_pago:      form.condicion_pago.trim().toUpperCase()    || undefined,
+        moneda_preferida:    form.moneda_preferida,
+        vendedor_asignado:   form.vendedor_asignado.trim().toUpperCase() || undefined,
+        tipo_servicio_cliente: tipoTs || null,
+        estado:              form.estado,
+      });
+    } catch (err) {
+      const m = err instanceof Error ? err.message : String(err);
+      if (/inexistente|inexistente en el cat|catálogo/i.test(m) || /check constraint/i.test(m) || m.includes("23514")) {
+        return setFormError(
+          "Ese «Tipo de servicio» no está en el catálogo CRM de tu empresa (o la base lo rechazó). Configuración → CRM → tipos/segmento: creá el tipo con el mismo identificador (slug), o elegí un tipo de la lista actualizada, y guardá de nuevo."
+        );
+      }
+      return setFormError(m || "No se pudo guardar el cliente.");
+    }
 
     if (gestionTributariaEmpresa) {
       const put = await apiPutClientePerfilTributario(id, buildPerfilTributarioPutBody(formTributario));
@@ -570,9 +581,14 @@ export default function ClienteDetailPage() {
 
   async function handleToggleEstado() {
     if (!cliente) return;
+    setFormError(null);
     const nuevo = cliente.estado === "activo" ? "inactivo" : "activo";
-    await toggleEstado(id, nuevo);
-    cargar();
+    try {
+      await toggleEstado(id, nuevo);
+      cargar();
+    } catch (e) {
+      setFormError(e instanceof Error ? e.message : "No se pudo cambiar el estado del cliente.");
+    }
   }
 
   async function abrirModalBajaOperativa() {

@@ -256,11 +256,16 @@ export async function saveCliente(datos: NuevoClienteData): Promise<Cliente | nu
   return rowToCliente(data as SupabaseRow);
 }
 
-/** Actualiza cliente. RLS valida que pertenezca a la empresa del usuario. */
-export async function updateCliente(
-  id: string,
-  datos: Partial<Omit<Cliente, "id" | "codigo_cliente" | "created_at">>
-): Promise<Cliente | null> {
+type ActualizarClienteInput = Omit<
+  Partial<Omit<Cliente, "id" | "codigo_cliente" | "created_at">>,
+  "tipo_servicio_cliente"
+> & {
+  /** null quita el tipo. */
+  tipo_servicio_cliente?: string | null;
+};
+
+/** Actualiza cliente. RLS valida que pertenezca a la empresa del usuario. Falla (throw) si Supabase devuelve error. */
+export async function updateCliente(id: string, datos: ActualizarClienteInput): Promise<Cliente> {
   const supabase = await getBrowserSupabaseForEmpresaData();
   const patch: Record<string, unknown> = {};
   if (datos.tipo_cliente !== undefined) patch.tipo_cliente = datos.tipo_cliente;
@@ -297,8 +302,8 @@ export async function updateCliente(
     .single();
 
   if (error) {
-    console.error("[clientes] updateCliente:", error.message);
-    return null;
+    console.error("[clientes] updateCliente:", error.message, error);
+    throw new Error(error.message || "Error al actualizar el cliente");
   }
   return rowToCliente(data as SupabaseRow);
 }
