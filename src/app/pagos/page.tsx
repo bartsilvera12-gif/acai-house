@@ -176,12 +176,15 @@ export default function PagosPage() {
       }));
   }, [clientes, mapNombreTipoServicio]);
 
-  /** Suma de saldos de filas filtradas (fechas + tipo de cliente). */
-  const totalPendienteVista = useMemo(
+  /** Sumas de importe total y de saldo en la vista (fechas + tipo de cliente). */
+  const totalesPendientesVista = useMemo(
     () =>
       pendientesVista.reduce(
-        (acc, f) => acc + (Number.isFinite(f.saldo) ? f.saldo : 0),
-        0
+        (acc, f) => ({
+          monto: acc.monto + (Number.isFinite(f.monto) ? f.monto : 0),
+          saldo: acc.saldo + (Number.isFinite(f.saldo) ? f.saldo : 0),
+        }),
+        { monto: 0, saldo: 0 }
       ),
     [pendientesVista]
   );
@@ -435,33 +438,45 @@ export default function PagosPage() {
                 ))}
               </tbody>
               <tfoot>
-                <tr>
-                  <td colSpan={9} className="p-0">
-                    <div
-                      className="flex w-full min-w-0 flex-col items-stretch gap-2 border-t-2 border-slate-200 bg-slate-50/90 px-3 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4"
-                      role="status"
-                    >
-                      <p className="shrink-0 text-xs font-semibold text-slate-700 sm:max-w-[40%] sm:pr-2">
-                        {rangoFechas
-                          ? filtroTipoCliente
-                            ? "Total pendiente (filtros activos)"
-                            : "Total pendiente en el rango"
-                          : filtroTipoCliente
-                            ? "Total pendiente (filtros activos)"
-                            : "Total pendiente en esta vista"}
-                      </p>
-                      <p
-                        className="min-w-0 flex-1 whitespace-nowrap text-center text-sm font-bold tabular-nums text-[#0EA5E9] sm:px-2"
-                        style={{ lineHeight: 1.25 }}
-                      >
-                        {`Gs. ${totalPendienteVista.toLocaleString("es-PY")}`}
-                      </p>
-                      <p className="shrink-0 text-left text-[11px] text-slate-500 sm:max-w-[32%] sm:text-right">
-                        {pendientesVista.length} registro{pendientesVista.length === 1 ? "" : "s"} · se
-                        recalcula al cambiar el filtro
-                      </p>
-                    </div>
+                <tr
+                  className="border-t-2 border-slate-200 bg-slate-50/90"
+                  role="status"
+                  aria-label="Totales de la vista filtrada"
+                >
+                  <td
+                    colSpan={5}
+                    className="align-top px-3 py-3 text-left first:pl-4 sm:px-4 sm:first:pl-5"
+                  >
+                    <p className="text-xs font-semibold text-slate-700">
+                      {rangoFechas
+                        ? filtroTipoCliente
+                          ? "Suma con filtros activos (rango, tipo y clientes con saldo)"
+                          : "Suma en el rango de fechas (facturas con saldo)"
+                        : filtroTipoCliente
+                          ? "Suma con filtros activos (vista y tipo de cliente)"
+                          : "Suma de la vista (facturas con saldo listadas arriba)"}
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-slate-500">
+                      {pendientesVista.length} registro{pendientesVista.length === 1 ? "" : "s"}. Se
+                      recalcula al cambiar fecha, tipo o tabla.
+                    </p>
                   </td>
+                  <td className="whitespace-nowrap align-top px-3 py-3 text-right sm:px-4 sm:text-left">
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Total</span>
+                    <p className="text-sm font-bold tabular-nums text-slate-800">
+                      Gs. {totalesPendientesVista.monto.toLocaleString("es-PY")}
+                    </p>
+                  </td>
+                  <td className="whitespace-nowrap align-top px-3 py-3 text-right sm:px-4 sm:text-left">
+                    <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">Saldo</span>
+                    <p className="text-sm font-bold tabular-nums text-amber-600">
+                      Gs. {totalesPendientesVista.saldo.toLocaleString("es-PY")}
+                    </p>
+                  </td>
+                  <td
+                    colSpan={2}
+                    className="align-top px-3 py-3 text-right last:pr-4 text-[11px] text-slate-500 sm:px-4 sm:last:pr-5"
+                  />
                 </tr>
               </tfoot>
             </table>
