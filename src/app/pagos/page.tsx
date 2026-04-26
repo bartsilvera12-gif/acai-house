@@ -130,6 +130,16 @@ export default function PagosPage() {
     return cobrados.filter((p) => fechaEnRangoCalendario(p.fecha_pago));
   }, [cobrados, rangoFechas, fechaEnRangoCalendario]);
 
+  /** Suma de saldos pendientes de la vista (misma fuente y filtros que la columna "Saldo"). */
+  const totalPendienteVista = useMemo(
+    () =>
+      pendientes.reduce(
+        (acc, f) => acc + (Number.isFinite(f.saldo) ? f.saldo : 0),
+        0
+      ),
+    [pendientes]
+  );
+
   /** Total de la vista actual (respeta el mismo filtro de fechas que la tabla). */
   const totalCobradoVista = useMemo(
     () => cobradosFiltrados.reduce((acc, p) => acc + (Number.isFinite(p.monto) ? p.monto : 0), 0),
@@ -297,6 +307,19 @@ export default function PagosPage() {
                   </tr>
                 ))}
               </tbody>
+              <tfoot>
+                <tr className="bg-slate-50/90 border-t-2 border-slate-200">
+                  <td colSpan={5} className="px-4 py-3 text-xs font-semibold text-slate-700">
+                    Total pendiente {rangoFechas ? "en el rango" : "en esta vista"}
+                  </td>
+                  <td className="px-4 py-3 text-sm font-bold text-[#0EA5E9] tabular-nums">
+                    Gs. {totalPendienteVista.toLocaleString("es-PY")}
+                  </td>
+                  <td colSpan={2} className="px-4 py-3 text-[11px] text-slate-500">
+                    {pendientes.length} registro{pendientes.length === 1 ? "" : "s"} · se recalcula al cambiar el filtro
+                  </td>
+                </tr>
+              </tfoot>
             </table>
           </div>
         )}
