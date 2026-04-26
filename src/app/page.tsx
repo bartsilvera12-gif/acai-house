@@ -1211,8 +1211,51 @@ function DashFinanciero({
     };
   }, [clientes, facturasPeriodo, mapNombreTipoServicio]);
 
+  const facturaById = useMemo(
+    () => new Map(facturas.map((f) => [String(f.id), f] as const)),
+    [facturas]
+  );
+
+  /**
+   * Suma monto de `pagos` con `fecha_pago` en [desde,hasta] (mismo conjunto que “Cobrado por día”;
+   * excluye factura anulada) agrupada por el tipo de servicio del **cliente** (slug → catálogo).
+   */
+  const cobradoPorTipoServicio = useMemo(() => {
+    const m = new Map<string, number>();
+    const byCliente = new Map<string, string>();
+    for (const c of clientes) {
+      const raw = (c.tipo_servicio_cliente ?? "").trim();
+      byCliente.set(String(c.id), raw ? raw.toLowerCase() : "__sin__");
+    }
+    for (const p of pagosPeriodo) {
+      const factura = facturaById.get(String(p.factura_id));
+      if (!factura) continue;
+      const pagoMonto = Number(p.monto);
+      if (!Number.isFinite(pagoMonto) || pagoMonto <= 0) continue;
+      const slug = byCliente.get(String(factura.cliente_id)) ?? "__sin__";
+      m.set(slug, (m.get(slug) ?? 0) + pagoMonto);
+    }
+    const pal = ["#2563EB", "#3B82F6", "#60A5FA", "#22C55E", "#A78BFA", "#F59E0B", "#EC4899", "#38BDF8"];
+    const list = [...m.entries()]
+      .map(([k, v]) => ({
+        key: k,
+        value: v,
+        label: k === "__sin__" ? "Sin clasificar" : etiquetaVisibleTipoServicio(k, mapNombreTipoServicio),
+      }))
+      .sort((a, b) => b.value - a.value)
+      .map((row, i) => ({ ...row, color: pal[i % pal.length] }));
+    return {
+      list,
+      total: list.reduce((a, b) => a + b.value, 0),
+    };
+  }, [clientes, pagosPeriodo, facturaById, mapNombreTipoServicio]);
+
   const deudaMaxTipo = deudaPorTipoServicio.list.length
     ? Math.max(...deudaPorTipoServicio.list.map((r) => r.value), 0)
+    : 1;
+
+  const cobradoMaxTipo = cobradoPorTipoServicio.list.length
+    ? Math.max(...cobradoPorTipoServicio.list.map((r) => r.value), 0)
     : 1;
 
   const finCard =
@@ -1386,51 +1429,101 @@ function DashFinanciero({
         </p>
       </div>
 
-      <div className={finCard}>
-        <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">Deuda por tipo de cliente</h3>
-        <p className="mt-1 text-[11px] text-slate-400">
-          Σ <span className="font-medium text-slate-500">saldo</span> de facturas emitidas en el rango, por{" "}
-          <span className="font-medium text-slate-500">clientes.tipo_servicio_cliente</span> (nombre desde catálogo
-          CRM).
-        </p>
-        {deudaPorTipoServicio.list.length === 0 ? (
-          <p className="mt-6 text-sm text-slate-500">No hay deuda pendiente (saldo &gt; 0) en el período o sin segmentos con saldo.</p>
-        ) : (
-          <div className="mt-6 space-y-4">
-            {deudaPorTipoServicio.list.map((row) => (
-              <div key={row.key}>
-                <div className="flex min-w-0 items-baseline justify-between gap-3 text-sm">
-                  <span className="min-w-0 break-words font-medium text-slate-700" title={row.label}>
-                    <span
-                      className="mr-2 inline-block h-2 w-2 shrink-0 rounded-full"
-                      style={{ backgroundColor: row.color }}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-start">
+        <div className={finCard}>
+          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">Deuda por tipo de cliente</h3>
+          <p className="mt-1 text-[11px] text-slate-400">
+            Σ <span className="font-medium text-slate-500">saldo</span> de facturas emitidas en el rango, por{" "}
+            <span className="font-medium text-slate-500">clientes.tipo_servicio_cliente</span> (nombre desde catálogo
+            CRM).
+          </p>
+          {deudaPorTipoServicio.list.length === 0 ? (
+            <p className="mt-6 text-sm text-slate-500">No hay deuda pendiente (saldo &gt; 0) en el período o sin segmentos con saldo.</p>
+          ) : (
+            <div className="mt-6 space-y-4">
+              {deudaPorTipoServicio.list.map((row) => (
+                <div key={row.key}>
+                  <div className="flex min-w-0 items-baseline justify-between gap-3 text-sm">
+                    <span className="min-w-0 break-words font-medium text-slate-700" title={row.label}>
+                      <span
+                        className="mr-2 inline-block h-2 w-2 shrink-0 rounded-full"
+                        style={{ backgroundColor: row.color }}
+                      />
+                      {row.label}
+                    </span>
+                    <span className="shrink-0 text-right text-sm font-bold tabular-nums text-slate-900">
+                      Gs. {formatGs(row.value)}
+                    </span>
+                  </div>
+                  <div className="mt-1.5 h-2.5 w-full overflow-hidden rounded-full bg-slate-100">
+                    <div
+                      className="h-full min-w-0 rounded-full"
+                      style={{
+                        width: `${deudaMaxTipo > 0 ? (row.value / deudaMaxTipo) * 100 : 0}%`,
+                        backgroundColor: row.color,
+                      }}
+                      title={row.label}
                     />
-                    {row.label}
-                  </span>
-                  <span className="shrink-0 text-right text-sm font-bold tabular-nums text-slate-900">
-                    Gs. {formatGs(row.value)}
-                  </span>
+                  </div>
                 </div>
-                <div className="mt-1.5 h-2.5 w-full overflow-hidden rounded-full bg-slate-100">
-                  <div
-                    className="h-full min-w-0 rounded-full"
-                    style={{
-                      width: `${deudaMaxTipo > 0 ? (row.value / deudaMaxTipo) * 100 : 0}%`,
-                      backgroundColor: row.color,
-                    }}
-                    title={row.label}
-                  />
-                </div>
+              ))}
+              <div className="flex min-w-0 items-baseline justify-between gap-2 border-t border-slate-100 pt-4 text-sm">
+                <span className="font-semibold text-slate-600">Total deuda (vista)</span>
+                <span className="shrink-0 text-right text-base font-bold tabular-nums text-slate-900">
+                  Gs. {formatGs(deudaPorTipoServicio.total)}
+                </span>
               </div>
-            ))}
-            <div className="flex min-w-0 items-baseline justify-between gap-2 border-t border-slate-100 pt-4 text-sm">
-              <span className="font-semibold text-slate-600">Total deuda (vista)</span>
-              <span className="shrink-0 text-right text-base font-bold tabular-nums text-slate-900">
-                Gs. {formatGs(deudaPorTipoServicio.total)}
-              </span>
             </div>
-          </div>
-        )}
+          )}
+        </div>
+        <div className={finCard}>
+          <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">Cobrado por tipo de cliente</h3>
+          <p className="mt-1 text-[11px] text-slate-400">
+            Σ <span className="font-medium text-slate-500">monto de pagos</span> con fecha de pago en el rango (misma
+            lógica que <span className="font-medium text-slate-500">Cobrado por día</span> / factura no anulada),
+            asignado al <span className="font-medium text-slate-500">cliente</span> vía{" "}
+            <span className="font-medium text-slate-500">tipo_servicio_cliente</span> (nombre catálogo CRM). No
+            incluye contado sin fila de pago.
+          </p>
+          {cobradoPorTipoServicio.list.length === 0 ? (
+            <p className="mt-6 text-sm text-slate-500">No hay pagos en el período con factura vinculada a cliente.</p>
+          ) : (
+            <div className="mt-6 space-y-4">
+              {cobradoPorTipoServicio.list.map((row) => (
+                <div key={row.key}>
+                  <div className="flex min-w-0 items-baseline justify-between gap-3 text-sm">
+                    <span className="min-w-0 break-words font-medium text-slate-700" title={row.label}>
+                      <span
+                        className="mr-2 inline-block h-2 w-2 shrink-0 rounded-full"
+                        style={{ backgroundColor: row.color }}
+                      />
+                      {row.label}
+                    </span>
+                    <span className="shrink-0 text-right text-sm font-bold tabular-nums text-slate-900">
+                      Gs. {formatGs(row.value)}
+                    </span>
+                  </div>
+                  <div className="mt-1.5 h-2.5 w-full overflow-hidden rounded-full bg-slate-100">
+                    <div
+                      className="h-full min-w-0 rounded-full"
+                      style={{
+                        width: `${cobradoMaxTipo > 0 ? (row.value / cobradoMaxTipo) * 100 : 0}%`,
+                        backgroundColor: row.color,
+                      }}
+                      title={row.label}
+                    />
+                  </div>
+                </div>
+              ))}
+              <div className="flex min-w-0 items-baseline justify-between gap-2 border-t border-slate-100 pt-4 text-sm">
+                <span className="font-semibold text-slate-600">Total cobrado (vista)</span>
+                <span className="shrink-0 text-right text-base font-bold tabular-nums text-slate-900">
+                  Gs. {formatGs(cobradoPorTipoServicio.total)}
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-5 lg:gap-8">
