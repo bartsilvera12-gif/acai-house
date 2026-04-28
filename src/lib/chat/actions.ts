@@ -59,6 +59,8 @@ export type ChatInboxFilters = {
   queue_id?: string | null;
   status?: string | null;
   priority?: string | null;
+  /** Filtro opcional por `chat_conversations.channel_id` (UUID). */
+  channel_id?: string | null;
 };
 
 export type InboxConversation = {
@@ -342,6 +344,11 @@ async function fetchChatConversationsUnsafe(
     const fp = filters?.priority?.trim().toLowerCase();
     if (fp && ["low", "medium", "high"].includes(fp)) {
       qb = qb.eq("priority", fp);
+    }
+
+    const fch = filters?.channel_id?.trim();
+    if (fch) {
+      qb = qb.eq("channel_id", fch);
     }
 
     return { builder: qb };

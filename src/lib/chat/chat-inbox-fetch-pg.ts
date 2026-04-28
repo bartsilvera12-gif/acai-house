@@ -225,6 +225,13 @@ export async function fetchChatConversationsFromTenantPg(
     pi++;
   }
 
+  const fch = filters?.channel_id?.trim();
+  if (fch) {
+    whereParts.push(`channel_id = $${pi}::uuid`);
+    params.push(fch);
+    pi++;
+  }
+
   if (!bypass) {
     const scopeSql = await buildPgOmnicanalConversationScopeAndClause(
       pool,

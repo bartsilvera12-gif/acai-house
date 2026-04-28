@@ -14,6 +14,7 @@ import {
   markConversationRead,
   releaseConversationToBot,
   type ChatInboxAssignmentFilter,
+  type ChatChannelRow,
   type ChatInboxFilters,
   type ConversacionesVista,
   type InboxConversation,
@@ -208,6 +209,7 @@ function parseInboxFilters(sp: URLSearchParams): ChatInboxFilters | undefined {
   const assignment: ChatInboxAssignmentFilter =
     rawA === "mios" ? "mine" : rawA === "sin_asignar" ? "unassigned" : "all";
   const queue_id = sp.get("cola")?.trim() || null;
+  const channel_id = sp.get("canal")?.trim() || null;
   const statusRaw = sp.get("estado")?.trim().toLowerCase() || null;
   const priorityRaw = sp.get("prioridad")?.trim().toLowerCase() || null;
   const status =
@@ -218,14 +220,27 @@ function parseInboxFilters(sp: URLSearchParams): ChatInboxFilters | undefined {
     assignment !== "all" ||
     (queue_id && queue_id.length > 0) ||
     status !== null ||
-    priority !== null;
+    priority !== null ||
+    (channel_id && channel_id.length > 0);
   if (!has) return undefined;
   return {
     assignment,
     queue_id: queue_id && queue_id.length > 0 ? queue_id : null,
     status,
     priority,
+    channel_id: channel_id && channel_id.length > 0 ? channel_id : null,
   };
+}
+
+function formatChannelOptionLabel(c: ChatChannelRow): string {
+  const name = (c.nombre ?? "").trim() || "Canal";
+  const kind = [c.type, c.provider].filter(Boolean).join(" / ");
+  const mp = c.meta_phone_number_id?.trim();
+  const tail =
+    mp && mp.length > 0
+      ? ` · ${mp.length > 18 ? `${mp.slice(0, 16)}…` : mp}`
+      : "";
+  return `${name} · ${kind}${tail}`;
 }
 
 function labelEstado(s: string) {
@@ -310,6 +325,8 @@ export function ConversacionesClient({
   const [messagesError, setMessagesError] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
   const [hasActiveChannel, setHasActiveChannel] = useState<boolean | null>(null);
+  /** Canales activos de la empresa (selector de filtro inbox/historial). */
+  const [inboxChannels, setInboxChannels] = useState<ChatChannelRow[]>([]);
   const [compVals, setCompVals] = useState<ComprobanteValidacionListRow[]>([]);
   const [compLoading, setCompLoading] = useState(false);
   const [compActionId, setCompActionId] = useState<string | null>(null);
@@ -573,6 +590,13 @@ export function ConversacionesClient({
   }, [opsQueues, searchParams, patchInboxQuery]);
 
   useEffect(() => {
+    const canal = searchParams?.get("canal")?.trim() ?? "";
+    if (!canal || inboxChannels.length === 0) return;
+    const ok = inboxChannels.some((c) => c.id === canal);
+    if (!ok) patchInboxQuery({ canal: null });
+  }, [inboxChannels, searchParams, patchInboxQuery]);
+
+  useEffect(() => {
     if (!transferModalOpen) return;
     let cancelled = false;
     setTransferLoadsRefreshing(true);
@@ -625,8 +649,14 @@ export function ConversacionesClient({
 
   useEffect(() => {
     fetchChatChannels()
-      .then((ch) => setHasActiveChannel(ch.some((c) => c.activo)))
-      .catch(() => setHasActiveChannel(null));
+      .then((ch) => {
+        setHasActiveChannel(ch.some((c) => c.activo));
+        setInboxChannels(ch.filter((c) => c.activo));
+      })
+      .catch(() => {
+        setHasActiveChannel(null);
+        setInboxChannels([]);
+      });
   }, []);
 
   useEffect(() => {
@@ -1683,6 +1713,25 @@ export function ConversacionesClient({
 
       {(mode === "historial" || vista === "inbox") ? (
         <div className="flex flex-wrap items-end gap-3 shrink-0 rounded-xl border border-slate-200 bg-white px-3 py-2.5">
+          <label className="flex flex-col gap-1 min-w-[12rem]">
+            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Canal</span>
+            <select
+              className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs bg-white min-w-[12rem] max-w-[min(22rem,90vw)]"
+              value={searchParams?.get("canal") ?? ""}
+              onChange={(e) => {
+                const v = e.target.value.trim();
+                patchInboxQuery({ canal: v.length > 0 ? v : null });
+              }}
+              aria-label="Filtrar por canal"
+            >
+              <option value="">Todos los canales</option>
+              {inboxChannels.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {formatChannelOptionLabel(c)}
+                </option>
+              ))}
+            </select>
+          </label>
           <label className="flex flex-col gap-1 min-w-[11rem]">
             <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Cola</span>
             <select
