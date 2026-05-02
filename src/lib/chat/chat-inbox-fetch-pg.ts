@@ -290,11 +290,9 @@ export async function fetchChatConversationsFromTenantPg(
 
   let classifiedAsActivelyBot = 0;
   if (vista === "inbox") {
-    list = list.filter((row) => {
-      const b = isActivelyBot(row);
-      if (b) classifiedAsActivelyBot += 1;
-      return !b;
-    });
+    for (const row of list) {
+      if (isActivelyBot(row)) classifiedAsActivelyBot += 1;
+    }
   } else if (vista === "bot") {
     list = list.filter((row) => {
       const b = isActivelyBot(row);

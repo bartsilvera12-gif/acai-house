@@ -418,11 +418,10 @@ async function fetchChatConversationsUnsafe(
 
   let classifiedAsActivelyBot = 0;
   if (vista === "inbox") {
-    list = list.filter((row) => {
-      const b = isActivelyBot(row as Record<string, unknown>);
-      if (b) classifiedAsActivelyBot += 1;
-      return !b;
-    });
+    /** Inbox lista todo lo abierto/pendiente; si ocultáramos «solo bot» los operadores no ven WhatsApp en flujo (inbox vacío). La pestaña Bot sigue filtrando solo automatización. */
+    for (const row of list) {
+      if (isActivelyBot(row as Record<string, unknown>)) classifiedAsActivelyBot += 1;
+    }
   } else if (vista === "bot") {
     list = list.filter((row) => {
       const b = isActivelyBot(row as Record<string, unknown>);
