@@ -127,6 +127,10 @@ export type MaybeGenerateAndSendSorteoTicketDeliveryResult = {
   storagePath?: string | null;
   whatsappMessageId?: string | null;
   provider?: string | null;
+  /** Solo dry-run: signed URL creada y HEAD OK sobre el PNG */
+  signedUrlCreated?: boolean;
+  signedUrlHeadOk?: boolean;
+  signedUrlError?: string | null;
 };
 
 /**
@@ -351,12 +355,31 @@ export async function maybeGenerateAndSendSorteoTicketDelivery(
     });
 
     if (input.skipWhatsApp) {
+      const signedDry = await createSignedUrlForTicket(supabase, genPath, 600);
+      let headOk = false;
+      if (signedDry.url) {
+        try {
+          const head = await fetch(signedDry.url, { method: "HEAD" });
+          headOk = head.ok;
+        } catch {
+          headOk = false;
+        }
+      }
+      console.info("[sorteo-ticket] signed_url_created", {
+        deliveryId: rowId,
+        hasUrl: Boolean(signedDry.url),
+        signedUrlHeadOk: headOk,
+        phase: "dry_run",
+      });
       return {
         ok: true,
         deliveryId: rowId,
         lastStatus: "generated",
         storageBucket: "sorteo-tickets-generated",
         storagePath: genPath,
+        signedUrlCreated: Boolean(signedDry.url),
+        signedUrlHeadOk: headOk,
+        signedUrlError: signedDry.error ?? null,
       };
     }
 

@@ -67,11 +67,25 @@ export type TenantPgChatSupabaseShimOptions = {
 function serializeCell(col: string, val: unknown, params: unknown[]): string {
   if (val === undefined) return "DEFAULT";
   const lower = col.toLowerCase();
-  const p = pushParam(params, val);
-  if (lower.includes("payload") || lower.includes("config") || lower.includes("routing_config")) {
+  const jsonbCol =
+    lower.includes("payload") ||
+    lower.includes("config") ||
+    lower.includes("routing_config") ||
+    lower === "cupones" ||
+    lower.includes("json") ||
+    lower.includes("raw_payload");
+  if (jsonbCol) {
+    /** Evita "invalid input syntax for type json" al pasar objetos con casting manual ::jsonb */
+    let serialized: string;
+    try {
+      serialized = typeof val === "string" ? val : JSON.stringify(val ?? null);
+    } catch {
+      serialized = "null";
+    }
+    const p = pushParam(params, serialized);
     return `${p}::jsonb`;
   }
-  if (lower.includes("raw_payload")) return `${p}::jsonb`;
+  const p = pushParam(params, val);
   return p;
 }
 
