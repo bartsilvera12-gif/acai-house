@@ -679,6 +679,70 @@ export async function runSorteoTicketAfterBuyerText(params: {
   });
 }
 
+export async function getSorteoTicketDeliveryModeForSorteo(input: {
+  supabase: AppSupabaseClient;
+  empresaId: string;
+  sorteoId: string;
+}): Promise<SorteoTicketDeliveryMode> {
+  const meta = await loadSorteoRowForTicket(input);
+  return meta?.ticket_delivery_mode ?? "text_only";
+}
+
+/** Tras enviar el PNG en image_only: si tuvo éxito o ya estaba sent, se puede omitir el texto largo del nodo. */
+export function shouldSuppressSorteoFinalTextAfterImageOnlyTicket(
+  delivery: MaybeGenerateAndSendSorteoTicketDeliveryResult | null | undefined
+): boolean {
+  if (!delivery || !delivery.ok) {
+    return false;
+  }
+  if (delivery.skipped) {
+    return delivery.reason === "already_sent";
+  }
+  return delivery.lastStatus === "sent";
+}
+
+/**
+ * Tras el mensaje de cierre (ej. nodo compra_realizada o resumen sin siguiente nodo):
+ * genera y envía el ticket (trigger confirmacion_final). `delivery` null si el modo es text_only.
+ */
+export async function runSorteoTicketAfterFinalNodeMessage(params: {
+  supabase: AppSupabaseClient;
+  empresaId: string;
+  conversationId: string;
+  contactId: string;
+  channelId: string;
+  flowSessionId: string | null;
+  orderResult: EnsureSorteoOrderCreatedData;
+  flowData: Record<string, string>;
+}): Promise<{
+  mode: SorteoTicketDeliveryMode;
+  delivery: MaybeGenerateAndSendSorteoTicketDeliveryResult | null;
+}> {
+  const meta = await loadSorteoRowForTicket({
+    supabase: params.supabase,
+    empresaId: params.empresaId,
+    sorteoId: params.orderResult.sorteoId,
+  });
+  const mode: SorteoTicketDeliveryMode = meta?.ticket_delivery_mode ?? "text_only";
+  if (mode === "text_only") {
+    return { mode, delivery: null };
+  }
+  const delivery = await maybeGenerateAndSendSorteoTicketDelivery({
+    supabase: params.supabase,
+    empresaId: params.empresaId,
+    sorteoId: params.orderResult.sorteoId,
+    entradaId: params.orderResult.entradaId,
+    conversationId: params.conversationId,
+    flowSessionId: params.flowSessionId,
+    contactId: params.contactId,
+    channelId: params.channelId,
+    orderResult: params.orderResult,
+    flowData: params.flowData,
+    trigger: "confirmacion_final",
+  });
+  return { mode, delivery };
+}
+
 export function buildImageOnlyStubText(config: Record<string, unknown>): string {
   const c = normalizeTicketImageConfig(config);
   return (c.ticket_image_only_stub ?? "").trim() || SORTEO_TICKET_DEFAULT_STUB;
