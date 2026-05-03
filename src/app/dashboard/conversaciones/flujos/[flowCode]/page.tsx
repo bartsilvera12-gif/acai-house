@@ -9,6 +9,11 @@ import { getSorteos } from "@/lib/sorteos/actions";
 import { parseMoneyPy } from "@/lib/sorteos/parse-money-py";
 import { optionPayloadFinalizesSorteoOrder } from "@/lib/sorteos/sorteo-option-payload";
 import { computeFlowGraphWarnings } from "@/lib/chat/flow-graph-warnings";
+import {
+  buttonQuickReplyGroupsEnabled,
+  partitionQuickReplyButtonGroups,
+  validateQuickReplyGroupsMaxThree,
+} from "@/lib/chat/flow-button-groups";
 
 type FlowNodeOption = {
   id: string;
@@ -18,6 +23,9 @@ type FlowNodeOption = {
   meta_button_id: string;
   next_node_code: string | null;
   sort_order: number;
+  /** Título de burbuja WhatsApp (solo modo agrupado). */
+  group_title?: string | null;
+  group_order?: number;
   option_payload?: Record<string, unknown>;
 };
 
@@ -110,6 +118,9 @@ function mergeSavedFlowOption(prev: FlowNodeOption, incoming: Partial<FlowNodeOp
     next_node_code:
       incoming.next_node_code !== undefined ? incoming.next_node_code : prev.next_node_code,
     sort_order: typeof incoming.sort_order === "number" ? incoming.sort_order : prev.sort_order,
+    group_title: incoming.group_title !== undefined ? incoming.group_title : prev.group_title,
+    group_order:
+      typeof incoming.group_order === "number" ? incoming.group_order : prev.group_order ?? 0,
     option_payload:
       incoming.option_payload !== undefined && incoming.option_payload !== null
         ? incoming.option_payload
@@ -117,6 +128,36 @@ function mergeSavedFlowOption(prev: FlowNodeOption, incoming: Partial<FlowNodeOp
     node_id: typeof incoming.node_id === "string" ? incoming.node_id : prev.node_id,
     id: typeof incoming.id === "string" ? incoming.id : prev.id,
   };
+}
+
+function sortOptionsForGroupedEditor(node: FlowNode): FlowNodeOption[] {
+  return [...node.options].sort((a, b) => {
+    const ga = a.group_order ?? 0;
+    const gb = b.group_order ?? 0;
+    if (ga !== gb) return ga - gb;
+    const ta = (a.group_title ?? "").trim();
+    const tb = (b.group_title ?? "").trim();
+    if (ta !== tb) return ta.localeCompare(tb);
+    return (a.sort_order ?? 0) - (b.sort_order ?? 0);
+  });
+}
+
+function validateButtonsQuickReplyGroups(node: FlowNode): string | null {
+  if (node.node_type !== "buttons") return null;
+  const opts = node.options.map((o) => ({
+    id: o.id,
+    label: o.label,
+    option_value: o.option_value,
+    meta_button_id: o.meta_button_id,
+    next_node_code: o.next_node_code,
+    sort_order: o.sort_order,
+    group_title: o.group_title ?? null,
+    group_order: o.group_order ?? 0,
+  }));
+  if (!buttonQuickReplyGroupsEnabled(opts)) return null;
+  const defaultTitle = node.message_text?.trim() || "Opciones";
+  const groups = partitionQuickReplyButtonGroups(opts, defaultTitle);
+  return validateQuickReplyGroupsMaxThree(groups);
 }
 
 function compareFlowNodes(a: FlowNode, b: FlowNode): number {
@@ -650,6 +691,10 @@ export default function FlowEditorPage() {
 
     /** Sin esto, quien usa solo «Guardar paso» nunca mandaba PATCH de opciones → el texto del botón no persistía en BD. */
     const snap = nodesRef.current.find((n) => n.id === node.id);
+    if (snap && snap.node_type === "buttons") {
+      const gErr = validateButtonsQuickReplyGroups(snap);
+      if (gErr) throw new Error(gErr);
+    }
     if (snap && (snap.node_type === "buttons" || snap.node_type === "list") && snap.options.length > 0) {
       for (const o of snap.options) {
         await persistOptionCore(snap, o, { toastSuccess: false, reason: "save_node_batch" });
@@ -708,12 +753,39 @@ export default function FlowEditorPage() {
     }
 
     const metaButtonId = resolveUniqueMetaButtonId(live, liveOpt.id, buttonLabel);
+
+    const refNode = nodesRef.current.find((n) => n.id === live.id) ?? live;
+    const mergedOptionsForValidate = refNode.options.map((o) => {
+      if (o.id !== liveOpt.id) return o;
+      return {
+        ...o,
+        label: buttonLabel,
+        meta_button_id: metaButtonId,
+        next_node_code: nextCode,
+        sort_order: liveOpt.sort_order,
+        group_title: liveOpt.group_title ?? null,
+        group_order: liveOpt.group_order ?? 0,
+        option_payload: payloadParsed,
+      };
+    });
+    const groupValErr = validateButtonsQuickReplyGroups({ ...refNode, options: mergedOptionsForValidate });
+    if (groupValErr) {
+      setOptionSaveError((prev) => ({ ...prev, [liveOpt.id]: groupValErr }));
+      throw new Error(groupValErr);
+    }
+
     const patchBody = {
       label: buttonLabel,
       meta_button_id: metaButtonId,
       next_node_code: nextCode,
       sort_order: liveOpt.sort_order,
       option_payload: payloadParsed,
+      ...(live.node_type === "buttons"
+        ? {
+            group_title: (liveOpt.group_title ?? "").trim() || null,
+            group_order: Math.trunc(Number(liveOpt.group_order ?? 0)),
+          }
+        : {}),
     };
     console.info("[flow-save]", "patch_chat_flow_option", {
       flowCode,
@@ -785,9 +857,14 @@ export default function FlowEditorPage() {
   }
 
   async function createOption(node: FlowNode) {
-    if (node.node_type === "buttons" && node.options.length >= 10) {
+    if (node.node_type === "list" && node.options.length >= 10) {
       throw new Error(
-        "WhatsApp admite como máximo 10 opciones en mensaje de lista. Eliminá una opción antes de agregar otra."
+        "WhatsApp admite como máximo 10 filas en mensaje de lista. Eliminá una opción antes de agregar otra."
+      );
+    }
+    if (node.node_type === "buttons" && node.options.length >= 30) {
+      throw new Error(
+        "Límite de 30 opciones por nodo de botones. Si usás grupos, cada burbuja lleva hasta 3 botones rápidos."
       );
     }
     // sort_order: evitar duplicados si hubo borrados (max + 1)
@@ -1176,6 +1253,21 @@ export default function FlowEditorPage() {
         <div className="space-y-4">
           {orderedNodes.map((node, idx) => {
             const isExpanded = expandedNodeId === node.id;
+            const sortedFlowOptions = sortOptionsForGroupedEditor(node);
+            const showGroupedButtonUi =
+              node.node_type === "buttons" &&
+              buttonQuickReplyGroupsEnabled(
+                sortedFlowOptions.map((o) => ({
+                  id: o.id,
+                  label: o.label,
+                  option_value: o.option_value,
+                  meta_button_id: o.meta_button_id,
+                  next_node_code: o.next_node_code,
+                  sort_order: o.sort_order,
+                  group_title: o.group_title ?? null,
+                  group_order: o.group_order ?? 0,
+                }))
+              );
             return (
             <div
               key={node.id}
@@ -1899,17 +1991,49 @@ export default function FlowEditorPage() {
                     {node.node_type === "list" ? "Opciones de lista del cliente" : "Botones del cliente"}
                   </div>
                   {node.node_type === "buttons" && (
-                    <p className="text-[11px] text-slate-700 bg-sky-50 border border-sky-200 rounded-lg px-3 py-2 leading-snug">
-                      <span className="font-medium text-sky-900">WhatsApp Cloud API:</span> hasta{" "}
-                      <strong>3 respuestas tipo botón</strong> por mensaje. Con <strong>4 o más</strong> opciones se
-                      envía automáticamente un <strong>mensaje de lista interactiva</strong> (hasta{" "}
-                      <strong>10</strong> filas). El texto que ve el cliente es el del campo{" "}
-                      <strong>«Texto del botón»</strong>. Se guarda al pulsar <strong>Guardar</strong> junto a la opción o
-                      al pulsar <strong>Guardar paso</strong> (ambos persisten los textos en la base).
-                    </p>
+                    <div className="space-y-2">
+                      <p className="text-[11px] text-slate-700 bg-sky-50 border border-sky-200 rounded-lg px-3 py-2 leading-snug">
+                        <span className="font-medium text-sky-900">WhatsApp Cloud API:</span> el texto que ve el cliente
+                        en cada botón es el campo <strong>«Texto del botón»</strong>. Se guarda con{" "}
+                        <strong>Guardar</strong> o <strong>Guardar paso</strong>.
+                      </p>
+                      {showGroupedButtonUi ? (
+                        <p className="text-[11px] text-amber-900 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 leading-snug">
+                          <strong>Modo agrupado:</strong> cada <strong>título de grupo</strong> se envía como una
+                          burbuja aparte.{" "}
+                          <strong>Cada grupo puede tener hasta 3 botones rápidos de WhatsApp.</strong> No se usa lista
+                          interactiva en este modo.
+                        </p>
+                      ) : (
+                        <p className="text-[11px] text-slate-700 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 leading-snug">
+                          Sin agrupar: hasta <strong>3</strong> opciones van como botones rápidos en un solo mensaje; con{" "}
+                          <strong>4 o más</strong> opciones el sistema puede enviar un <strong>mensaje de lista</strong>{" "}
+                          (hasta <strong>10</strong> filas).
+                        </p>
+                      )}
+                    </div>
                   )}
-                  {node.options.map((opt) => (
-                    <div key={opt.id} className="grid grid-cols-1 md:grid-cols-4 gap-2 items-start">
+                  {sortedFlowOptions.map((opt, optIdx) => {
+                    const prevOpt = optIdx > 0 ? sortedFlowOptions[optIdx - 1] : null;
+                    const gKey = `${opt.group_order ?? 0}\u0000${(opt.group_title ?? "").trim()}`;
+                    const prevGKey = prevOpt
+                      ? `${prevOpt.group_order ?? 0}\u0000${(prevOpt.group_title ?? "").trim()}`
+                      : "";
+                    const showGroupHeading =
+                      node.node_type === "buttons" &&
+                      showGroupedButtonUi &&
+                      gKey !== prevGKey;
+                    const headingLabel = (opt.group_title ?? "").trim()
+                      ? (opt.group_title ?? "").trim()
+                      : node.message_text?.trim() || "Opciones";
+                    return (
+                    <div key={opt.id} className="space-y-2">
+                      {showGroupHeading && (
+                        <div className="text-xs font-semibold text-slate-700 pt-2 border-t border-slate-200 first:border-t-0 first:pt-0 first:mt-0">
+                          Grupo: {headingLabel}
+                        </div>
+                      )}
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-2 items-start">
                       <div>
                         <label className="block text-xs text-slate-500 mb-1">
                           {node.node_type === "list" ? "Texto de la opción" : "Texto del botón"}
@@ -2020,6 +2144,83 @@ export default function FlowEditorPage() {
                           Eliminar
                         </button>
                       </div>
+                      {node.node_type === "buttons" && (
+                        <div className="md:col-span-4 grid grid-cols-1 sm:grid-cols-3 gap-2">
+                          <div>
+                            <label className="block text-xs text-slate-500 mb-1">Orden opción</label>
+                            <input
+                              type="number"
+                              className="border border-slate-200 rounded-lg px-2 py-1.5 text-sm w-full"
+                              value={opt.sort_order}
+                              onChange={(e) => {
+                                const v = parseInt(e.target.value, 10);
+                                setNodes((prev) =>
+                                  prev.map((n) =>
+                                    n.id !== node.id
+                                      ? n
+                                      : {
+                                          ...n,
+                                          options: n.options.map((o) =>
+                                            o.id === opt.id
+                                              ? { ...o, sort_order: Number.isFinite(v) ? v : 0 }
+                                              : o
+                                          ),
+                                        }
+                                  )
+                                );
+                              }}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-slate-500 mb-1">Título del grupo</label>
+                            <input
+                              className="border border-slate-200 rounded-lg px-2 py-1.5 text-sm w-full"
+                              value={opt.group_title ?? ""}
+                              placeholder="Ej: Combos populares"
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setNodes((prev) =>
+                                  prev.map((n) =>
+                                    n.id !== node.id
+                                      ? n
+                                      : {
+                                          ...n,
+                                          options: n.options.map((o) =>
+                                            o.id === opt.id ? { ...o, group_title: v || null } : o
+                                          ),
+                                        }
+                                  )
+                                );
+                              }}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-slate-500 mb-1">Orden del grupo</label>
+                            <input
+                              type="number"
+                              className="border border-slate-200 rounded-lg px-2 py-1.5 text-sm w-full"
+                              value={opt.group_order ?? 0}
+                              onChange={(e) => {
+                                const v = parseInt(e.target.value, 10);
+                                setNodes((prev) =>
+                                  prev.map((n) =>
+                                    n.id !== node.id
+                                      ? n
+                                      : {
+                                          ...n,
+                                          options: n.options.map((o) =>
+                                            o.id === opt.id
+                                              ? { ...o, group_order: Number.isFinite(v) ? v : 0 }
+                                              : o
+                                          ),
+                                        }
+                                  )
+                                );
+                              }}
+                            />
+                          </div>
+                        </div>
+                      )}
                       <div className="md:col-span-4 flex flex-wrap gap-2 pt-1">
                         <button
                           type="button"
@@ -2231,7 +2432,9 @@ export default function FlowEditorPage() {
                         {node.node_type === "list" ? "Opción" : "Botón"}: "{opt.label}" → va a: "{nextStepLabel(opt.next_node_code)}"
                       </div>
                     </div>
-                  ))}
+                    </div>
+                  );
+                  })}
                   <button
                     type="button"
                     onClick={async () => {

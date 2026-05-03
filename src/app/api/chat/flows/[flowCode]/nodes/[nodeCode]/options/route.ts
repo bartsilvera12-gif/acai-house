@@ -35,6 +35,8 @@ export async function POST(
       meta_button_id?: string;
       next_node_code?: string | null;
       sort_order?: number;
+      group_title?: string | null;
+      group_order?: number | null;
       option_payload?: Record<string, unknown> | null;
     };
     const label = (body.label ?? "").trim();
@@ -51,6 +53,12 @@ export async function POST(
       typeof body.option_payload === "object" && body.option_payload
         ? body.option_payload
         : {};
+    const gtInsert = typeof body.group_title === "string" ? body.group_title.trim() : "";
+    const groupTitleInsert = gtInsert.length ? gtInsert : null;
+    const groupOrderInsert = Number.isFinite(body.group_order)
+      ? Math.trunc(body.group_order as number)
+      : 0;
+
     const { data, error } = await supabase
       .from("chat_flow_options")
       .insert({
@@ -61,8 +69,12 @@ export async function POST(
         next_node_code: nextNodeCode,
         sort_order: Number.isFinite(body.sort_order) ? Math.trunc(body.sort_order as number) : 0,
         option_payload: optionPayload,
+        group_title: groupTitleInsert,
+        group_order: groupOrderInsert,
       })
-      .select("id, node_id, label, option_value, meta_button_id, next_node_code, sort_order, option_payload")
+      .select(
+        "id, node_id, label, option_value, meta_button_id, next_node_code, sort_order, option_payload, group_title, group_order"
+      )
       .single();
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
     return NextResponse.json({ ok: true, item: data });

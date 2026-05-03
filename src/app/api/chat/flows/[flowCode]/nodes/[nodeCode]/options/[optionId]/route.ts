@@ -17,6 +17,8 @@ export async function PATCH(
       meta_button_id?: string;
       next_node_code?: string | null;
       sort_order?: number;
+      group_title?: string | null;
+      group_order?: number | null;
       option_payload?: Record<string, unknown> | null;
     };
     const patch: Record<string, unknown> = {};
@@ -28,6 +30,11 @@ export async function PATCH(
     }
     if ("next_node_code" in body) patch.next_node_code = body.next_node_code?.trim() || null;
     if (Number.isFinite(body.sort_order)) patch.sort_order = Math.trunc(body.sort_order as number);
+    if ("group_title" in body) {
+      const gt = body.group_title?.trim() ?? "";
+      patch.group_title = gt.length ? gt : null;
+    }
+    if (Number.isFinite(body.group_order)) patch.group_order = Math.trunc(body.group_order as number);
     if ("option_payload" in body) {
       patch.option_payload =
         typeof body.option_payload === "object" && body.option_payload
@@ -76,7 +83,9 @@ export async function PATCH(
       .from("chat_flow_options")
       .update(patch)
       .eq("id", params.optionId)
-      .select("id, node_id, label, option_value, meta_button_id, next_node_code, sort_order, option_payload")
+      .select(
+        "id, node_id, label, option_value, meta_button_id, next_node_code, sort_order, option_payload, group_title, group_order"
+      )
       .maybeSingle();
     if (error) return NextResponse.json({ ok: false, error: error.message }, { status: 400 });
     if (!data) return NextResponse.json({ ok: false, error: "Opción no encontrada" }, { status: 404 });

@@ -34,7 +34,9 @@ export async function GET(
     if (ids.length) {
       const { data: opts, error: optsErr } = await supabase
         .from("chat_flow_options")
-        .select("id, node_id, label, option_value, meta_button_id, next_node_code, sort_order, option_payload")
+        .select(
+          "id, node_id, label, option_value, meta_button_id, next_node_code, sort_order, option_payload, group_title, group_order"
+        )
         .in("node_id", ids)
         .order("sort_order", { ascending: true });
       if (optsErr) {

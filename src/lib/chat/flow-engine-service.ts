@@ -13,6 +13,11 @@ import {
   runComprobanteValidationPipeline,
 } from "@/lib/chat/comprobante-validation-service";
 import {
+  buttonQuickReplyGroupsEnabled,
+  partitionQuickReplyButtonGroups,
+  validateQuickReplyGroupsMaxThree,
+} from "@/lib/chat/flow-button-groups";
+import {
   sendWhatsAppChoiceMessage,
   sendWhatsAppImage,
   sendWhatsAppInteractiveButtons,
@@ -116,6 +121,9 @@ type FlowOption = {
   next_node_code: string | null;
   sort_order: number;
   option_payload: Record<string, unknown> | null;
+  /** Modo grupos: cuerpo de cada burbuja interactiva (WhatsApp). Null/ vacío = legacy sin grupos. */
+  group_title?: string | null;
+  group_order?: number | null;
 };
 
 /**
@@ -861,7 +869,9 @@ export function createFlowEngine(ctx: FlowEngineContext) {
   async function getNodeOptions(nodeId: string): Promise<FlowOption[]> {
     const { data, error } = await supabase
       .from("chat_flow_options")
-      .select("id, label, option_value, meta_button_id, next_node_code, sort_order, option_payload")
+      .select(
+        "id, label, option_value, meta_button_id, next_node_code, sort_order, option_payload, group_title, group_order"
+      )
       .eq("node_id", nodeId)
       .order("sort_order", { ascending: true });
     if (error) throw new Error(error.message);
@@ -1363,6 +1373,88 @@ export function createFlowEngine(ctx: FlowEngineContext) {
     });
   }
 
+  /** Varias burbujas reply-buttons (misma sesión / mismo node_code). Solo modo grupos. */
+  async function emitGroupedQuickReplyButtonMessages(args: {
+    ctxSend: FlowSendContext;
+    conversation: ConversationFlowState;
+    empresaId: string;
+    flowCode: string;
+    nodeCode: string;
+    options: FlowOption[];
+    defaultGroupTitle: string;
+  }): Promise<{ ok: true } | { ok: false; error: string }> {
+    if (args.ctxSend.provider !== "meta") {
+      return {
+        ok: false,
+        error: ycloudOutboundUnsupportedMessage("botones interactivos agrupados"),
+      };
+    }
+    const ctxSend = args.ctxSend;
+
+    const schema = await fetchDataSchemaForEmpresaId(args.empresaId);
+    const groups = partitionQuickReplyButtonGroups(args.options, args.defaultGroupTitle);
+    const validationError = validateQuickReplyGroupsMaxThree(groups);
+    if (validationError) {
+      console.warn("[flow-buttons-groups][send-aborted]", {
+        schema,
+        empresa_id: args.empresaId,
+        flow_code: args.flowCode,
+        node_code: args.nodeCode,
+        conversation_id: args.conversation.id,
+        reason_preview: validationError.slice(0, 160),
+      });
+      return { ok: false, error: validationError };
+    }
+
+    console.info("[flow-buttons-groups][send-start]", {
+      schema,
+      empresa_id: args.empresaId,
+      flow_code: args.flowCode,
+      node_code: args.nodeCode,
+      conversation_id: args.conversation.id,
+      groups_count: groups.length,
+    });
+
+    for (const g of groups) {
+      const send = await sendWhatsAppInteractiveButtons({
+        toDigits: ctxSend.toDigits,
+        phoneNumberId: ctxSend.phoneNumberId,
+        accessToken: ctxSend.token,
+        bodyText: g.groupTitle.slice(0, 1024),
+        buttons: g.options.map((o) => ({
+          id: o.meta_button_id,
+          title: whatsAppInteractiveTitleFromOption(o as FlowOption),
+        })),
+      });
+      if (!send.ok) {
+        return { ok: false, error: send.error ?? "interactive_send_failed" };
+      }
+
+      await persistOutgoingMessage({
+        conversation: args.conversation,
+        content: g.groupTitle,
+        messageType: "interactive",
+        waMessageId: send.waMessageId,
+        raw: send.raw,
+        senderType: "system",
+        automationSource: "flow_engine",
+      });
+
+      console.info("[flow-buttons-groups][group-sent]", {
+        schema,
+        empresa_id: args.empresaId,
+        flow_code: args.flowCode,
+        node_code: args.nodeCode,
+        conversation_id: args.conversation.id,
+        group_title: g.groupTitle,
+        group_order: g.groupOrder,
+        options_count: g.options.length,
+      });
+    }
+
+    return { ok: true };
+  }
+
   async function sendCurrentFlowNode(
     params: SendCurrentNodeParams
   ): Promise<{ ok: boolean; nodeCode?: string; error?: string }> {
@@ -1500,28 +1592,47 @@ export function createFlowEngine(ctx: FlowEngineContext) {
             title: whatsAppInteractiveTitleFromOption(o),
           })),
         });
-        const send = await sendWhatsAppChoiceMessage({
-          toDigits: ctxSend.toDigits,
-          phoneNumberId: ctxSend.phoneNumberId,
-          accessToken: ctxSend.token,
-          bodyText,
-          listMenuButtonText: "Ver opciones",
-          buttons: options.map((o) => ({
-            id: o.meta_button_id,
-            title: whatsAppInteractiveTitleFromOption(o),
-          })),
-        });
-        if (!send.ok) return { ok: false, error: send.error };
+        const useGroupedQuickReply =
+          node.node_type === "buttons" && buttonQuickReplyGroupsEnabled(options);
 
-        await persistOutgoingMessage({
-          conversation: state,
-          content: bodyText,
-          messageType: "interactive",
-          waMessageId: send.waMessageId,
-          raw: send.raw,
-          senderType: "system",
-          automationSource: "flow_engine",
-        });
+        if (useGroupedQuickReply) {
+          const defaultGt = params.suppressPlainTextBody
+            ? SORTEO_TICKET_DEFAULT_STUB
+            : fallbackText;
+          const grouped = await emitGroupedQuickReplyButtonMessages({
+            ctxSend,
+            conversation: state,
+            empresaId: state.empresa_id,
+            flowCode: state.flow_code,
+            nodeCode: node.node_code,
+            options,
+            defaultGroupTitle: defaultGt,
+          });
+          if (!grouped.ok) return { ok: false, error: grouped.error };
+        } else {
+          const send = await sendWhatsAppChoiceMessage({
+            toDigits: ctxSend.toDigits,
+            phoneNumberId: ctxSend.phoneNumberId,
+            accessToken: ctxSend.token,
+            bodyText,
+            listMenuButtonText: "Ver opciones",
+            buttons: options.map((o) => ({
+              id: o.meta_button_id,
+              title: whatsAppInteractiveTitleFromOption(o),
+            })),
+          });
+          if (!send.ok) return { ok: false, error: send.error };
+
+          await persistOutgoingMessage({
+            conversation: state,
+            content: bodyText,
+            messageType: "interactive",
+            waMessageId: send.waMessageId,
+            raw: send.raw,
+            senderType: "system",
+            automationSource: "flow_engine",
+          });
+        }
       } else if (node.node_type === "media") {
         if (ctxSend.provider !== "meta") {
           return {
@@ -1615,6 +1726,13 @@ export function createFlowEngine(ctx: FlowEngineContext) {
     }
 
     const options = await getNodeOptions(node.id);
+    const groupsMode =
+      node.node_type === "buttons" && buttonQuickReplyGroupsEnabled(options);
+    const defaultGroupTitlePartition = params.suppressPlainTextBody
+      ? SORTEO_TICKET_DEFAULT_STUB
+      : fallbackText;
+    let groupedButtonsEmitted = false;
+
     console.info("[flow-options]", "buttons_with_blocks_context", {
       conversation_id: state.id,
       node_code: node.node_code,
@@ -1698,6 +1816,24 @@ export function createFlowEngine(ctx: FlowEngineContext) {
             title: whatsAppInteractiveTitleFromOption(o),
           })),
         });
+
+        if (groupsMode) {
+          if (!groupedButtonsEmitted) {
+            const grouped = await emitGroupedQuickReplyButtonMessages({
+              ctxSend,
+              conversation: state,
+              empresaId: state.empresa_id,
+              flowCode: state.flow_code,
+              nodeCode: node.node_code,
+              options,
+              defaultGroupTitle: defaultGroupTitlePartition,
+            });
+            if (!grouped.ok) return { ok: false, error: grouped.error };
+            groupedButtonsEmitted = true;
+          }
+          continue;
+        }
+
         const send = await sendWhatsAppChoiceMessage({
           toDigits: ctxSend.toDigits,
           phoneNumberId: ctxSend.phoneNumberId,
@@ -1720,6 +1856,22 @@ export function createFlowEngine(ctx: FlowEngineContext) {
           automationSource: "flow_engine",
         });
       }
+    }
+
+    if (groupsMode && !groupedButtonsEmitted) {
+      if (ctxSend.provider !== "meta") {
+        return { ok: false, error: ycloudOutboundUnsupportedMessage("botones interactivos") };
+      }
+      const groupedFallback = await emitGroupedQuickReplyButtonMessages({
+        ctxSend,
+        conversation: state,
+        empresaId: state.empresa_id,
+        flowCode: state.flow_code,
+        nodeCode: node.node_code,
+        options,
+        defaultGroupTitle: defaultGroupTitlePartition,
+      });
+      if (!groupedFallback.ok) return { ok: false, error: groupedFallback.error };
     }
 
     if (node.node_type === "human") {
@@ -1911,6 +2063,21 @@ export function createFlowEngine(ctx: FlowEngineContext) {
         payload: { reason: "option_not_found_in_node", raw: params.rawPayload },
       });
       return { ok: true, status: "invalid_button" };
+    }
+
+    if (currentNode.node_type === "buttons" && buttonQuickReplyGroupsEnabled(options)) {
+      const schemaGs = await fetchDataSchemaForEmpresaId(state.empresa_id);
+      const gt = (selected.group_title ?? "").trim();
+      console.info("[flow-buttons-groups][option-selected]", {
+        schema: schemaGs,
+        empresa_id: state.empresa_id,
+        flow_code: state.flow_code,
+        node_code: currentNode.node_code,
+        conversation_id: state.id,
+        group_title: gt || null,
+        group_order: selected.group_order ?? 0,
+        option_row_suffix: String(selected.id).replace(/-/g, "").slice(-8),
+      });
     }
 
     const flowSidInteractive = state.active_flow_session_id?.trim();
