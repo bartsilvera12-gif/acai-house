@@ -8,7 +8,7 @@ import { markFirstHumanOperatorReply } from "@/lib/chat/conversation-sla-markers
 import { maybeRedistributeInitialAssignment } from "@/lib/chat/initial-assignment-redistribution";
 import { createWhatsappConversationWithActiveFlow } from "@/lib/chat/whatsapp-conversation-bootstrap";
 import { markCampaignReplyFromInbound } from "@/lib/campaigns/campaign-inbound-hook";
-import { tryHandleCampaignButtonAction } from "@/lib/campaigns/campaign-button-action-service";
+import { executeCampaignButtonActionForMatchedRecipient } from "@/lib/campaigns/campaign-button-action-service";
 import type { SupabaseAdmin } from "@/lib/chat/types";
 import { normalizeWaPhone } from "@/lib/chat/wa-phone";
 
@@ -427,9 +427,12 @@ export async function saveIncomingMessage(params: SaveIncomingMessageParams): Pr
     return { ok: false, error: persist.error };
   }
 
+  let campaignReplyMatch: Awaited<ReturnType<typeof markCampaignReplyFromInbound>> = {
+    matched: false,
+  };
   if (isContactInbound && channel.type === "whatsapp") {
     try {
-      await markCampaignReplyFromInbound({
+      campaignReplyMatch = await markCampaignReplyFromInbound({
         supabase,
         empresaId,
         channelId: channel.id,
@@ -441,30 +444,32 @@ export async function saveIncomingMessage(params: SaveIncomingMessageParams): Pr
     } catch (e) {
       console.warn("[saveIncomingMessage] markCampaignReplyFromInbound", e);
     }
-    if (message_data.message_type === "interactive") {
-      const raw = message_data.raw_payload;
-      if (raw && typeof raw === "object" && !Array.isArray(raw)) {
-        const intr = (raw as Record<string, unknown>).interactive;
-        if (
-          intr &&
-          typeof intr === "object" &&
-          (intr as { button_reply?: { id?: string } }).button_reply?.id
-        ) {
-          try {
-            await tryHandleCampaignButtonAction({
-              supabase,
-              empresaId,
-              channelId: channel.id,
-              conversationId,
-              contactId,
-              inboundAtIso: ts,
-              waMessageId: ext,
-              rawPayload: raw as Record<string, unknown>,
-            });
-          } catch (e) {
-            console.warn("[saveIncomingMessage] tryHandleCampaignButtonAction", e);
-          }
-        }
+
+    const raw = message_data.raw_payload;
+    const rawOk = raw && typeof raw === "object" && !Array.isArray(raw);
+    const hasButtonReply =
+      rawOk &&
+      (raw as { interactive?: { button_reply?: unknown } }).interactive?.button_reply != null;
+    if (
+      campaignReplyMatch.matched &&
+      (hasButtonReply || message_data.message_type === "text")
+    ) {
+      const reply = campaignReplyMatch;
+      try {
+        await executeCampaignButtonActionForMatchedRecipient({
+          supabase,
+          empresaId,
+          channelId: channel.id,
+          conversationId,
+          contactId,
+          campaignId: reply.campaignId,
+          recipientId: reply.recipientId,
+          inboundAtIso: ts,
+          waMessageId: ext,
+          rawPayload: (rawOk ? raw : {}) as Record<string, unknown>,
+        });
+      } catch (e) {
+        console.warn("[saveIncomingMessage] executeCampaignButtonActionForMatchedRecipient", e);
       }
     }
   }

@@ -41,7 +41,7 @@ import type {
 import { normalizeWaPhone } from "@/lib/chat/wa-phone";
 import { applySorteoReferralToActiveSession } from "@/lib/sorteos/referral-attribution";
 import { markCampaignReplyFromInbound } from "@/lib/campaigns/campaign-inbound-hook";
-import { tryHandleCampaignButtonAction } from "@/lib/campaigns/campaign-button-action-service";
+import { executeCampaignButtonActionForMatchedRecipient } from "@/lib/campaigns/campaign-button-action-service";
 import {
   createServiceRoleClientWithDbSchema,
   fetchDataSchemaForEmpresaId,
@@ -1076,8 +1076,11 @@ export async function processInboundWebhookValue(
         continue;
       }
 
+      let campaignReplyMatch: Awaited<ReturnType<typeof markCampaignReplyFromInbound>> = {
+        matched: false,
+      };
       try {
-        await markCampaignReplyFromInbound({
+        campaignReplyMatch = await markCampaignReplyFromInbound({
           supabase,
           empresaId,
           channelId,
@@ -1091,17 +1094,30 @@ export async function processInboundWebhookValue(
       }
 
       let campaignButtonSuppressFlowInteractive = false;
-      if (message_type === "interactive" && msg.interactive?.button_reply?.id) {
+      const rawInboundPayload = msg as unknown as Record<string, unknown>;
+      const isButtonReplyInteractive =
+        message_type === "interactive" &&
+        Boolean(
+          (msg.interactive as { button_reply?: { id?: string; title?: string } } | undefined)
+            ?.button_reply
+        );
+      if (
+        campaignReplyMatch.matched &&
+        (isButtonReplyInteractive || message_type === "text")
+      ) {
+        const reply = campaignReplyMatch;
         try {
-          const btnRes = await tryHandleCampaignButtonAction({
+          const btnRes = await executeCampaignButtonActionForMatchedRecipient({
             supabase,
             empresaId,
             channelId,
             conversationId,
             contactId,
+            campaignId: reply.campaignId,
+            recipientId: reply.recipientId,
             inboundAtIso: ts,
             waMessageId: waMid,
-            rawPayload: msg as unknown as Record<string, unknown>,
+            rawPayload: rawInboundPayload,
           });
           campaignButtonSuppressFlowInteractive = btnRes.handled;
         } catch (e) {

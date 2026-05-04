@@ -6,8 +6,7 @@ import {
   markConversationActiveSessionsEnded,
 } from "@/lib/chat/flow-session-service";
 import { normalizeWaPhone } from "@/lib/chat/wa-phone";
-import { digitsInternational } from "@/lib/campaigns/campaign-phone";
-import { campaignReplyLookbackMs } from "@/lib/campaigns/campaign-inbound-hook";
+import { resolveLatestCampaignRecipientForInbound } from "@/lib/campaigns/campaign-recipient-resolve";
 import {
   FLOW_POINTER_RESET_EVENT,
   getFirstActiveNodeCodeForFlow,
@@ -41,7 +40,7 @@ export type CampaignButtonActionRow = {
   metadata: Record<string, unknown>;
 };
 
-function inboundButtonReplyId(raw: Record<string, unknown>): string | null {
+export function inboundButtonReplyIdFromRaw(raw: Record<string, unknown>): string | null {
   const intr = raw.interactive as
     | { button_reply?: { id?: string }; list_reply?: { id?: string } }
     | undefined;
@@ -56,7 +55,13 @@ function inboundButtonReplyTitle(raw: Record<string, unknown>): string | null {
   return t || null;
 }
 
-/** Coincidencia estable para Meta (case / espacios); sin depender de unicode-property escapes. */
+function inboundPlainTextBody(raw: Record<string, unknown>): string | null {
+  const t = String(raw.type ?? "").toLowerCase();
+  if (t !== "text") return null;
+  const body = (raw as { text?: { body?: string } }).text?.body?.trim();
+  return body || null;
+}
+
 function normalizeButtonToken(s: string): string {
   return s.trim().toLowerCase().replace(/\s+/g, " ");
 }
@@ -77,101 +82,62 @@ function actionMatchesInbound(
   return false;
 }
 
-async function findMatchingRecipientForButton(params: {
-  supabase: SupabaseAdmin;
-  empresaId: string;
-  channelId: string;
-  phoneDigits: string;
-  inboundMs: number;
-  buttonId: string;
-  buttonTitle: string | null;
-}): Promise<{ recipient: { id: string; campaign_id: string; sent_at: string | null }; action: CampaignButtonActionRow } | null> {
-  const lookbackMs = campaignReplyLookbackMs();
-  const lookbackStartIso = new Date(params.inboundMs - lookbackMs).toISOString();
-  const inboundIso = new Date(params.inboundMs).toISOString();
-  const phoneCandidates = Array.from(
-    new Set([`+${params.phoneDigits}`, params.phoneDigits].filter(Boolean))
-  );
+function actionMatchesPlainText(action: CampaignButtonActionRow, text: string): boolean {
+  if (action.action_type === "none") return false;
+  const nt = normalizeButtonToken(text);
+  if (action.button_label && normalizeButtonToken(action.button_label) === nt) return true;
+  if (normalizeButtonToken(action.button_id) === nt) return true;
+  return false;
+}
 
-  const { data: campaigns, error: campErr } = await params.supabase
-    .from("chat_campaigns")
-    .select("id")
-    .eq("empresa_id", params.empresaId)
-    .eq("channel_id", params.channelId)
-    .neq("status", "cancelled");
+function idempotencyKeyForInbound(
+  buttonId: string | null,
+  plainText: string | null,
+  buttonTitle: string | null
+): string {
+  if (buttonId) return buttonId;
+  if (plainText) return `text:${normalizeButtonToken(plainText)}`;
+  if (buttonTitle) return `title:${normalizeButtonToken(buttonTitle)}`;
+  return "";
+}
 
-  if (campErr || !campaigns?.length) return null;
+async function loadActionsForCampaign(
+  supabase: SupabaseAdmin,
+  empresaId: string,
+  campaignId: string
+): Promise<CampaignButtonActionRow[]> {
+  const { data, error } = await supabase
+    .from("chat_campaign_button_actions")
+    .select("*")
+    .eq("empresa_id", empresaId)
+    .eq("campaign_id", campaignId);
+  if (error) return [];
+  return (data ?? []) as CampaignButtonActionRow[];
+}
 
-  const campaignIds = (campaigns as { id: string }[]).map((c) => c.id);
-
-  const recipientsBase = () =>
-    params.supabase
-      .from("chat_campaign_recipients")
-      .select("id, campaign_id, status, phone_e164, sent_at")
-      .eq("empresa_id", params.empresaId)
-      .in("campaign_id", campaignIds)
-      .in("status", ["sent", "replied"])
-      .not("sent_at", "is", null)
-      .lte("sent_at", inboundIso)
-      .gte("sent_at", lookbackStartIso);
-
-  let { data: rows, error: rErr } = await recipientsBase()
-    .in("phone_e164", phoneCandidates)
-    .order("sent_at", { ascending: false });
-
-  if (rErr || !rows?.length) {
-    const fb = await recipientsBase()
-      .ilike("phone_e164", `%${params.phoneDigits}%`)
-      .order("sent_at", { ascending: false });
-    rows = fb.data;
-    rErr = fb.error;
-  }
-
-  if (rErr || !rows?.length) return null;
-
-  const actionsCache = new Map<string, CampaignButtonActionRow[]>();
-
-  async function actionsForCampaign(campaignId: string): Promise<CampaignButtonActionRow[]> {
-    if (actionsCache.has(campaignId)) return actionsCache.get(campaignId)!;
-    const { data, error } = await params.supabase
-      .from("chat_campaign_button_actions")
-      .select("*")
-      .eq("empresa_id", params.empresaId)
-      .eq("campaign_id", campaignId);
-    if (error) {
-      actionsCache.set(campaignId, []);
-      return [];
-    }
-    const list = (data ?? []) as CampaignButtonActionRow[];
-    actionsCache.set(campaignId, list);
-    return list;
-  }
-
-  type R = {
-    id: string;
-    campaign_id: string;
-    status: string;
-    phone_e164: string;
-    sent_at: string | null;
-  };
-
-  for (const r of rows as R[]) {
-    const d = normalizeWaPhone(digitsInternational(r.phone_e164));
-    if (d !== params.phoneDigits) continue;
-    if (!r.sent_at) continue;
-    const sentMs = Date.parse(r.sent_at);
-    if (Number.isNaN(sentMs) || sentMs > params.inboundMs) continue;
-    if (params.inboundMs - sentMs > lookbackMs) continue;
-
-    const actions = await actionsForCampaign(r.campaign_id);
-    const action = actions.find((a) =>
-      actionMatchesInbound(a, params.buttonId, params.buttonTitle)
+function pickMatchingAction(
+  actions: CampaignButtonActionRow[],
+  buttonId: string | null,
+  buttonTitle: string | null,
+  plainText: string | null
+): CampaignButtonActionRow | null {
+  if (buttonId) {
+    const a = actions.find((x) => actionMatchesInbound(x, buttonId, buttonTitle));
+    if (a) return a;
+  } else if (buttonTitle) {
+    const nt = normalizeButtonToken(buttonTitle);
+    const a = actions.find(
+      (x) =>
+        x.action_type !== "none" &&
+        ((x.button_label && normalizeButtonToken(x.button_label) === nt) ||
+          normalizeButtonToken(x.button_id) === nt)
     );
-    if (!action) continue;
-
-    return { recipient: { id: r.id, campaign_id: r.campaign_id, sent_at: r.sent_at }, action };
+    if (a) return a;
   }
-
+  if (plainText) {
+    const a = actions.find((x) => actionMatchesPlainText(x, plainText));
+    if (a) return a;
+  }
   return null;
 }
 
@@ -256,30 +222,80 @@ async function recordExecuted(params: {
   });
 }
 
+async function recordNoAction(params: {
+  supabase: SupabaseAdmin;
+  empresaId: string;
+  campaignId: string;
+  recipientId: string;
+  reason: string;
+  receivedButtonId: string | null;
+  receivedButtonTitle: string | null;
+  plainText: string | null;
+  configuredButtonIds: string[];
+}) {
+  await params.supabase.from("chat_campaign_events").insert({
+    empresa_id: params.empresaId,
+    campaign_id: params.campaignId,
+    recipient_id: params.recipientId,
+    event_type: "campaign_button_action_no_action",
+    event_payload_json: {
+      reason: params.reason,
+      received_button_id: params.receivedButtonId,
+      received_button_title: params.receivedButtonTitle,
+      plain_text_preview: params.plainText ? params.plainText.slice(0, 120) : null,
+      configured_button_ids: params.configuredButtonIds.slice(0, 50),
+    },
+  });
+}
+
+async function recordActionError(params: {
+  supabase: SupabaseAdmin;
+  empresaId: string;
+  campaignId: string;
+  recipientId: string;
+  reason: string;
+  detail?: Record<string, unknown>;
+}) {
+  await params.supabase.from("chat_campaign_events").insert({
+    empresa_id: params.empresaId,
+    campaign_id: params.campaignId,
+    recipient_id: params.recipientId,
+    event_type: "campaign_button_action_error",
+    event_payload_json: {
+      reason: params.reason,
+      ...(params.detail ?? {}),
+    },
+  });
+}
+
 /**
- * Tras guardar el inbound y marcar RESPONDIERON: si es clic quick reply y hay acción configurada, ejecuta.
- * Devuelve handled=true cuando conviene omitir `processInteractiveReply` del flow engine (start_flow / send_text).
+ * Ejecuta la acción configurada para la campaña/recipient ya resueltos por `markCampaignReplyFromInbound`
+ * (misma fila que RESPONDIERON). No re-busca recipient por teléfono.
  */
-export async function tryHandleCampaignButtonAction(params: {
+export async function executeCampaignButtonActionForMatchedRecipient(params: {
   supabase: SupabaseAdmin;
   empresaId: string;
   channelId: string;
   conversationId: string;
   contactId: string;
+  campaignId: string;
+  recipientId: string;
   inboundAtIso: string;
   waMessageId?: string | null;
   rawPayload: Record<string, unknown>;
 }): Promise<{ handled: boolean }> {
-  const buttonId = inboundButtonReplyId(params.rawPayload);
+  const buttonId = inboundButtonReplyIdFromRaw(params.rawPayload);
   const buttonTitle = inboundButtonReplyTitle(params.rawPayload);
-  if (!buttonId) {
+  const plainText = inboundPlainTextBody(params.rawPayload);
+  const idempotencyKey = idempotencyKeyForInbound(buttonId, plainText, buttonTitle);
+
+  if (!idempotencyKey) {
     const intr = params.rawPayload.interactive as { button_reply?: unknown } | undefined;
     if (intr?.button_reply) {
       console.info(LOG_NA, {
-        reason: "missing_button_reply_id",
+        reason: "missing_button_reply_id_and_title",
         empresa_id: params.empresaId,
-        conversation_id: params.conversationId,
-        received_button_title: buttonTitle,
+        campaign_id: params.campaignId,
       });
     }
     return { handled: false };
@@ -287,83 +303,69 @@ export async function tryHandleCampaignButtonAction(params: {
 
   console.info(LOG_RX, {
     empresa_id: params.empresaId,
+    campaign_id: params.campaignId,
+    recipient_id: params.recipientId,
     conversation_id: params.conversationId,
     contact_id: params.contactId,
-    button_id: buttonId,
-    button_title: buttonTitle,
+    received_button_id: buttonId,
+    received_button_title: buttonTitle,
+    plain_text_used: plainText ? plainText.slice(0, 80) : null,
     wa_message_id: params.waMessageId ?? null,
   });
 
-  const { data: contact, error: cErr } = await params.supabase
-    .from("chat_contacts")
-    .select("phone_number")
-    .eq("id", params.contactId)
-    .eq("empresa_id", params.empresaId)
-    .maybeSingle();
+  const actions = await loadActionsForCampaign(
+    params.supabase,
+    params.empresaId,
+    params.campaignId
+  );
+  const configuredIds = actions.map((a) => a.button_id);
 
-  if (cErr || !contact) {
-    console.info(LOG_NA, { reason: "contact_not_found", empresa_id: params.empresaId });
-    return { handled: false };
-  }
+  const action = pickMatchingAction(actions, buttonId, buttonTitle, plainText);
 
-  const phoneDigits = normalizeWaPhone((contact as { phone_number?: string }).phone_number ?? "");
-  if (!phoneDigits) {
-    console.info(LOG_NA, { reason: "contact_phone_empty", empresa_id: params.empresaId });
-    return { handled: false };
-  }
-
-  const inboundMs = Date.parse(params.inboundAtIso);
-  if (Number.isNaN(inboundMs)) {
-    console.info(LOG_NA, { reason: "bad_inbound_ts", empresa_id: params.empresaId });
-    return { handled: false };
-  }
-
-  const matched = await findMatchingRecipientForButton({
-    supabase: params.supabase,
-    empresaId: params.empresaId,
-    channelId: params.channelId,
-    phoneDigits,
-    inboundMs,
-    buttonId,
-    buttonTitle,
-  });
-
-  if (!matched) {
+  if (!action || action.action_type === "none") {
     console.info(LOG_NA, {
       empresa_id: params.empresaId,
-      channel_id: params.channelId,
-      contact_id: params.contactId,
+      campaign_id: params.campaignId,
+      recipient_id: params.recipientId,
       received_button_id: buttonId,
       received_button_title: buttonTitle,
-      reason: "no_recipient_or_no_action",
+      plain_text: plainText ? plainText.slice(0, 80) : null,
+      configured_button_ids: configuredIds,
+      reason: !action ? "no_matching_action" : "action_none",
+    });
+    await recordNoAction({
+      supabase: params.supabase,
+      empresaId: params.empresaId,
+      campaignId: params.campaignId,
+      recipientId: params.recipientId,
+      reason: !action ? "no_matching_action" : "action_none",
+      receivedButtonId: buttonId,
+      receivedButtonTitle: buttonTitle,
+      plainText,
+      configuredButtonIds: configuredIds,
     });
     return { handled: false };
   }
 
-  const { recipient, action } = matched;
+  const logicalButtonId = action.button_id;
 
   console.info(LOG_MT, {
     empresa_id: params.empresaId,
-    campaign_id: recipient.campaign_id,
-    recipient_id: recipient.id,
+    campaign_id: params.campaignId,
+    recipient_id: params.recipientId,
     contact_id: params.contactId,
-    button_id: buttonId,
+    button_id: logicalButtonId,
     action_type: action.action_type,
     flow_code: action.flow_code ?? null,
     start_node_code: action.start_node_code ?? null,
   });
 
-  if (action.action_type === "none") {
-    console.info(LOG_NA, { reason: "action_none", campaign_id: recipient.campaign_id });
-    return { handled: false };
-  }
-
   const skip = await shouldSkipIdempotent({
     supabase: params.supabase,
     empresaId: params.empresaId,
-    campaignId: recipient.campaign_id,
+    campaignId: params.campaignId,
     conversationId: params.conversationId,
-    buttonId,
+    buttonId: logicalButtonId,
     waMessageId: params.waMessageId,
     actionType: action.action_type,
   });
@@ -371,9 +373,9 @@ export async function tryHandleCampaignButtonAction(params: {
   if (skip) {
     console.info(LOG_ID, {
       empresa_id: params.empresaId,
-      campaign_id: recipient.campaign_id,
-      recipient_id: recipient.id,
-      button_id: buttonId,
+      campaign_id: params.campaignId,
+      recipient_id: params.recipientId,
+      button_id: logicalButtonId,
       action_type: action.action_type,
     });
     return {
@@ -393,19 +395,27 @@ export async function tryHandleCampaignButtonAction(params: {
       if (!send.ok) {
         console.warn(LOG_ER, {
           empresa_id: params.empresaId,
-          campaign_id: recipient.campaign_id,
+          campaign_id: params.campaignId,
           error: send.error ?? "send_failed",
+        });
+        await recordActionError({
+          supabase: params.supabase,
+          empresaId: params.empresaId,
+          campaignId: params.campaignId,
+          recipientId: params.recipientId,
+          reason: "send_text_failed",
+          detail: { error: send.error ?? null },
         });
         return { handled: false };
       }
       await recordExecuted({
         supabase: params.supabase,
         empresaId: params.empresaId,
-        campaignId: recipient.campaign_id,
-        recipientId: recipient.id,
+        campaignId: params.campaignId,
+        recipientId: params.recipientId,
         contactId: params.contactId,
         conversationId: params.conversationId,
-        buttonId,
+        buttonId: logicalButtonId,
         actionType: "send_text",
         flowCode: null,
         startNodeCode: null,
@@ -414,10 +424,10 @@ export async function tryHandleCampaignButtonAction(params: {
       });
       console.info(LOG_EX, {
         empresa_id: params.empresaId,
-        campaign_id: recipient.campaign_id,
-        recipient_id: recipient.id,
+        campaign_id: params.campaignId,
+        recipient_id: params.recipientId,
         contact_id: params.contactId,
-        button_id: buttonId,
+        button_id: logicalButtonId,
         action_type: "send_text",
       });
       return { handled: true };
@@ -428,9 +438,17 @@ export async function tryHandleCampaignButtonAction(params: {
       if (!(await isFlowKnownAndActiveInCatalog(params.supabase, params.empresaId, fc))) {
         console.warn(LOG_ER, {
           empresa_id: params.empresaId,
-          campaign_id: recipient.campaign_id,
+          campaign_id: params.campaignId,
           flow_code: fc,
           reason: "flow_not_active",
+        });
+        await recordActionError({
+          supabase: params.supabase,
+          empresaId: params.empresaId,
+          campaignId: params.campaignId,
+          recipientId: params.recipientId,
+          reason: "flow_not_active",
+          detail: { flow_code: fc },
         });
         return { handled: false };
       }
@@ -444,6 +462,14 @@ export async function tryHandleCampaignButtonAction(params: {
             flow_code: fc,
             start_node_code: nodeCode,
             reason: "node_not_active",
+          });
+          await recordActionError({
+            supabase: params.supabase,
+            empresaId: params.empresaId,
+            campaignId: params.campaignId,
+            recipientId: params.recipientId,
+            reason: "node_not_active",
+            detail: { flow_code: fc, start_node_code: nodeCode },
           });
           return { handled: false };
         }
@@ -470,7 +496,14 @@ export async function tryHandleCampaignButtonAction(params: {
       if (!newSid) {
         console.warn(LOG_ER, {
           empresa_id: params.empresaId,
-          campaign_id: recipient.campaign_id,
+          campaign_id: params.campaignId,
+          reason: "session_insert_failed",
+        });
+        await recordActionError({
+          supabase: params.supabase,
+          empresaId: params.empresaId,
+          campaignId: params.campaignId,
+          recipientId: params.recipientId,
           reason: "session_insert_failed",
         });
         return { handled: false };
@@ -495,6 +528,14 @@ export async function tryHandleCampaignButtonAction(params: {
           message: upErr.message,
           reason: "conversation_update_failed",
         });
+        await recordActionError({
+          supabase: params.supabase,
+          empresaId: params.empresaId,
+          campaignId: params.campaignId,
+          recipientId: params.recipientId,
+          reason: "conversation_update_failed",
+          detail: { message: upErr.message },
+        });
         return { handled: false };
       }
 
@@ -508,8 +549,8 @@ export async function tryHandleCampaignButtonAction(params: {
         payload: {
           trigger: "campaign_button_action",
           flow_session_id: newSid,
-          campaign_id: recipient.campaign_id,
-          button_id: buttonId,
+          campaign_id: params.campaignId,
+          button_id: logicalButtonId,
         },
       });
 
@@ -518,19 +559,27 @@ export async function tryHandleCampaignButtonAction(params: {
       if (!sent.ok) {
         console.warn(LOG_ER, {
           empresa_id: params.empresaId,
-          campaign_id: recipient.campaign_id,
+          campaign_id: params.campaignId,
           error: sent.error ?? "sendCurrentFlowNode",
+        });
+        await recordActionError({
+          supabase: params.supabase,
+          empresaId: params.empresaId,
+          campaignId: params.campaignId,
+          recipientId: params.recipientId,
+          reason: "sendCurrentFlowNode_failed",
+          detail: { error: sent.error ?? null },
         });
       }
 
       await recordExecuted({
         supabase: params.supabase,
         empresaId: params.empresaId,
-        campaignId: recipient.campaign_id,
-        recipientId: recipient.id,
+        campaignId: params.campaignId,
+        recipientId: params.recipientId,
         contactId: params.contactId,
         conversationId: params.conversationId,
-        buttonId,
+        buttonId: logicalButtonId,
         actionType: "start_flow",
         flowCode: fc,
         startNodeCode: nodeCode,
@@ -540,10 +589,10 @@ export async function tryHandleCampaignButtonAction(params: {
 
       console.info(LOG_EX, {
         empresa_id: params.empresaId,
-        campaign_id: recipient.campaign_id,
-        recipient_id: recipient.id,
+        campaign_id: params.campaignId,
+        recipient_id: params.recipientId,
         contact_id: params.contactId,
-        button_id: buttonId,
+        button_id: logicalButtonId,
         action_type: "start_flow",
         flow_code: fc,
         start_node_code: nodeCode,
@@ -554,11 +603,87 @@ export async function tryHandleCampaignButtonAction(params: {
   } catch (e) {
     console.warn(LOG_ER, {
       empresa_id: params.empresaId,
-      campaign_id: recipient.campaign_id,
+      campaign_id: params.campaignId,
       err: e instanceof Error ? e.message : String(e),
+    });
+    await recordActionError({
+      supabase: params.supabase,
+      empresaId: params.empresaId,
+      campaignId: params.campaignId,
+      recipientId: params.recipientId,
+      reason: "exception",
+      detail: { message: e instanceof Error ? e.message : String(e) },
     });
     return { handled: false };
   }
 
   return { handled: false };
+}
+
+/**
+ * Compatibilidad: resuelve recipient + ejecuta (sin pasar por mark). Preferir mark + execute en webhooks.
+ */
+export async function tryHandleCampaignButtonAction(params: {
+  supabase: SupabaseAdmin;
+  empresaId: string;
+  channelId: string;
+  conversationId: string;
+  contactId: string;
+  inboundAtIso: string;
+  waMessageId?: string | null;
+  rawPayload: Record<string, unknown>;
+}): Promise<{ handled: boolean }> {
+  const { data: contact, error: cErr } = await params.supabase
+    .from("chat_contacts")
+    .select("phone_number")
+    .eq("id", params.contactId)
+    .eq("empresa_id", params.empresaId)
+    .maybeSingle();
+
+  if (cErr || !contact) {
+    console.info(LOG_NA, { reason: "contact_not_found", empresa_id: params.empresaId });
+    return { handled: false };
+  }
+
+  const phoneDigits = normalizeWaPhone((contact as { phone_number?: string }).phone_number ?? "");
+  if (!phoneDigits) {
+    console.info(LOG_NA, { reason: "contact_phone_empty", empresa_id: params.empresaId });
+    return { handled: false };
+  }
+
+  const inboundMs = Date.parse(params.inboundAtIso);
+  if (Number.isNaN(inboundMs)) {
+    console.info(LOG_NA, { reason: "bad_inbound_ts", empresa_id: params.empresaId });
+    return { handled: false };
+  }
+
+  const resolved = await resolveLatestCampaignRecipientForInbound({
+    supabase: params.supabase,
+    empresaId: params.empresaId,
+    channelId: params.channelId,
+    phoneDigits,
+    inboundMs,
+  });
+
+  if (!resolved) {
+    console.info(LOG_NA, {
+      reason: "legacy_resolve_failed",
+      empresa_id: params.empresaId,
+      channel_id: params.channelId,
+    });
+    return { handled: false };
+  }
+
+  return executeCampaignButtonActionForMatchedRecipient({
+    supabase: params.supabase,
+    empresaId: params.empresaId,
+    channelId: params.channelId,
+    conversationId: params.conversationId,
+    contactId: params.contactId,
+    campaignId: resolved.campaign_id,
+    recipientId: resolved.id,
+    inboundAtIso: params.inboundAtIso,
+    waMessageId: params.waMessageId,
+    rawPayload: params.rawPayload,
+  });
 }
