@@ -50,6 +50,33 @@ function inboundButtonReplyId(raw: Record<string, unknown>): string | null {
   return id || null;
 }
 
+function inboundButtonReplyTitle(raw: Record<string, unknown>): string | null {
+  const intr = raw.interactive as { button_reply?: { title?: string } } | undefined;
+  const t = intr?.button_reply?.title?.trim();
+  return t || null;
+}
+
+/** Coincidencia estable para Meta (case / espacios); sin depender de unicode-property escapes. */
+function normalizeButtonToken(s: string): string {
+  return s.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function actionMatchesInbound(
+  action: CampaignButtonActionRow,
+  buttonId: string,
+  buttonTitle: string | null
+): boolean {
+  if (action.action_type === "none") return false;
+  const nid = normalizeButtonToken(buttonId);
+  if (normalizeButtonToken(action.button_id) === nid) return true;
+  if (buttonTitle) {
+    const nt = normalizeButtonToken(buttonTitle);
+    if (normalizeButtonToken(action.button_id) === nt) return true;
+    if (action.button_label && normalizeButtonToken(action.button_label) === nt) return true;
+  }
+  return false;
+}
+
 async function findMatchingRecipientForButton(params: {
   supabase: SupabaseAdmin;
   empresaId: string;
@@ -57,8 +84,14 @@ async function findMatchingRecipientForButton(params: {
   phoneDigits: string;
   inboundMs: number;
   buttonId: string;
+  buttonTitle: string | null;
 }): Promise<{ recipient: { id: string; campaign_id: string; sent_at: string | null }; action: CampaignButtonActionRow } | null> {
   const lookbackMs = campaignReplyLookbackMs();
+  const lookbackStartIso = new Date(params.inboundMs - lookbackMs).toISOString();
+  const inboundIso = new Date(params.inboundMs).toISOString();
+  const phoneCandidates = Array.from(
+    new Set([`+${params.phoneDigits}`, params.phoneDigits].filter(Boolean))
+  );
 
   const { data: campaigns, error: campErr } = await params.supabase
     .from("chat_campaigns")
@@ -71,17 +104,48 @@ async function findMatchingRecipientForButton(params: {
 
   const campaignIds = (campaigns as { id: string }[]).map((c) => c.id);
 
-  const { data: rows, error: rErr } = await params.supabase
-    .from("chat_campaign_recipients")
-    .select("id, campaign_id, status, phone_e164, sent_at")
-    .eq("empresa_id", params.empresaId)
-    .in("campaign_id", campaignIds)
-    .in("status", ["sent", "replied"])
-    .not("sent_at", "is", null)
-    .order("sent_at", { ascending: false })
-    .limit(120);
+  const recipientsBase = () =>
+    params.supabase
+      .from("chat_campaign_recipients")
+      .select("id, campaign_id, status, phone_e164, sent_at")
+      .eq("empresa_id", params.empresaId)
+      .in("campaign_id", campaignIds)
+      .in("status", ["sent", "replied"])
+      .not("sent_at", "is", null)
+      .lte("sent_at", inboundIso)
+      .gte("sent_at", lookbackStartIso);
+
+  let { data: rows, error: rErr } = await recipientsBase()
+    .in("phone_e164", phoneCandidates)
+    .order("sent_at", { ascending: false });
+
+  if (rErr || !rows?.length) {
+    const fb = await recipientsBase()
+      .ilike("phone_e164", `%${params.phoneDigits}%`)
+      .order("sent_at", { ascending: false });
+    rows = fb.data;
+    rErr = fb.error;
+  }
 
   if (rErr || !rows?.length) return null;
+
+  const actionsCache = new Map<string, CampaignButtonActionRow[]>();
+
+  async function actionsForCampaign(campaignId: string): Promise<CampaignButtonActionRow[]> {
+    if (actionsCache.has(campaignId)) return actionsCache.get(campaignId)!;
+    const { data, error } = await params.supabase
+      .from("chat_campaign_button_actions")
+      .select("*")
+      .eq("empresa_id", params.empresaId)
+      .eq("campaign_id", campaignId);
+    if (error) {
+      actionsCache.set(campaignId, []);
+      return [];
+    }
+    const list = (data ?? []) as CampaignButtonActionRow[];
+    actionsCache.set(campaignId, list);
+    return list;
+  }
 
   type R = {
     id: string;
@@ -99,20 +163,13 @@ async function findMatchingRecipientForButton(params: {
     if (Number.isNaN(sentMs) || sentMs > params.inboundMs) continue;
     if (params.inboundMs - sentMs > lookbackMs) continue;
 
-    const { data: action, error: aErr } = await params.supabase
-      .from("chat_campaign_button_actions")
-      .select("*")
-      .eq("empresa_id", params.empresaId)
-      .eq("campaign_id", r.campaign_id)
-      .eq("button_id", params.buttonId)
-      .maybeSingle();
+    const actions = await actionsForCampaign(r.campaign_id);
+    const action = actions.find((a) =>
+      actionMatchesInbound(a, params.buttonId, params.buttonTitle)
+    );
+    if (!action) continue;
 
-    if (aErr || !action) continue;
-
-    const act = action as CampaignButtonActionRow;
-    if (act.action_type === "none") continue;
-
-    return { recipient: { id: r.id, campaign_id: r.campaign_id, sent_at: r.sent_at }, action: act };
+    return { recipient: { id: r.id, campaign_id: r.campaign_id, sent_at: r.sent_at }, action };
   }
 
   return null;
@@ -214,7 +271,17 @@ export async function tryHandleCampaignButtonAction(params: {
   rawPayload: Record<string, unknown>;
 }): Promise<{ handled: boolean }> {
   const buttonId = inboundButtonReplyId(params.rawPayload);
+  const buttonTitle = inboundButtonReplyTitle(params.rawPayload);
   if (!buttonId) {
+    const intr = params.rawPayload.interactive as { button_reply?: unknown } | undefined;
+    if (intr?.button_reply) {
+      console.info(LOG_NA, {
+        reason: "missing_button_reply_id",
+        empresa_id: params.empresaId,
+        conversation_id: params.conversationId,
+        received_button_title: buttonTitle,
+      });
+    }
     return { handled: false };
   }
 
@@ -223,6 +290,7 @@ export async function tryHandleCampaignButtonAction(params: {
     conversation_id: params.conversationId,
     contact_id: params.contactId,
     button_id: buttonId,
+    button_title: buttonTitle,
     wa_message_id: params.waMessageId ?? null,
   });
 
@@ -257,6 +325,7 @@ export async function tryHandleCampaignButtonAction(params: {
     phoneDigits,
     inboundMs,
     buttonId,
+    buttonTitle,
   });
 
   if (!matched) {
@@ -264,7 +333,8 @@ export async function tryHandleCampaignButtonAction(params: {
       empresa_id: params.empresaId,
       channel_id: params.channelId,
       contact_id: params.contactId,
-      button_id: buttonId,
+      received_button_id: buttonId,
+      received_button_title: buttonTitle,
       reason: "no_recipient_or_no_action",
     });
     return { handled: false };
