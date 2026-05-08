@@ -16,31 +16,45 @@ type Props = {
 
 export function BotWakeKeywordsSection({ value, onChange }: Props) {
   const [draft, setDraft] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [tooLongNotice, setTooLongNotice] = useState(false);
 
   function setMatchMode(m: BotWakeKeywordsMatchMode) {
     onChange({ ...value, matchMode: m });
   }
 
-  function addKeyword() {
-    const t = draft.trim();
-    if (!t) return;
-    if (t.length > BOT_WAKE_KEYWORDS_MAX_LENGTH) {
-      setError(`Máximo ${BOT_WAKE_KEYWORDS_MAX_LENGTH} caracteres por palabra o frase.`);
-      return;
+  function addKeywords() {
+    const raw = draft;
+    const parts = raw
+      .split(",")
+      .map((p) => p.trim())
+      .filter(Boolean);
+    if (parts.length === 0) return;
+
+    let hadTooLong = false;
+    const existingNormalized = new Set(value.keywords.map((k) => normalizeWakeKeywordText(k)));
+    const newKeywords = [...value.keywords];
+    let added = 0;
+
+    for (const part of parts) {
+      if (newKeywords.length >= BOT_WAKE_KEYWORDS_MAX_COUNT) break;
+      if (part.length > BOT_WAKE_KEYWORDS_MAX_LENGTH) {
+        hadTooLong = true;
+        continue;
+      }
+      const n = normalizeWakeKeywordText(part);
+      if (!n) continue;
+      if (existingNormalized.has(n)) continue;
+      existingNormalized.add(n);
+      newKeywords.push(part);
+      added += 1;
     }
-    if (value.keywords.length >= BOT_WAKE_KEYWORDS_MAX_COUNT) {
-      setError(`Máximo ${BOT_WAKE_KEYWORDS_MAX_COUNT} entradas.`);
-      return;
+
+    setTooLongNotice(hadTooLong);
+
+    if (added > 0) {
+      onChange({ ...value, keywords: newKeywords });
+      setDraft("");
     }
-    const n = normalizeWakeKeywordText(t);
-    if (value.keywords.some((k) => normalizeWakeKeywordText(k) === n)) {
-      setError("Ya existe una entrada equivalente (misma normalización).");
-      return;
-    }
-    setError(null);
-    onChange({ ...value, keywords: [...value.keywords, t] });
-    setDraft("");
   }
 
   function removeAt(i: number) {
@@ -100,31 +114,29 @@ export function BotWakeKeywordsSection({ value, onChange }: Props) {
             value={draft}
             onChange={(e) => {
               setDraft(e.target.value);
-              if (error) setError(null);
+              if (tooLongNotice) setTooLongNotice(false);
             }}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                addKeyword();
-              }
-            }}
-            placeholder="Ej: hola, quiero, quiero comprar"
-            maxLength={BOT_WAKE_KEYWORDS_MAX_LENGTH}
+            placeholder="Ej: hola, quiero, comprar más"
             disabled={!value.enabled}
           />
           <button
             type="button"
-            onClick={addKeyword}
+            onClick={addKeywords}
             disabled={!value.enabled}
             className="shrink-0 border border-slate-200 text-slate-800 hover:bg-slate-50 disabled:opacity-50 px-4 py-2 rounded-lg text-sm"
           >
             Agregar
           </button>
         </div>
-        {error ? <p className="text-xs text-red-600 mt-1">{error}</p> : null}
+        {tooLongNotice ? (
+          <p className="text-xs text-amber-800 mt-1">
+            Algunas palabras/frases superan 60 caracteres y no fueron agregadas.
+          </p>
+        ) : null}
         <p className="text-xs text-slate-400 mt-1">
-          Máximo {BOT_WAKE_KEYWORDS_MAX_COUNT} entradas, {BOT_WAKE_KEYWORDS_MAX_LENGTH} caracteres cada una. La
-          comparación ignora mayúsculas, acentos y espacios extra.
+          Podés agregar varias palabras o frases separadas por coma. Máximo {BOT_WAKE_KEYWORDS_MAX_COUNT} entradas,{" "}
+          {BOT_WAKE_KEYWORDS_MAX_LENGTH} caracteres cada una. La comparación ignora mayúsculas, acentos y espacios
+          extra.
         </p>
       </div>
 
