@@ -5,6 +5,7 @@ import {
   type SorteoEntradasListParams,
 } from "@/lib/sorteos/server-queries";
 import type { SorteoEntradaEstadoPago } from "@/lib/sorteos/types";
+import SorteoCuponesEstadoPagoFilter from "@/components/sorteos/SorteoCuponesEstadoPagoFilter";
 import SorteosCuponesManualClient from "@/components/sorteos/SorteosCuponesManualClient";
 import SorteoCuponesPagoCell from "@/components/sorteos/SorteoCuponesPagoCell";
 
@@ -66,11 +67,9 @@ export default async function SorteoCuponesPage({
   const q = pickStr(sp, "q")?.trim() || undefined;
   const sorteoId = pickStr(sp, "sorteo_id")?.trim() || undefined;
   const estadoRaw = pickStr(sp, "estado")?.trim();
+  /** Cupones: solo estos tres estados en el filtro (sin `pendiente`). */
   const estadoPago: SorteoEntradaEstadoPago | undefined =
-    estadoRaw === "pendiente" ||
-    estadoRaw === "pendiente_revision" ||
-    estadoRaw === "confirmado" ||
-    estadoRaw === "rechazado"
+    estadoRaw === "pendiente_revision" || estadoRaw === "confirmado" || estadoRaw === "rechazado"
       ? estadoRaw
       : undefined;
 
@@ -135,20 +134,7 @@ export default async function SorteoCuponesPage({
             className="border border-slate-300 rounded px-2 py-1.5 text-sm font-mono w-[260px]"
           />
         </label>
-        <label className="flex flex-col gap-1 text-xs text-slate-600">
-          Estado pago
-          <select
-            name="estado"
-            defaultValue={estadoRaw ?? ""}
-            className="border border-slate-300 rounded px-2 py-1.5 text-sm"
-          >
-            <option value="">Todos</option>
-            <option value="pendiente_revision">Pendiente revisión</option>
-            <option value="pendiente">Pendiente</option>
-            <option value="confirmado">Confirmado</option>
-            <option value="rechazado">Rechazado</option>
-          </select>
-        </label>
+        <SorteoCuponesEstadoPagoFilter />
         <button
           type="submit"
           className="bg-[#0EA5E9] text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-sky-600"
