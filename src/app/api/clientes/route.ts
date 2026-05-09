@@ -111,11 +111,34 @@ export async function POST(request: NextRequest) {
     const { auth, supabase } = ctx;
 
     const body = await request.json();
-    const { tipo_cliente, empresa, nombre_contacto, ruc, documento, telefono, email, direccion, ciudad, pais, condicion_pago, moneda_preferida, estado, tipo_servicio_cliente, plan_comercial_id } = body;
+    const {
+      tipo_cliente,
+      empresa,
+      nombre_contacto,
+      ruc,
+      documento,
+      telefono,
+      email,
+      direccion,
+      ciudad,
+      pais,
+      condicion_pago,
+      moneda_preferida,
+      estado,
+      tipo_servicio_cliente,
+      plan_comercial_id,
+      vendedor_asignado,
+      vendedor_usuario_id,
+    } = body;
 
     const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     const planComercial =
       typeof plan_comercial_id === "string" && uuidRe.test(plan_comercial_id.trim()) ? plan_comercial_id.trim() : null;
+
+    const vendedorUsuarioId =
+      typeof vendedor_usuario_id === "string" && uuidRe.test(vendedor_usuario_id.trim())
+        ? vendedor_usuario_id.trim()
+        : null;
 
     if (!nombre_contacto?.trim()) {
       return NextResponse.json(errorResponse("nombre_contacto es obligatorio"), { status: 400 });
@@ -157,6 +180,8 @@ export async function POST(request: NextRequest) {
       condicion_pago:       condicion_pago?.trim() || null,
       moneda_preferida:     moneda_preferida === "USD" ? "USD" : "GS",
       estado:               estado === "inactivo" ? "inactivo" : "activo",
+      vendedor_asignado:    typeof vendedor_asignado === "string" && vendedor_asignado.trim() ? vendedor_asignado.trim() : null,
+      vendedor_usuario_id:  vendedorUsuarioId,
     };
 
     const rowWithPlan =

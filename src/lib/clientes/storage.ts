@@ -39,6 +39,7 @@ interface SupabaseRow {
   condicion_pago:     string | null;
   moneda_preferida:   string | null;
   vendedor_asignado:  string | null;
+  vendedor_usuario_id?: string | null;
   origen:             string | null;
   prospecto_id:       number | null;
   estado:             string | null;
@@ -88,6 +89,7 @@ function rowToCliente(row: SupabaseRow): Cliente {
     condicion_pago:      row.condicion_pago ?? undefined,
     moneda_preferida:    (row.moneda_preferida === "USD" ? "USD" : "GS") as "GS" | "USD",
     vendedor_asignado:   row.vendedor_asignado ?? undefined,
+    vendedor_usuario_id: row.vendedor_usuario_id ?? undefined,
     origen:              (row.origen as Cliente["origen"]) ?? "MANUAL",
     prospecto_id:        row.prospecto_id ?? undefined,
     estado:              (row.estado === "inactivo" ? "inactivo" : "activo") as EstadoCliente,
@@ -238,6 +240,7 @@ export async function saveCliente(datos: NuevoClienteData): Promise<Cliente | nu
     condicion_pago:     datos.condicion_pago ?? null,
     moneda_preferida:   datos.moneda_preferida ?? "GS",
     vendedor_asignado:  datos.vendedor_asignado ?? null,
+    vendedor_usuario_id: datos.vendedor_usuario_id ?? null,
     origen:             datos.origen ?? "MANUAL",
     prospecto_id:       datos.prospecto_id ?? null,
     estado:             datos.estado ?? "activo",
@@ -289,6 +292,12 @@ export function construirPatchActualizacionCliente(datos: ActualizarClienteInput
   if (datos.condicion_pago !== undefined) patch.condicion_pago = datos.condicion_pago ?? null;
   if (datos.moneda_preferida !== undefined) patch.moneda_preferida = datos.moneda_preferida ?? null;
   if (datos.vendedor_asignado !== undefined) patch.vendedor_asignado = datos.vendedor_asignado ?? null;
+  if (datos.vendedor_usuario_id !== undefined) {
+    patch.vendedor_usuario_id =
+      datos.vendedor_usuario_id === null || datos.vendedor_usuario_id === ""
+        ? null
+        : datos.vendedor_usuario_id;
+  }
   if (datos.estado !== undefined) patch.estado = datos.estado ?? null;
   if (datos.tipo_servicio_cliente !== undefined) patch.tipo_servicio_cliente = datos.tipo_servicio_cliente ?? null;
   patch.updated_at = new Date().toISOString();

@@ -8,6 +8,7 @@ import {
   Inbox,
   LayoutGrid,
   MessageCircle,
+  Percent,
   PieChart,
   Receipt,
   SlidersHorizontal,
@@ -114,6 +115,16 @@ export default function ConfiguracionPage() {
               icon={BarChart3}
               badge={editorBadge}
               href="/configuracion/metricas"
+            />
+          </li>
+          <li>
+            <SettingsModuleCard
+              title="Comisiones"
+              subtitle="GLOBAL · COMERCIAL"
+              description="Política base, escalas por monto y parámetros del módulo de comisiones."
+              icon={Percent}
+              badge={editorBadge}
+              href="/configuracion/comisiones"
             />
           </li>
           <li>

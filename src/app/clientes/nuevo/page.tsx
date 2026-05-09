@@ -18,6 +18,7 @@ import {
   type TributarioFormState,
 } from "@/components/clientes/ClientePerfilTributarioForm";
 import { getProspecto, updateProspecto } from "@/lib/crm/storage";
+import { getUsuariosActivosEmpresa } from "@/lib/usuarios/empresa";
 import MontoInput from "@/components/ui/MontoInput";
 import { getPlanes } from "@/lib/planes/storage";
 import type { TipoCliente, OrigenCliente } from "@/lib/clientes/types";
@@ -50,6 +51,7 @@ function NuevoClienteForm() {
   const [error,      setError]      = useState<string | null>(null);
   const [guardando,  setGuardando]  = useState(false);
   const [planes,     setPlanes]     = useState<Plan[]>([]);
+  const [usuariosEmpresa, setUsuariosEmpresa] = useState<{ id: string; nombre: string | null; email: string }[]>([]);
 
   const [form, setForm] = useState({
     tipo_cliente:        "empresa" as TipoCliente,
@@ -71,6 +73,7 @@ function NuevoClienteForm() {
     condicion_pago:      "CONTADO",
     moneda_preferida:    "GS" as "GS" | "USD",
     vendedor_asignado:   "",
+    vendedor_usuario_id: "",
     origen:              "MANUAL" as OrigenCliente,
     prospecto_id:          null as string | null,
     tipo_servicio_cliente: "" as string,
@@ -103,6 +106,10 @@ function NuevoClienteForm() {
 
   useEffect(() => {
     getPlanes().then(setPlanes);
+  }, []);
+
+  useEffect(() => {
+    void getUsuariosActivosEmpresa().then(setUsuariosEmpresa);
   }, []);
 
   useEffect(() => {
@@ -228,6 +235,8 @@ function NuevoClienteForm() {
       moneda_preferida: form.moneda_preferida,
       estado: form.estado,
       plan_comercial_id: formSusc.plan_id.trim() || null,
+      vendedor_asignado: form.vendedor_asignado.trim().toUpperCase() || undefined,
+      vendedor_usuario_id: form.vendedor_usuario_id.trim() || null,
     });
 
     if (creado.ok !== true) {
@@ -541,13 +550,29 @@ function NuevoClienteForm() {
                 </select>
               </div>
               <div>
-                <label className={labelClass}>Vendedor asignado</label>
+                <label className={labelClass}>Vendedor responsable (usuario ERP)</label>
+                <select
+                  name="vendedor_usuario_id"
+                  value={form.vendedor_usuario_id}
+                  onChange={(e) => setForm((prev) => ({ ...prev, vendedor_usuario_id: e.target.value }))}
+                  className={inputClass}
+                >
+                  <option value="">— Sin asignar —</option>
+                  {usuariosEmpresa.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {(u.nombre ?? "").trim() || u.email}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className={labelClass}>Vendedor asignado (texto libre)</label>
                 <input
                   type="text"
                   name="vendedor_asignado"
                   value={form.vendedor_asignado}
                   onChange={handleChange}
-                  placeholder="Nombre del vendedor"
+                  placeholder="Referencia escrita (opcional)"
                   className={`${inputClass} uppercase`}
                 />
               </div>

@@ -87,6 +87,8 @@ export async function apiCreateCliente(data: {
   moneda_preferida?: string;
   estado?: string;
   plan_comercial_id?: string | null;
+  vendedor_asignado?: string;
+  vendedor_usuario_id?: string | null;
 }): Promise<
   | { ok: true; data: { id: string; [key: string]: unknown } }
   | { ok: false; error: string }

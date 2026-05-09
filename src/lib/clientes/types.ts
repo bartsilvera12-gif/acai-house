@@ -50,6 +50,8 @@ export interface Cliente {
   condicion_pago?:     string;          // CONTADO / 30 DÍAS / 60 DÍAS…
   moneda_preferida?:   "GS" | "USD";
   vendedor_asignado?:  string;
+  /** Usuario ERP responsable comercial (FK zentra_erp.usuarios); el texto libre sigue en vendedor_asignado. */
+  vendedor_usuario_id?: string | null;
 
   origen:              OrigenCliente;
   prospecto_id?:       number;          // ID del prospecto CRM de origen

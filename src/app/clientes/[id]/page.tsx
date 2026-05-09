@@ -199,6 +199,7 @@ export default function ClienteDetailPage() {
     condicion_pago:      "",
     moneda_preferida:      "GS" as "GS" | "USD",
     vendedor_asignado:     "",
+    vendedor_usuario_id:   "",
     tipo_servicio_cliente: "" as string,
     estado:                "activo" as Cliente["estado"],
   });
@@ -337,6 +338,7 @@ export default function ClienteDetailPage() {
         condicion_pago:       c.condicion_pago      ?? "",
         moneda_preferida:     c.moneda_preferida    ?? "GS",
         vendedor_asignado:    c.vendedor_asignado   ?? "",
+        vendedor_usuario_id:  c.vendedor_usuario_id ?? "",
         tipo_servicio_cliente: c.tipo_servicio_cliente ?? "",
         estado:               c.estado,
       });
@@ -524,6 +526,7 @@ export default function ClienteDetailPage() {
         condicion_pago:      form.condicion_pago.trim().toUpperCase()    || undefined,
         moneda_preferida:    form.moneda_preferida,
         vendedor_asignado:   form.vendedor_asignado.trim().toUpperCase() || undefined,
+        vendedor_usuario_id: form.vendedor_usuario_id.trim() || null,
         tipo_servicio_cliente: tipoTs || null,
         estado:              form.estado,
       });
@@ -959,7 +962,18 @@ export default function ClienteDetailPage() {
                 ),
               },
               { label: "Moneda", value: cliente.moneda_preferida ?? "GS" },
-              { label: "Vendedor", value: cliente.vendedor_asignado ?? "—" },
+              {
+                label: "Vendedor",
+                value: (() => {
+                  const uid = cliente.vendedor_usuario_id?.trim();
+                  if (uid) {
+                    const u = usuariosEmpresa.find((x) => x.id === uid);
+                    const nom = (u?.nombre ?? "").trim() || u?.email?.trim();
+                    if (nom) return nom;
+                  }
+                  return cliente.vendedor_asignado ?? "—";
+                })(),
+              },
               { label: "Creado por", value: cliente.created_by_nombre?.trim() || "—" },
             ] as { label: string; value: ReactNode }[]
           ).map((item) => (
@@ -1499,9 +1513,28 @@ export default function ClienteDetailPage() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className={labelClass}>Vendedor asignado</label>
+                    <label className={labelClass}>Vendedor responsable (usuario ERP)</label>
+                    <select
+                      name="vendedor_usuario_id"
+                      value={form.vendedor_usuario_id}
+                      onChange={(e) => setForm((p) => ({ ...p, vendedor_usuario_id: e.target.value }))}
+                      className={inputClass}
+                    >
+                      <option value="">— Sin asignar —</option>
+                      {usuariosEmpresa.map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {(u.nombre ?? "").trim() || u.email}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className={labelClass}>Vendedor asignado (texto libre)</label>
                     <input type="text" name="vendedor_asignado" value={form.vendedor_asignado} onChange={handleChange} className={`${inputClass} uppercase`} />
                   </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className={labelClass}>Estado</label>
                     <select
