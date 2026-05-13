@@ -32,6 +32,17 @@ export interface EmpresaSifenConfigDTO {
   /** Horas desde `sifen_aprobado_at` para permitir cancelación del DE (1–8760). */
   sifen_plazo_cancelacion_horas: number;
   has_certificado_password: boolean;
+  /**
+   * Branding opcional KuDE/PDF por empresa. NO afecta XML/firma/SET/CDC.
+   * Si `kude_logo_path` es null → renderer usa logo Neura por defecto.
+   * Si `kude_color_primario` es null → renderer usa color Neura #0EA5E9.
+   * Si `kude_color_primario_fill` es null pero hay primario → derivado en runtime.
+   */
+  kude_logo_path: string | null;
+  /** `#RRGGBB` (validado en DB con CHECK). */
+  kude_color_primario: string | null;
+  /** `#RRGGBB` (validado en DB con CHECK). */
+  kude_color_primario_fill: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -56,6 +67,9 @@ export interface EmpresaSifenConfigCreateBody {
   certificado_vencimiento?: string | null;
   activo?: boolean;
   sifen_plazo_cancelacion_horas?: number;
+  /** Branding opcional KuDE; el path real se setea por el endpoint de upload. */
+  kude_color_primario?: string | null;
+  kude_color_primario_fill?: string | null;
 }
 
 /** Body PATCH /api/configuracion/sifen (campos parciales). */
@@ -76,6 +90,9 @@ export interface EmpresaSifenConfigPatchBody {
   certificado_vencimiento?: string | null;
   activo?: boolean;
   sifen_plazo_cancelacion_horas?: number;
+  /** Branding opcional KuDE (path se gestiona por endpoint dedicado de upload/delete). */
+  kude_color_primario?: string | null;
+  kude_color_primario_fill?: string | null;
 }
 
 export type EmpresaSifenConfigCreateResult =

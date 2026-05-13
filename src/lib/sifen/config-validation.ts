@@ -80,6 +80,25 @@ export function parseAmbiente(v: unknown): AmbienteSifen | null {
   return null;
 }
 
+/**
+ * Normaliza un color hex `#RRGGBB` (3 dígitos `#RGB` expandido automáticamente).
+ * Solo permitido para personalización KuDE/PDF: nunca toca XML, firma ni SET.
+ */
+function normalizeHexColor(
+  raw: unknown
+): { ok: true; value: string } | { ok: false; error: string } {
+  const s = trimStr(raw);
+  if (!s) return { ok: false, error: "color vacío" };
+  const m3 = /^#([0-9A-Fa-f]{3})$/.exec(s);
+  if (m3) {
+    const a = m3[1]!;
+    return { ok: true, value: `#${a[0]}${a[0]}${a[1]}${a[1]}${a[2]}${a[2]}`.toLowerCase() };
+  }
+  const m6 = /^#([0-9A-Fa-f]{6})$/.exec(s);
+  if (m6) return { ok: true, value: `#${m6[1]!.toLowerCase()}` };
+  return { ok: false, error: "color debe ser #RRGGBB (ej. #0ea5e9)" };
+}
+
 type PasswordWire =
   | { kind: "omit" }
   | { kind: "clear" }
@@ -174,6 +193,25 @@ export function validateCreateBody(raw: unknown): EmpresaSifenConfigCreateResult
       return { ok: false, error: "sifen_plazo_cancelacion_horas debe ser un número entero de horas" };
     }
     data.sifen_plazo_cancelacion_horas = normalizePlazoCancelacionHoras(b.sifen_plazo_cancelacion_horas);
+  }
+
+  if ("kude_color_primario" in b) {
+    if (b.kude_color_primario === null) {
+      data.kude_color_primario = null;
+    } else {
+      const c = normalizeHexColor(b.kude_color_primario);
+      if (!c.ok) return { ok: false, error: `kude_color_primario: ${c.error}` };
+      data.kude_color_primario = c.value;
+    }
+  }
+  if ("kude_color_primario_fill" in b) {
+    if (b.kude_color_primario_fill === null) {
+      data.kude_color_primario_fill = null;
+    } else {
+      const c = normalizeHexColor(b.kude_color_primario_fill);
+      if (!c.ok) return { ok: false, error: `kude_color_primario_fill: ${c.error}` };
+      data.kude_color_primario_fill = c.value;
+    }
   }
 
   return { ok: true, data };
@@ -280,6 +318,25 @@ export function buildPatchUpdate(raw: unknown): EmpresaSifenConfigPatchResult {
     patch.sifen_plazo_cancelacion_horas = normalizePlazoCancelacionHoras(b.sifen_plazo_cancelacion_horas);
   }
 
+  if ("kude_color_primario" in b) {
+    if (b.kude_color_primario === null) {
+      patch.kude_color_primario = null;
+    } else {
+      const c = normalizeHexColor(b.kude_color_primario);
+      if (!c.ok) return { ok: false, error: `kude_color_primario: ${c.error}` };
+      patch.kude_color_primario = c.value;
+    }
+  }
+  if ("kude_color_primario_fill" in b) {
+    if (b.kude_color_primario_fill === null) {
+      patch.kude_color_primario_fill = null;
+    } else {
+      const c = normalizeHexColor(b.kude_color_primario_fill);
+      if (!c.ok) return { ok: false, error: `kude_color_primario_fill: ${c.error}` };
+      patch.kude_color_primario_fill = c.value;
+    }
+  }
+
   if (Object.keys(patch).length === 0 && password.kind === "omit") {
     return { ok: false, error: "No se envió ningún campo para actualizar" };
   }
@@ -312,6 +369,12 @@ export function rowFromCreateBody(empresaId: string, body: EmpresaSifenConfigCre
   }
   if (body.sifen_plazo_cancelacion_horas !== undefined) {
     row.sifen_plazo_cancelacion_horas = normalizePlazoCancelacionHoras(body.sifen_plazo_cancelacion_horas);
+  }
+  if (body.kude_color_primario !== undefined) {
+    row.kude_color_primario = body.kude_color_primario;
+  }
+  if (body.kude_color_primario_fill !== undefined) {
+    row.kude_color_primario_fill = body.kude_color_primario_fill;
   }
   return row;
 }

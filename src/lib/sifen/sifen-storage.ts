@@ -25,6 +25,14 @@ export function buildSifenNcSignedXmlObjectPath(empresaId: string, notaCreditoId
   return `${empresaId}/nc/${notaCreditoId}/documento-firmado.xml`;
 }
 
+/**
+ * Logo de marca usado SOLO para representación gráfica KuDE/PDF.
+ * No participa de XML/firma/SET/CDC. Privado, leído server-side por el renderer.
+ */
+export function buildKudeLogoObjectPath(empresaId: string): string {
+  return `${empresaId}/branding/kude-logo.png`;
+}
+
 export async function ensureSifenStorageBucket(supabase: AppSupabaseClient): Promise<{ ok: true } | { ok: false; message: string }> {
   const { data: buckets, error: listErr } = await supabase.storage.listBuckets();
   if (listErr) {
@@ -76,4 +84,18 @@ export async function downloadSifenObject(
   }
   const ab = await data.arrayBuffer();
   return { ok: true, data: Buffer.from(ab) };
+}
+
+/** Sube el logo PNG del KuDE al bucket privado `sifen`. */
+export async function uploadKudeLogoPng(
+  supabase: AppSupabaseClient,
+  objectPath: string,
+  bytes: Buffer
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const { error } = await supabase.storage.from(SIFEN_STORAGE_BUCKET).upload(objectPath, bytes, {
+    contentType: "image/png",
+    upsert: true,
+  });
+  if (error) return { ok: false, message: error.message };
+  return { ok: true };
 }

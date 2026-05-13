@@ -49,6 +49,18 @@ export function toEmpresaSifenConfigPublicDto(
     activo: Boolean(row.activo),
     sifen_plazo_cancelacion_horas: normalizePlazoCancelacionHoras(row.sifen_plazo_cancelacion_horas),
     has_certificado_password,
+    kude_logo_path:
+      row.kude_logo_path == null || String(row.kude_logo_path).trim() === ""
+        ? null
+        : String(row.kude_logo_path).trim(),
+    kude_color_primario:
+      row.kude_color_primario == null || String(row.kude_color_primario).trim() === ""
+        ? null
+        : String(row.kude_color_primario).trim().toLowerCase(),
+    kude_color_primario_fill:
+      row.kude_color_primario_fill == null || String(row.kude_color_primario_fill).trim() === ""
+        ? null
+        : String(row.kude_color_primario_fill).trim().toLowerCase(),
     created_at: String(row.created_at ?? ""),
     updated_at: String(row.updated_at ?? ""),
   };

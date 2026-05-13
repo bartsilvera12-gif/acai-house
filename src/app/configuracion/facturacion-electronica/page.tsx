@@ -89,6 +89,21 @@ export default function FacturacionElectronicaSifenPage() {
   /** Si la config está completa, permite colapsar el formulario (opción A). */
   const [editarFormulario, setEditarFormulario] = useState(false);
 
+  /**
+   * Branding KuDE/PDF opcional. NO afecta XML, firma, envío SET ni CDC.
+   * - Vacío → renderer usa logo Neura y color #0EA5E9.
+   * - Con color → renderer usa color personalizado para bordes/acentos del PDF.
+   * - Con logo → renderer embebe ese PNG en el header.
+   */
+  const [kudeColorPrimario, setKudeColorPrimario] = useState("");
+  const [kudeColorPrimarioFill, setKudeColorPrimarioFill] = useState("");
+  const [kudeLogoPathActual, setKudeLogoPathActual] = useState<string | null>(null);
+  const [subiendoLogo, setSubiendoLogo] = useState(false);
+  const [eliminandoLogo, setEliminandoLogo] = useState(false);
+  const [derivarFill, setDerivarFill] = useState(true);
+  const kudeLogoInputId = useId();
+  const kudeLogoInputRef = useRef<HTMLInputElement>(null);
+
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -120,6 +135,10 @@ export default function FacturacionElectronicaSifenPage() {
             : 48
         );
         setCertVenc(isoToDateInput(d.certificado_vencimiento));
+        setKudeLogoPathActual(d.kude_logo_path ?? null);
+        setKudeColorPrimario(d.kude_color_primario ?? "");
+        setKudeColorPrimarioFill(d.kude_color_primario_fill ?? "");
+        setDerivarFill(!d.kude_color_primario_fill);
       }
     } catch {
       setError("Error de red al cargar SIFEN");
@@ -250,6 +269,124 @@ export default function FacturacionElectronicaSifenPage() {
       setError("Error de red");
     } finally {
       setSaving(false);
+    }
+  }
+
+  function isHexColor(s: string): boolean {
+    return /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(s.trim());
+  }
+
+  async function guardarBrandingColores() {
+    setError(null);
+    setSuccess(null);
+    const color = kudeColorPrimario.trim();
+    const colorFill = kudeColorPrimarioFill.trim();
+    if (color && !isHexColor(color)) {
+      setError("Color primario inválido. Formato esperado: #RRGGBB (ej. #0ea5e9).");
+      return;
+    }
+    if (!derivarFill && colorFill && !isHexColor(colorFill)) {
+      setError("Color de acento inválido. Formato esperado: #RRGGBB.");
+      return;
+    }
+    setSaving(true);
+    try {
+      const body: Record<string, unknown> = {
+        kude_color_primario: color ? color : null,
+        kude_color_primario_fill: derivarFill ? null : colorFill ? colorFill : null,
+      };
+      const res = await fetchWithSupabaseSession("/api/configuracion/sifen", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const j = (await res.json()) as { success?: boolean; data?: EmpresaSifenConfigDTO; error?: string };
+      if (!res.ok || !j.success || !j.data) {
+        setError(j.error ?? "No se pudo guardar la personalización KuDE");
+        return;
+      }
+      setCfg(j.data);
+      setKudeColorPrimario(j.data.kude_color_primario ?? "");
+      setKudeColorPrimarioFill(j.data.kude_color_primario_fill ?? "");
+      setSuccess("Personalización KuDE guardada. Solo afecta al PDF/KuDE.");
+    } catch {
+      setError("Error de red al guardar la personalización KuDE");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function onKudeLogoFileChange(ev: React.ChangeEvent<HTMLInputElement>) {
+    const file = ev.target.files?.[0];
+    ev.target.value = "";
+    if (!file) return;
+
+    if (file.type && file.type !== "image/png") {
+      setError("Solo se acepta logo en formato PNG.");
+      return;
+    }
+    if (file.size > 1 * 1024 * 1024) {
+      setError("El logo supera el máximo permitido (1 MB).");
+      return;
+    }
+
+    setError(null);
+    setSuccess(null);
+    setSubiendoLogo(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetchWithSupabaseSession("/api/configuracion/sifen/kude-logo", {
+        method: "POST",
+        body: fd,
+      });
+      const j = (await res.json()) as {
+        success?: boolean;
+        data?: { config?: EmpresaSifenConfigDTO; kude_logo_path?: string };
+        error?: string;
+      };
+      if (!res.ok || !j.success) {
+        setError(j.error ?? "No se pudo subir el logo KuDE");
+        return;
+      }
+      if (j.data?.config) {
+        setCfg(j.data.config);
+        setKudeLogoPathActual(j.data.config.kude_logo_path ?? null);
+      } else if (j.data?.kude_logo_path) {
+        setKudeLogoPathActual(j.data.kude_logo_path);
+      }
+      setSuccess("Logo KuDE actualizado. Solo afecta al PDF/KuDE.");
+    } catch {
+      setError("Error de red al subir el logo KuDE");
+    } finally {
+      setSubiendoLogo(false);
+    }
+  }
+
+  async function restaurarLogoKude() {
+    setError(null);
+    setSuccess(null);
+    setEliminandoLogo(true);
+    try {
+      const res = await fetchWithSupabaseSession("/api/configuracion/sifen/kude-logo", {
+        method: "DELETE",
+      });
+      const j = (await res.json()) as { success?: boolean; data?: { config?: EmpresaSifenConfigDTO }; error?: string };
+      if (!res.ok || !j.success) {
+        setError(j.error ?? "No se pudo restaurar el logo por defecto");
+        return;
+      }
+      if (j.data?.config) {
+        setCfg(j.data.config);
+        setKudeLogoPathActual(j.data.config.kude_logo_path ?? null);
+      } else {
+        setKudeLogoPathActual(null);
+      }
+      setSuccess("Logo personalizado eliminado. Se usará el logo Neura por defecto.");
+    } catch {
+      setError("Error de red al restaurar el logo");
+    } finally {
+      setEliminandoLogo(false);
     }
   }
 
@@ -649,6 +786,131 @@ export default function FacturacionElectronicaSifenPage() {
                   Eliminar contraseña guardada en el servidor
                 </label>
               )}
+            </div>
+          </div>
+        </Card>
+
+        <Card>
+          <SectionTitle>Personalización KuDE</SectionTitle>
+          <p className="text-xs text-slate-500 mb-4 leading-relaxed">
+            Logo y color para la representación gráfica (KuDE/PDF) de la factura electrónica.
+            <span className="font-medium text-slate-700"> Esto solo afecta el PDF/KuDE; no cambia XML, firma ni envío a SET.</span>{" "}
+            Si no configurás nada se usa el diseño Neura por defecto.
+          </p>
+          <div className="space-y-5">
+            <div>
+              <label className={fLabel}>Logo (PNG, máx. 1 MB)</label>
+              <input
+                ref={kudeLogoInputRef}
+                id={kudeLogoInputId}
+                type="file"
+                accept="image/png"
+                disabled={!cfg || subiendoLogo || eliminandoLogo}
+                onChange={onKudeLogoFileChange}
+                className="sr-only"
+              />
+              <div className="mt-1 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                <button
+                  type="button"
+                  disabled={!cfg || subiendoLogo || eliminandoLogo}
+                  onClick={() => kudeLogoInputRef.current?.click()}
+                  className="w-fit rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-800 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {subiendoLogo ? "Subiendo…" : kudeLogoPathActual ? "Reemplazar logo" : "Subir logo"}
+                </button>
+                {kudeLogoPathActual && (
+                  <button
+                    type="button"
+                    disabled={!cfg || eliminandoLogo || subiendoLogo}
+                    onClick={restaurarLogoKude}
+                    className="w-fit rounded-lg border border-rose-200 bg-white px-3 py-2 text-sm font-semibold text-rose-700 shadow-sm hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {eliminandoLogo ? "Restaurando…" : "Restaurar logo por defecto"}
+                  </button>
+                )}
+                <span className="text-xs text-slate-600">
+                  {kudeLogoPathActual ? (
+                    <>
+                      Estado: <span className="font-medium text-emerald-800">Logo personalizado cargado</span>
+                    </>
+                  ) : (
+                    <>
+                      Estado: <span className="font-medium text-slate-700">Logo Neura por defecto</span>
+                    </>
+                  )}
+                </span>
+              </div>
+              {!cfg && (
+                <p className="text-xs text-amber-700 mt-2">
+                  Guardá primero la configuración SIFEN base para habilitar la subida del logo.
+                </p>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className={fLabel}>Color principal (bordes, acentos)</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    className="h-10 w-12 cursor-pointer rounded border border-slate-200 bg-white p-1"
+                    value={isHexColor(kudeColorPrimario) ? kudeColorPrimario : "#0ea5e9"}
+                    onChange={(e) => setKudeColorPrimario(e.target.value)}
+                  />
+                  <input
+                    className={fInput}
+                    value={kudeColorPrimario}
+                    onChange={(e) => setKudeColorPrimario(e.target.value)}
+                    placeholder="#0ea5e9 (vacío = default Neura)"
+                  />
+                </div>
+                <p className="text-xs text-slate-500 mt-1.5">
+                  Dejá vacío para usar el azul Neura por defecto.
+                </p>
+              </div>
+
+              <div>
+                <label className={fLabel}>Color de acento (fondo suave)</label>
+                <label className="flex items-center gap-2 text-xs text-slate-600 cursor-pointer mb-2">
+                  <input
+                    type="checkbox"
+                    checked={derivarFill}
+                    onChange={(e) => setDerivarFill(e.target.checked)}
+                    className="rounded border-slate-300"
+                  />
+                  Derivar automáticamente del color principal
+                </label>
+                <div className={`flex items-center gap-2 ${derivarFill ? "opacity-50 pointer-events-none" : ""}`}>
+                  <input
+                    type="color"
+                    disabled={derivarFill}
+                    className="h-10 w-12 cursor-pointer rounded border border-slate-200 bg-white p-1 disabled:cursor-not-allowed"
+                    value={isHexColor(kudeColorPrimarioFill) ? kudeColorPrimarioFill : "#eaf6fc"}
+                    onChange={(e) => setKudeColorPrimarioFill(e.target.value)}
+                  />
+                  <input
+                    className={fInput}
+                    disabled={derivarFill}
+                    value={kudeColorPrimarioFill}
+                    onChange={(e) => setKudeColorPrimarioFill(e.target.value)}
+                    placeholder="Solo si querés sobreescribir el acento"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <button
+                type="button"
+                disabled={!cfg || saving}
+                onClick={guardarBrandingColores}
+                className="rounded-lg bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-4 py-2 text-sm font-medium disabled:opacity-50"
+              >
+                {saving ? "Guardando…" : "Guardar colores"}
+              </button>
+              <p className="text-xs text-slate-500 mt-2">
+                El logo se guarda automáticamente al subirlo. Los colores se persisten al pulsar «Guardar colores».
+              </p>
             </div>
           </div>
         </Card>

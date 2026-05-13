@@ -8,19 +8,71 @@ import { PDFDocument, StandardFonts, rgb, type PDFImage, type PDFPage, type PDFF
 import QRCode from "qrcode";
 import type { KudeItemRow, KudeParsedFromXml } from "./parse-kude-from-signed-xml";
 
+/**
+ * Branding opcional por empresa (KuDE/PDF únicamente).
+ * - `logoBytes`: PNG ya descargado server-side. Si es null/inválido → fallback al logo Neura.
+ * - `colorPrimario`/`colorPrimarioFill`: hex `#RRGGBB`. NULL/inválido → fallback Neura.
+ *
+ * NO afecta XML, firma, envío SET, CDC ni datos fiscales. Solo apariencia del PDF.
+ */
+export type KudeBranding = {
+  logoBytes?: Uint8Array | null;
+  colorPrimario?: string | null;
+  colorPrimarioFill?: string | null;
+};
+
 export type BuildKudePdfInput = {
   parsed: KudeParsedFromXml;
   numeroFactura: string;
   dProtAut: string | null;
   qrUrl: string;
+  /** Branding opcional. Si no viene o es inválido, se usa el diseño Neura. */
+  branding?: KudeBranding | null;
 };
 
 const A4_W = 595.28;
 const A4_H = 841.89;
+/** Default Neura `#0EA5E9`. Se preserva cuando la empresa no configura branding. */
 const NEURA_BLUE: RGB = rgb(14 / 255, 165 / 255, 233 / 255);
+/** Tonalidad clara default Neura (~ azul a 93% blanco). */
 const NEURA_BLUE_FILL: RGB = rgb(0.93, 0.97, 1);
 const BLACK: RGB = rgb(0, 0, 0);
 const GRAY: RGB = rgb(0.35, 0.35, 0.35);
+
+/** Parsea `#RGB` / `#RRGGBB` → RGB de pdf-lib. Devuelve null si no matchea. */
+function parseHexColorToRgb(hex: string | null | undefined): RGB | null {
+  if (hex == null) return null;
+  const s = String(hex).trim();
+  const m6 = /^#([0-9a-fA-F]{6})$/.exec(s);
+  if (m6) {
+    const h = m6[1]!;
+    const r = parseInt(h.slice(0, 2), 16);
+    const g = parseInt(h.slice(2, 4), 16);
+    const b = parseInt(h.slice(4, 6), 16);
+    return rgb(r / 255, g / 255, b / 255);
+  }
+  const m3 = /^#([0-9a-fA-F]{3})$/.exec(s);
+  if (m3) {
+    const h = m3[1]!;
+    const r = parseInt(h[0]! + h[0]!, 16);
+    const g = parseInt(h[1]! + h[1]!, 16);
+    const b = parseInt(h[2]! + h[2]!, 16);
+    return rgb(r / 255, g / 255, b / 255);
+  }
+  return null;
+}
+
+/**
+ * Deriva un fill suave (mezcla con blanco al `mix`, default 0.92) cuando la
+ * empresa solo proveyó el primario. Igual al ratio actual NEURA_BLUE → NEURA_BLUE_FILL.
+ */
+function blendWithWhite(c: RGB, mix = 0.92): RGB {
+  return rgb(
+    c.red * (1 - mix) + 1 * mix,
+    c.green * (1 - mix) + 1 * mix,
+    c.blue * (1 - mix) + 1 * mix
+  );
+}
 
 /** Contacto Neura en el KuDE (puede diferir del XML del emisor). */
 const NEURA_KUDE_TEL = "0973989068";
@@ -122,10 +174,11 @@ function drawLabelValue(
   value: string,
   fontBold: PDFFont,
   font: PDFFont,
-  size: number
+  size: number,
+  labelColor: RGB
 ) {
   const y = baselineFromTop(page, fromTop);
-  page.drawText(label, { x, y, size, font: fontBold, color: NEURA_BLUE });
+  page.drawText(label, { x, y, size, font: fontBold, color: labelColor });
   const w = fontBold.widthOfTextAtSize(label, size);
   page.drawText(value, { x: x + w + 1.5, y, size, font, color: BLACK });
 }
@@ -143,7 +196,9 @@ function drawTableChunk(
   innerW: number,
   fromTop: number,
   font: PDFFont,
-  fontBold: PDFFont
+  fontBold: PDFFont,
+  primary: RGB,
+  primaryFill: RGB
 ): number {
   const fsz = 6.5;
   const headH = 16;
@@ -151,8 +206,8 @@ function drawTableChunk(
   const bodyH = Math.max(14, items.length * rowH + 8);
   const totalH = headH + bodyH;
 
-  drawRectFromTop(page, margin, fromTop, innerW, totalH, { fill: rgb(1, 1, 1), border: NEURA_BLUE });
-  drawRectFromTop(page, margin, fromTop, innerW, headH, { fill: NEURA_BLUE_FILL, border: NEURA_BLUE });
+  drawRectFromTop(page, margin, fromTop, innerW, totalH, { fill: rgb(1, 1, 1), border: primary });
+  drawRectFromTop(page, margin, fromTop, innerW, headH, { fill: primaryFill, border: primary });
 
   const xCod = margin + 4;
   const xDesc = margin + 36;
@@ -168,7 +223,7 @@ function drawTableChunk(
       y: baselineFromTop(page, headerBaseline),
       size: fsz,
       font: bold ? fontBold : font,
-      color: bold ? NEURA_BLUE : BLACK,
+      color: bold ? primary : BLACK,
     });
   };
   drawH("Código", xCod, true);
@@ -198,7 +253,18 @@ function drawTableChunk(
 }
 
 export async function buildKudePdfBuffer(input: BuildKudePdfInput): Promise<Buffer> {
-  const { parsed, numeroFactura, dProtAut, qrUrl } = input;
+  const { parsed, numeroFactura, dProtAut, qrUrl, branding } = input;
+
+  /**
+   * Branding resolution: si la empresa configuró color/logo válidos, los usamos;
+   * si no, se preservan exactamente NEURA_BLUE / NEURA_BLUE_FILL / logo-neura.png
+   * (cero cambios visuales para empresas sin branding).
+   */
+  const primaryConfig = parseHexColorToRgb(branding?.colorPrimario ?? null);
+  const primary: RGB = primaryConfig ?? NEURA_BLUE;
+  const primaryFillConfig = parseHexColorToRgb(branding?.colorPrimarioFill ?? null);
+  const primaryFill: RGB =
+    primaryFillConfig ?? (primaryConfig ? blendWithWhite(primaryConfig, 0.92) : NEURA_BLUE_FILL);
 
   const qrPng = await QRCode.toBuffer(qrUrl, {
     type: "png",
@@ -236,13 +302,25 @@ export async function buildKudePdfBuffer(input: BuildKudePdfInput): Promise<Buff
   let logoH = 0;
   let logoW = 0;
   let logoImg: PDFImage | null = null;
-  const logoBytes = readLogoBytes();
-  if (logoBytes) {
+  /**
+   * Preferencia de logo:
+   *   1) Branding por empresa (PNG bytes ya descargado por el endpoint).
+   *   2) Logo Neura del bundle (`public/logo-neura.png`).
+   * Si ambos fallan, header se renderiza sin logo (igual que hoy).
+   */
+  const brandingLogo = branding?.logoBytes ?? null;
+  const fallbackLogo = readLogoBytes();
+  const candidates: Uint8Array[] = [];
+  if (brandingLogo && brandingLogo.length > 0) candidates.push(brandingLogo);
+  if (fallbackLogo) candidates.push(fallbackLogo);
+
+  for (const bytes of candidates) {
     try {
-      logoImg = await pdfDoc.embedPng(logoBytes);
+      logoImg = await pdfDoc.embedPng(bytes);
       logoW = logoMaxW;
       const sc = logoW / logoImg.width;
       logoH = logoImg.height * sc;
+      break;
     } catch {
       logoH = 0;
       logoW = 0;
@@ -272,7 +350,7 @@ export async function buildKudePdfBuffer(input: BuildKudePdfInput): Promise<Buff
   const headerBottom = Math.max(leftBottom, rightBottom, logoBottom) + 10;
   const headerH = headerBottom - cursorTop;
 
-  drawRectFromTop(page, margin, cursorTop, innerW, headerH, { fill: rgb(1, 1, 1), border: NEURA_BLUE });
+  drawRectFromTop(page, margin, cursorTop, innerW, headerH, { fill: rgb(1, 1, 1), border: primary });
 
   if (logoImg && logoW > 0) {
     page.drawImage(logoImg, {
@@ -320,7 +398,7 @@ export async function buildKudePdfBuffer(input: BuildKudePdfInput): Promise<Buff
       y: baselineFromTop(page, cursorTop + 9),
       size: 9,
       font: fontBold,
-      color: NEURA_BLUE,
+      color: primary,
     });
     cursorTop += 13;
   };
@@ -328,12 +406,12 @@ export async function buildKudePdfBuffer(input: BuildKudePdfInput): Promise<Buff
   /* Operación + cliente (un cuadro, dos columnas como modelo KuDE) */
   sectionTitle("DATOS DE LA OPERACIÓN Y DEL CLIENTE");
   const opCliH = 102;
-  drawRectFromTop(page, margin, cursorTop, innerW, opCliH, { fill: rgb(1, 1, 1), border: NEURA_BLUE });
+  drawRectFromTop(page, margin, cursorTop, innerW, opCliH, { fill: rgb(1, 1, 1), border: primary });
   const col1X = margin + 8;
   const col2X = margin + innerW * 0.48;
   const labSz = 7.5;
   let yOp = cursorTop + 10;
-  drawLabelValue(page, col1X, yOp, "Fecha de emisión: ", parsed.dFeEmiDE, fontBold, font, labSz);
+  drawLabelValue(page, col1X, yOp, "Fecha de emisión: ", parsed.dFeEmiDE, fontBold, font, labSz, primary);
   yOp += 11;
   drawLabelValue(
     page,
@@ -343,7 +421,8 @@ export async function buildKudePdfBuffer(input: BuildKudePdfInput): Promise<Buff
     parsed.operacion.condicionVenta,
     fontBold,
     font,
-    labSz
+    labSz,
+    primary
   );
   yOp += 11;
   drawLabelValue(
@@ -354,12 +433,13 @@ export async function buildKudePdfBuffer(input: BuildKudePdfInput): Promise<Buff
     `${parsed.monedaDescripcion || parsed.monedaCodigo} (${parsed.monedaCodigo})`,
     fontBold,
     font,
-    labSz
+    labSz,
+    primary
   );
   yOp += 11;
-  drawLabelValue(page, col1X, yOp, "Tipo de cambio: ", tipoCambio, fontBold, font, labSz);
+  drawLabelValue(page, col1X, yOp, "Tipo de cambio: ", tipoCambio, fontBold, font, labSz, primary);
   yOp += 11;
-  drawLabelValue(page, col1X, yOp, "Tipo de operación: ", parsed.operacion.tipoOperacion, fontBold, font, labSz);
+  drawLabelValue(page, col1X, yOp, "Tipo de operación: ", parsed.operacion.tipoOperacion, fontBold, font, labSz, primary);
 
   let yRec = cursorTop + 10;
   drawLabelValue(
@@ -370,11 +450,12 @@ export async function buildKudePdfBuffer(input: BuildKudePdfInput): Promise<Buff
     parsed.receptor.docValue,
     fontBold,
     font,
-    labSz
+    labSz,
+    primary
   );
   yRec += 11;
   const nomLines = wrapByChars(parsed.receptor.nombre, 34);
-  drawLabelValue(page, col2X, yRec, "Razón social: ", nomLines[0] ?? "—", fontBold, font, labSz);
+  drawLabelValue(page, col2X, yRec, "Razón social: ", nomLines[0] ?? "—", fontBold, font, labSz, primary);
   yRec += 11;
   const indent = fontBold.widthOfTextAtSize("Razón social: ", labSz) + col2X + 1.5;
   for (let i = 1; i < nomLines.length; i++) {
@@ -395,10 +476,11 @@ export async function buildKudePdfBuffer(input: BuildKudePdfInput): Promise<Buff
     (parsed.receptor.direccion || "—").replace(/\s+/g, " ").trim(),
     fontBold,
     font,
-    labSz
+    labSz,
+    primary
   );
   yRec += 11;
-  drawLabelValue(page, col2X, yRec, "Tel.: ", parsed.receptor.telefono || "—", fontBold, font, labSz);
+  drawLabelValue(page, col2X, yRec, "Tel.: ", parsed.receptor.telefono || "—", fontBold, font, labSz, primary);
 
   cursorTop += opCliH + 10;
 
@@ -423,7 +505,7 @@ export async function buildKudePdfBuffer(input: BuildKudePdfInput): Promise<Buff
       cursorTop = margin;
       continue;
     }
-    cursorTop = drawTableChunk(page, slice, parsed, margin, innerW, cursorTop, font, fontBold);
+    cursorTop = drawTableChunk(page, slice, parsed, margin, innerW, cursorTop, font, fontBold, primary, primaryFill);
     idx += slice.length;
     if (idx < items.length) {
       page = pdfDoc.addPage([A4_W, A4_H]);
@@ -452,8 +534,8 @@ export async function buildKudePdfBuffer(input: BuildKudePdfInput): Promise<Buff
 
   const totBoxH = 94;
   drawRectFromTop(page, margin, cursorTop, innerW, totBoxH, {
-    fill: NEURA_BLUE_FILL,
-    border: NEURA_BLUE,
+    fill: primaryFill,
+    border: primary,
   });
 
   let ty = cursorTop + 14;
@@ -511,7 +593,7 @@ export async function buildKudePdfBuffer(input: BuildKudePdfInput): Promise<Buff
     start: { x: margin + 8, y: baselineFromTop(page, ty) },
     end: { x: margin + innerW - 8, y: baselineFromTop(page, ty) },
     thickness: 0.45,
-    color: NEURA_BLUE,
+    color: primary,
   });
   ty += 12;
 
@@ -557,7 +639,7 @@ export async function buildKudePdfBuffer(input: BuildKudePdfInput): Promise<Buff
   const legendBlockHeight = legendLead * 3 + 8;
   const footBoxH = footPad + Math.max(qSz, textBlockHeight) + gapAfterQr + legendBlockHeight + footPad;
 
-  drawRectFromTop(page, margin, cursorTop, innerW, footBoxH, { fill: rgb(1, 1, 1), border: NEURA_BLUE });
+  drawRectFromTop(page, margin, cursorTop, innerW, footBoxH, { fill: rgb(1, 1, 1), border: primary });
 
   page.drawImage(qrImg, {
     x: margin + footPad,
@@ -571,7 +653,7 @@ export async function buildKudePdfBuffer(input: BuildKudePdfInput): Promise<Buff
     y: baselineFromTop(page, footTextBaseline),
     size: 8.5,
     font: fontBold,
-    color: NEURA_BLUE,
+    color: primary,
   });
   footTextBaseline += 13;
   for (const line of wrapByChars(
@@ -621,7 +703,7 @@ export async function buildKudePdfBuffer(input: BuildKudePdfInput): Promise<Buff
       y: baselineFromTop(page, leg),
       size: legendSize,
       font: fontBold,
-      color: NEURA_BLUE,
+      color: primary,
     });
     leg += legendLead;
   }

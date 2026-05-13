@@ -3,12 +3,13 @@ import { getFacturasSupabaseFromAuth } from "@/lib/facturacion/facturas-service-
 import { errorResponse } from "@/lib/api/response";
 import { API_ERRORS } from "@/lib/api/errors";
 import { downloadSifenObject } from "@/lib/sifen/sifen-storage";
-import { buildKudePdfBuffer } from "@/lib/sifen/kude-pdf";
+import { buildKudePdfBuffer, type KudeBranding } from "@/lib/sifen/kude-pdf";
 import {
   kudeFallbackQrUrl,
   parseKudeFromSignedRdeXml,
 } from "@/lib/sifen/parse-kude-from-signed-xml";
 import type { SifenConsultaLoteUltimaPersistida } from "@/lib/sifen/types";
+import type { AppSupabaseClient } from "@/lib/supabase/schema";
 
 
 function filasDetalleConsulta(
@@ -36,6 +37,62 @@ function nombreArchivoKude(numeroFactura: string, cdc: string): string {
   const safe = numeroFactura.replace(/[^\w.-]+/g, "_").slice(0, 40);
   const tail = cdc.slice(-8);
   return `KuDE-${safe || "factura"}-${tail}.pdf`;
+}
+
+/**
+ * Carga branding KuDE/PDF desde `empresa_sifen_config` para la empresa.
+ * Devuelve null cuando no hay nada configurado o cuando la lectura no pudo
+ * resolverse: en ese caso el renderer usa el diseño Neura por defecto.
+ * Solo afecta el PDF; no interactúa con XML/firma/SET/CDC.
+ */
+async function loadKudeBranding(
+  supabase: AppSupabaseClient,
+  empresaId: string
+): Promise<KudeBranding | null> {
+  const { data, error } = await supabase
+    .from("empresa_sifen_config")
+    .select("kude_logo_path, kude_color_primario, kude_color_primario_fill")
+    .eq("empresa_id", empresaId)
+    .maybeSingle();
+
+  if (error || !data) return null;
+
+  const row = data as {
+    kude_logo_path: string | null;
+    kude_color_primario: string | null;
+    kude_color_primario_fill: string | null;
+  };
+
+  const colorPrimario =
+    row.kude_color_primario == null || String(row.kude_color_primario).trim() === ""
+      ? null
+      : String(row.kude_color_primario).trim();
+  const colorPrimarioFill =
+    row.kude_color_primario_fill == null ||
+    String(row.kude_color_primario_fill).trim() === ""
+      ? null
+      : String(row.kude_color_primario_fill).trim();
+
+  let logoBytes: Uint8Array | null = null;
+  const logoPath =
+    row.kude_logo_path == null || String(row.kude_logo_path).trim() === ""
+      ? null
+      : String(row.kude_logo_path).trim();
+  if (logoPath) {
+    const dl = await downloadSifenObject(supabase, logoPath);
+    if (dl.ok) {
+      logoBytes = new Uint8Array(dl.data);
+    } else {
+      console.warn("[kude] logo download failed, falling back to default", {
+        empresa_id: empresaId,
+        path: logoPath,
+        message: dl.message,
+      });
+    }
+  }
+
+  if (!logoBytes && !colorPrimario && !colorPrimarioFill) return null;
+  return { logoBytes, colorPrimario, colorPrimarioFill };
 }
 
 /**
@@ -138,6 +195,22 @@ export async function GET(
 
     const qrUrl = parsed.dCarQR ?? kudeFallbackQrUrl(parsed.cdc);
 
+    /**
+     * Branding opcional KuDE/PDF por empresa. SOLO afecta apariencia visual.
+     * No participa de XML/firma/SET/CDC. Si la empresa no configuró nada o
+     * la descarga del logo falla, se cae silenciosamente al diseño Neura.
+     */
+    const branding = await loadKudeBranding(
+      supabase,
+      auth.empresa_id
+    ).catch((e) => {
+      console.warn("[kude] branding load failed, using default", {
+        empresa_id: auth.empresa_id,
+        error: e instanceof Error ? e.message : String(e),
+      });
+      return null;
+    });
+
     const numeroFactura = fac.numero_factura == null ? "" : String(fac.numero_factura);
     let pdf: Buffer;
     try {
@@ -146,6 +219,7 @@ export async function GET(
         numeroFactura,
         dProtAut,
         qrUrl,
+        branding,
       });
     } catch (e) {
       const m = e instanceof Error ? e.message : "Error al generar PDF";
