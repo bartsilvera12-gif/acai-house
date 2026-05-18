@@ -32,6 +32,12 @@ interface ProductoRow {
   proveedor_principal_id?: string | null;
   es_vendible?: boolean | null;
   es_insumo?: boolean | null;
+  controla_stock?: boolean | null;
+  valorizado?: boolean | null;
+  unidad_compra?: string | null;
+  unidad_receta?: string | null;
+  factor_compra_receta?: string | number | null;
+  tiempo_prep_minutos?: number | null;
 }
 
 interface MovimientoRow {
@@ -74,6 +80,12 @@ function rowToProducto(row: ProductoRow): Producto {
     proveedor_principal_id: row.proveedor_principal_id ?? null,
     es_vendible: row.es_vendible ?? true,
     es_insumo: row.es_insumo ?? false,
+    controla_stock: row.controla_stock ?? true,
+    valorizado: row.valorizado ?? true,
+    unidad_compra: row.unidad_compra ?? null,
+    unidad_receta: row.unidad_receta ?? null,
+    factor_compra_receta: row.factor_compra_receta != null ? Number(row.factor_compra_receta) : 1,
+    tiempo_prep_minutos: row.tiempo_prep_minutos != null ? Number(row.tiempo_prep_minutos) : 0,
   };
 }
 
@@ -186,6 +198,18 @@ export async function saveProducto(
     proveedor_principal_id: datos.proveedor_principal_id ?? null,
     es_vendible: typeof datos.es_vendible === "boolean" ? datos.es_vendible : true,
     es_insumo: typeof datos.es_insumo === "boolean" ? datos.es_insumo : false,
+    controla_stock: typeof datos.controla_stock === "boolean" ? datos.controla_stock : true,
+    valorizado: typeof datos.valorizado === "boolean" ? datos.valorizado : true,
+    unidad_compra: datos.unidad_compra ?? null,
+    unidad_receta: datos.unidad_receta ?? null,
+    factor_compra_receta:
+      typeof datos.factor_compra_receta === "number" && datos.factor_compra_receta > 0
+        ? datos.factor_compra_receta
+        : 1,
+    tiempo_prep_minutos:
+      typeof datos.tiempo_prep_minutos === "number" && datos.tiempo_prep_minutos >= 0
+        ? datos.tiempo_prep_minutos
+        : 0,
   };
 
   const res = await fetch("/api/productos", {
@@ -239,6 +263,14 @@ export async function updateProducto(
   if (datos.proveedor_principal_id !== undefined) body.proveedor_principal_id = datos.proveedor_principal_id ?? null;
   if (typeof datos.es_vendible === "boolean") body.es_vendible = datos.es_vendible;
   if (typeof datos.es_insumo === "boolean") body.es_insumo = datos.es_insumo;
+  if (typeof datos.controla_stock === "boolean") body.controla_stock = datos.controla_stock;
+  if (typeof datos.valorizado === "boolean") body.valorizado = datos.valorizado;
+  if (datos.unidad_compra !== undefined) body.unidad_compra = datos.unidad_compra ?? null;
+  if (datos.unidad_receta !== undefined) body.unidad_receta = datos.unidad_receta ?? null;
+  if (typeof datos.factor_compra_receta === "number" && datos.factor_compra_receta > 0)
+    body.factor_compra_receta = datos.factor_compra_receta;
+  if (typeof datos.tiempo_prep_minutos === "number" && datos.tiempo_prep_minutos >= 0)
+    body.tiempo_prep_minutos = datos.tiempo_prep_minutos;
 
   const res = await fetch(`/api/productos/${encodeURIComponent(id)}`, {
     method: "PATCH",

@@ -134,6 +134,14 @@ export async function PATCH(
     }
     if (typeof body.es_vendible === "boolean") patch.es_vendible = body.es_vendible;
     if (typeof body.es_insumo === "boolean") patch.es_insumo = body.es_insumo;
+    if (typeof body.controla_stock === "boolean") patch.controla_stock = body.controla_stock;
+    if (typeof body.valorizado === "boolean") patch.valorizado = body.valorizado;
+    if (body.unidad_compra !== undefined) patch.unidad_compra = body.unidad_compra == null ? null : (String(body.unidad_compra).trim() || null);
+    if (body.unidad_receta !== undefined) patch.unidad_receta = body.unidad_receta == null ? null : (String(body.unidad_receta).trim() || null);
+    if (typeof body.factor_compra_receta === "number" && body.factor_compra_receta > 0)
+      patch.factor_compra_receta = body.factor_compra_receta;
+    if (typeof body.tiempo_prep_minutos === "number" && body.tiempo_prep_minutos >= 0)
+      patch.tiempo_prep_minutos = Math.floor(body.tiempo_prep_minutos);
 
     try {
       const row = await updateProductoPg(schema, empresaId, id, patch);

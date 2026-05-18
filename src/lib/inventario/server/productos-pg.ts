@@ -82,6 +82,12 @@ export interface ProductoRow {
   proveedor_principal_id: string | null;
   es_vendible: boolean;
   es_insumo: boolean;
+  controla_stock: boolean;
+  valorizado: boolean;
+  unidad_compra: string | null;
+  unidad_receta: string | null;
+  factor_compra_receta: string | number;
+  tiempo_prep_minutos: number;
 }
 
 export interface InsertProductoInput {
@@ -100,6 +106,12 @@ export interface InsertProductoInput {
   proveedor_principal_id?: string | null;
   es_vendible?: boolean;
   es_insumo?: boolean;
+  controla_stock?: boolean;
+  valorizado?: boolean;
+  unidad_compra?: string | null;
+  unidad_receta?: string | null;
+  factor_compra_receta?: number;
+  tiempo_prep_minutos?: number;
 }
 
 const RETURNING = `
@@ -107,7 +119,8 @@ const RETURNING = `
   unidad_medida, metodo_valuacion, activo, created_at, updated_at,
   codigo_barras, codigo_barras_interno, imagen_path, imagen_url,
   categoria_principal_id, ubicacion_principal_id, proveedor_principal_id,
-  es_vendible, es_insumo
+  es_vendible, es_insumo,
+  controla_stock, valorizado, unidad_compra, unidad_receta, factor_compra_receta, tiempo_prep_minutos
 `;
 
 // ─── Operaciones ──────────────────────────────────────────────────────────
@@ -124,12 +137,15 @@ export async function insertProducto(
       empresa_id, nombre, sku, costo_promedio, precio_venta, stock_actual, stock_minimo,
       unidad_medida, metodo_valuacion, codigo_barras, codigo_barras_interno,
       categoria_principal_id, ubicacion_principal_id, proveedor_principal_id,
-      es_vendible, es_insumo
+      es_vendible, es_insumo,
+      controla_stock, valorizado, unidad_compra, unidad_receta, factor_compra_receta, tiempo_prep_minutos
     ) VALUES (
       $1::uuid, $2, $3, $4::numeric, $5::numeric, $6::numeric, $7::numeric,
       $8, $9, $10, COALESCE($11::boolean, false),
       $12::uuid, $13::uuid, $14::uuid,
-      COALESCE($15::boolean, true), COALESCE($16::boolean, false)
+      COALESCE($15::boolean, true), COALESCE($16::boolean, false),
+      COALESCE($17::boolean, true), COALESCE($18::boolean, true),
+      $19, $20, COALESCE($21::numeric, 1), COALESCE($22::int, 0)
     )
     RETURNING ${RETURNING}
   `;
@@ -150,6 +166,12 @@ export async function insertProducto(
     d.proveedor_principal_id ?? null,
     d.es_vendible ?? null,
     d.es_insumo ?? null,
+    d.controla_stock ?? null,
+    d.valorizado ?? null,
+    d.unidad_compra ?? null,
+    d.unidad_receta ?? null,
+    d.factor_compra_receta ?? null,
+    d.tiempo_prep_minutos ?? null,
   ];
   try {
     const { rows } = await pool().query<ProductoRow>(sql, params);
@@ -177,6 +199,12 @@ export interface UpdateProductoInput {
   proveedor_principal_id?: string | null;
   es_vendible?: boolean;
   es_insumo?: boolean;
+  controla_stock?: boolean;
+  valorizado?: boolean;
+  unidad_compra?: string | null;
+  unidad_receta?: string | null;
+  factor_compra_receta?: number;
+  tiempo_prep_minutos?: number;
 }
 
 /** Update parcial. Devuelve la fila o null si no existe / no pertenece a la empresa. */
@@ -221,6 +249,12 @@ export async function updateProductoPg(
   if (patch.proveedor_principal_id !== undefined) add("proveedor_principal_id", patch.proveedor_principal_id || null, "::uuid");
   if (patch.es_vendible !== undefined) add("es_vendible", patch.es_vendible, "::boolean");
   if (patch.es_insumo !== undefined) add("es_insumo", patch.es_insumo, "::boolean");
+  if (patch.controla_stock !== undefined) add("controla_stock", patch.controla_stock, "::boolean");
+  if (patch.valorizado !== undefined) add("valorizado", patch.valorizado, "::boolean");
+  if (patch.unidad_compra !== undefined) add("unidad_compra", patch.unidad_compra || null);
+  if (patch.unidad_receta !== undefined) add("unidad_receta", patch.unidad_receta || null);
+  if (patch.factor_compra_receta !== undefined) add("factor_compra_receta", patch.factor_compra_receta, "::numeric");
+  if (patch.tiempo_prep_minutos !== undefined) add("tiempo_prep_minutos", patch.tiempo_prep_minutos, "::int");
   if (sets.length === 0) return await getProductoPg(schemaRaw, empresaId, id);
 
   sets.push(`updated_at = now()`);
@@ -422,5 +456,11 @@ export function rowToProductoApi(r: ProductoRow): Record<string, unknown> {
     proveedor_principal_id: r.proveedor_principal_id ?? null,
     es_vendible: r.es_vendible ?? true,
     es_insumo: r.es_insumo ?? false,
+    controla_stock: r.controla_stock ?? true,
+    valorizado: r.valorizado ?? true,
+    unidad_compra: r.unidad_compra ?? null,
+    unidad_receta: r.unidad_receta ?? null,
+    factor_compra_receta: Number(r.factor_compra_receta ?? 1),
+    tiempo_prep_minutos: Number(r.tiempo_prep_minutos ?? 0),
   };
 }

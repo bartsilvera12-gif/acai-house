@@ -119,6 +119,12 @@ export async function POST(request: NextRequest) {
     // Clasificación gastronómica (defaults DB: es_vendible=true, es_insumo=false)
     const esVendible = typeof body.es_vendible === "boolean" ? body.es_vendible : undefined;
     const esInsumo = typeof body.es_insumo === "boolean" ? body.es_insumo : undefined;
+    const controlaStock = typeof body.controla_stock === "boolean" ? body.controla_stock : undefined;
+    const valorizado = typeof body.valorizado === "boolean" ? body.valorizado : undefined;
+    const unidadCompra = typeof body.unidad_compra === "string" ? body.unidad_compra.trim() || null : (body.unidad_compra === null ? null : undefined);
+    const unidadReceta = typeof body.unidad_receta === "string" ? body.unidad_receta.trim() || null : (body.unidad_receta === null ? null : undefined);
+    const factorCompraReceta = typeof body.factor_compra_receta === "number" && body.factor_compra_receta > 0 ? body.factor_compra_receta : undefined;
+    const tiempoPrepMinutos = typeof body.tiempo_prep_minutos === "number" && body.tiempo_prep_minutos >= 0 ? Math.floor(body.tiempo_prep_minutos) : undefined;
 
     if (categoriaPrincipalId && !(await existsInTenant(schema, empresaId, "categorias_productos", categoriaPrincipalId))) {
       return NextResponse.json(errorResponse("La categoría seleccionada no existe."), { status: 400 });
@@ -147,6 +153,12 @@ export async function POST(request: NextRequest) {
         proveedor_principal_id: proveedorPrincipalId,
         es_vendible: esVendible,
         es_insumo: esInsumo,
+        controla_stock: controlaStock,
+        valorizado: valorizado,
+        unidad_compra: unidadCompra,
+        unidad_receta: unidadReceta,
+        factor_compra_receta: factorCompraReceta,
+        tiempo_prep_minutos: tiempoPrepMinutos,
       });
 
       // Inventario inicial (mismo schema, via PG directo).

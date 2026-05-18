@@ -23,6 +23,18 @@ export interface Producto {
   es_vendible?: boolean;
   /** Clasificación gastronómica: producto usado como insumo en recetas. */
   es_insumo?: boolean;
+  /** Si false, no descuenta stock (ajustes/servicios). */
+  controla_stock?: boolean;
+  /** Si false, no entra en valuación (combos/promos). */
+  valorizado?: boolean;
+  /** Unidad usada al comprar (ej. "Bolsa 25kg"). */
+  unidad_compra?: string | null;
+  /** Unidad usada en recetas (ej. "g"). */
+  unidad_receta?: string | null;
+  /** Factor para 1 unidad_compra → unidades_receta (ej. 25000). */
+  factor_compra_receta?: number;
+  /** Tiempo estimado de preparación en minutos (para Kanban cocina). */
+  tiempo_prep_minutos?: number;
 }
 
 export interface MovimientoInventario {

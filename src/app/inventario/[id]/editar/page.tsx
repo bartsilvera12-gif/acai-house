@@ -53,6 +53,14 @@ export default function EditarProductoPage() {
   const [esVendible, setEsVendible] = useState(true);
   const [esInsumo, setEsInsumo] = useState(false);
 
+  // Configuración gastronómica
+  const [controlaStock, setControlaStock] = useState(true);
+  const [valorizado, setValorizado] = useState(true);
+  const [unidadCompra, setUnidadCompra] = useState("");
+  const [unidadReceta, setUnidadReceta] = useState("");
+  const [factorCompraReceta, setFactorCompraReceta] = useState("1");
+  const [tiempoPrepMinutos, setTiempoPrepMinutos] = useState("0");
+
   useEffect(() => {
     let cancel = false;
     async function load(url: string) {
@@ -132,6 +140,12 @@ export default function EditarProductoPage() {
       setProveedorId(p.proveedor_principal_id ?? null);
       setEsVendible(p.es_vendible ?? true);
       setEsInsumo(p.es_insumo ?? false);
+      setControlaStock(p.controla_stock ?? true);
+      setValorizado(p.valorizado ?? true);
+      setUnidadCompra(p.unidad_compra ?? "");
+      setUnidadReceta(p.unidad_receta ?? "");
+      setFactorCompraReceta(String(p.factor_compra_receta ?? 1));
+      setTiempoPrepMinutos(String(p.tiempo_prep_minutos ?? 0));
     }).finally(() => {
       if (!cancelled) setCargando(false);
     });
@@ -245,6 +259,12 @@ export default function EditarProductoPage() {
         proveedor_principal_id: proveedorId,
         es_vendible: esVendible,
         es_insumo: esInsumo,
+        controla_stock: controlaStock,
+        valorizado: valorizado,
+        unidad_compra: unidadCompra.trim() || null,
+        unidad_receta: unidadReceta.trim() || null,
+        factor_compra_receta: Math.max(parseFloat(factorCompraReceta) || 1, 0.0001),
+        tiempo_prep_minutos: Math.max(parseInt(tiempoPrepMinutos) || 0, 0),
       };
       if (cambioCodigo) {
         updatePayload.codigo_barras = codigoIngresado || null;
@@ -494,6 +514,78 @@ export default function EditarProductoPage() {
               </div>
               <p className="mt-1 text-xs text-gray-400">
                 Puede ser ambos (producto mixto).
+              </p>
+            </div>
+
+            {/* Configuración gastronómica */}
+            <div className="mt-5 pt-4 border-t border-gray-100">
+              <p className="text-xs uppercase tracking-wide font-semibold text-gray-500 mb-3">
+                Configuración gastronómica
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <label className="inline-flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={controlaStock}
+                    onChange={(e) => setControlaStock(e.target.checked)}
+                    className="h-4 w-4 rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+                  />
+                  Controlar stock
+                </label>
+                <label className="inline-flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={valorizado}
+                    onChange={(e) => setValorizado(e.target.checked)}
+                    className="h-4 w-4 rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+                  />
+                  Valorizado
+                </label>
+                <div>
+                  <label className={labelClass}>Unidad de compra</label>
+                  <input
+                    type="text"
+                    value={unidadCompra}
+                    onChange={(e) => setUnidadCompra(e.target.value)}
+                    placeholder='Ej: "Bolsa 25kg"'
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>Unidad de receta</label>
+                  <input
+                    type="text"
+                    value={unidadReceta}
+                    onChange={(e) => setUnidadReceta(e.target.value)}
+                    placeholder='Ej: "g"'
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>Factor compra → receta</label>
+                  <input
+                    type="number"
+                    step="0.0001"
+                    min="0.0001"
+                    value={factorCompraReceta}
+                    onChange={(e) => setFactorCompraReceta(e.target.value)}
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label className={labelClass}>Tiempo preparación (min)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={tiempoPrepMinutos}
+                    onChange={(e) => setTiempoPrepMinutos(e.target.value)}
+                    className={inputClass}
+                  />
+                </div>
+              </div>
+              <p className="mt-2 text-xs text-gray-400">
+                Ejemplo: Harina se compra por bolsa de 25kg, pero se usa en recetas por gramos. En ese caso unidad compra = bolsa 25kg, unidad receta = g, factor = 25000.
               </p>
             </div>
           </div>

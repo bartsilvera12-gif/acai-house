@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { getProductos } from "@/lib/inventario/storage";
+import GastroInventoryView from "./_components/GastroInventoryView";
 import type { Producto, MetodoValuacion } from "@/lib/inventario/types";
 import ExportExcelButton from "@/components/ui/ExportExcelButton";
 import ImportExcelButton from "@/components/ui/ImportExcelButton";
@@ -48,13 +49,20 @@ export default function InventarioPage() {
   const [filtroValuacion,  setFiltroValuacion]  = useState<MetodoValuacion | "">("");
   const [filtroUbicacion,  setFiltroUbicacion]  = useState<string>(""); // "", "__sin__" o id
   const [filtroTipo,       setFiltroTipo]       = useState<"todos" | "vendibles" | "insumos" | "mixtos">("todos");
+  const [tab,              setTab]               = useState<"actual" | "gastro">("actual");
+  const [cargandoLista,    setCargandoLista]     = useState(true);
   const [soloStockBajo,    setSoloStockBajo]    = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    getProductos().then((data) => {
-      if (!cancelled) setTodos(data);
-    });
+    setCargandoLista(true);
+    getProductos()
+      .then((data) => {
+        if (!cancelled) setTodos(data);
+      })
+      .finally(() => {
+        if (!cancelled) setCargandoLista(false);
+      });
     // Ubicaciones para el filtro
     fetch("/api/inventario/ubicaciones", { credentials: "include", cache: "no-store" })
       .then((r) => r.json())
@@ -146,7 +154,39 @@ export default function InventarioPage() {
         <p className="text-gray-600">Gestión de productos y control de stock</p>
       </div>
 
-      <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6">
+      {/* Tabs */}
+      <div className="border-b border-gray-200">
+        <nav className="-mb-px flex gap-6" aria-label="Tabs">
+          <button
+            type="button"
+            onClick={() => setTab("actual")}
+            className={`whitespace-nowrap border-b-2 py-2 px-1 text-sm font-medium transition-colors ${
+              tab === "actual"
+                ? "border-amber-500 text-amber-600"
+                : "border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700"
+            }`}
+          >
+            Inventario actual
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab("gastro")}
+            className={`whitespace-nowrap border-b-2 py-2 px-1 text-sm font-medium transition-colors ${
+              tab === "gastro"
+                ? "border-amber-500 text-amber-600"
+                : "border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700"
+            }`}
+          >
+            Inventario gastronómico
+          </button>
+        </nav>
+      </div>
+
+      {tab === "gastro" && (
+        <GastroInventoryView productos={todos} loading={cargandoLista} />
+      )}
+
+      <div className={`bg-white border border-slate-200 rounded-xl shadow-sm p-6 ${tab === "actual" ? "" : "hidden"}`}>
 
         <div className="flex justify-between items-center mb-5">
           <div className="flex items-center gap-3">
