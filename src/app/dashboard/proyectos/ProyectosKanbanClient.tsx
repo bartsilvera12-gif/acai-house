@@ -193,6 +193,64 @@ function saasModuleCountLabel(p: ProyectoCard): string | null {
   return count === 1 ? "1 módulo" : `${count} módulos`;
 }
 
+// ── Pedidos (gastronomía) — helpers para renderizar cards con brief_data del pedido ─────
+type PedidoBrief = {
+  modalidad: "local" | "delivery" | "carry_out";
+  mesa: string | null;
+  cliente_nombre: string | null;
+  cliente_telefono: string | null;
+  direccion_entrega: string | null;
+  observacion: string | null;
+  numero_control: string | null;
+  items: Array<{ producto_nombre: string; cantidad: number }>;
+};
+
+function readPedidoBrief(
+  brief: Record<string, unknown> | null | undefined
+): PedidoBrief | null {
+  if (!brief || typeof brief !== "object") return null;
+  const m = (brief as Record<string, unknown>).modalidad;
+  if (m !== "local" && m !== "delivery" && m !== "carry_out") return null;
+  const itemsRaw = Array.isArray(brief.items) ? (brief.items as Array<Record<string, unknown>>) : [];
+  return {
+    modalidad: m,
+    mesa: typeof brief.mesa === "string" ? brief.mesa : null,
+    cliente_nombre: typeof brief.cliente_nombre === "string" ? brief.cliente_nombre : null,
+    cliente_telefono: typeof brief.cliente_telefono === "string" ? brief.cliente_telefono : null,
+    direccion_entrega: typeof brief.direccion_entrega === "string" ? brief.direccion_entrega : null,
+    observacion: typeof brief.observacion === "string" ? brief.observacion : null,
+    numero_control: typeof brief.numero_control === "string" ? brief.numero_control : null,
+    items: itemsRaw.map((it) => ({
+      producto_nombre: typeof it.producto_nombre === "string" ? it.producto_nombre : "—",
+      cantidad: typeof it.cantidad === "number" ? it.cantidad : Number(it.cantidad) || 0,
+    })),
+  };
+}
+
+const PEDIDO_MODALIDAD_BADGE: Record<
+  PedidoBrief["modalidad"],
+  { label: string; cls: string }
+> = {
+  local:     { label: "En local",  cls: "border-amber-300 bg-amber-50 text-amber-800" },
+  delivery:  { label: "Delivery",  cls: "border-purple-300 bg-purple-50 text-purple-800" },
+  carry_out: { label: "Retiro",    cls: "border-sky-300 bg-sky-50 text-sky-800" },
+};
+
+function fmtPedidoTotal(n: number | string | null | undefined): string {
+  if (n == null) return "—";
+  const v = typeof n === "string" ? Number(n) : n;
+  return "Gs. " + Math.round(v || 0).toLocaleString("es-PY");
+}
+
+function fmtPedidoHora(s: string | null | undefined): string {
+  if (!s) return "—";
+  try {
+    return new Date(s).toLocaleTimeString("es-PY", { hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return "—";
+  }
+}
+
 export default function ProyectosKanbanClient() {
   const [estados, setEstados] = useState<EstadoRow[]>([]);
   const [proyectos, setProyectos] = useState<ProyectoCard[]>([]);
@@ -612,6 +670,7 @@ function ProjectCardView({
     "Sin cliente";
   const saasModulesLabel = saasModuleCountLabel(p);
   const priorityStyles = getPriorityCardStyles(p.prioridad);
+  const pedido = readPedidoBrief(p.brief_data);
 
   const style: CSSProperties | undefined = transform
     ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` }
@@ -650,20 +709,31 @@ function ProjectCardView({
           </div>
         </div>
         <div className="mt-3 flex flex-wrap gap-1.5">
-          <span className={neutralBadgeClass}>
-            {p.proyecto_tipo?.nombre ?? "Tipo"}
-          </span>
-          {saasModulesLabel ? (
+          {pedido ? (
+            <span className={`${baseBadgeClass} font-semibold ${PEDIDO_MODALIDAD_BADGE[pedido.modalidad].cls}`}>
+              {PEDIDO_MODALIDAD_BADGE[pedido.modalidad].label}
+              {pedido.modalidad === "local" && pedido.mesa ? ` · Mesa ${pedido.mesa}` : ""}
+            </span>
+          ) : (
+            <span className={neutralBadgeClass}>
+              {p.proyecto_tipo?.nombre ?? "Tipo"}
+            </span>
+          )}
+          {!pedido && saasModulesLabel ? (
             <span className={neutralBadgeClass}>
               {saasModulesLabel}
             </span>
           ) : null}
-          <span className={`${baseBadgeClass} font-semibold ${priorityStyles.badgeClass}`}>
-            {prioridadConfig?.nombre ?? prioridadFallbackLabel(p.prioridad)}
-          </span>
-          <span className={p.sla_estado_actual?.vencido ? `${baseBadgeClass} border-rose-200 bg-rose-50 text-rose-700` : neutralBadgeClass}>
-            {slaEstadoLabel(p)}
-          </span>
+          {!pedido && (
+            <span className={`${baseBadgeClass} font-semibold ${priorityStyles.badgeClass}`}>
+              {prioridadConfig?.nombre ?? prioridadFallbackLabel(p.prioridad)}
+            </span>
+          )}
+          {!pedido && (
+            <span className={p.sla_estado_actual?.vencido ? `${baseBadgeClass} border-rose-200 bg-rose-50 text-rose-700` : neutralBadgeClass}>
+              {slaEstadoLabel(p)}
+            </span>
+          )}
           {p.bloqueado ? (
             <span className={`${baseBadgeClass} border-rose-200 bg-rose-50 text-rose-800`}>
               Bloqueado
@@ -675,15 +745,24 @@ function ProjectCardView({
             </span>
           ) : null}
         </div>
-        <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1.5 rounded-xl bg-slate-50/80 px-3 py-2 text-[11px] text-slate-700">
-          <MetaItem label="Com." value={p.responsable_comercial?.nombre ?? "—"} />
-          <MetaItem label="Téc." value={p.responsable_tecnico?.nombre ?? "—"} />
-          <MetaItem label="Ingreso" value={fmtDate(p.fecha_ingreso)} />
-          <MetaItem label="Prometido" value={fmtDate(p.fecha_prometida)} />
-          <div className="col-span-2">
-            <MetaItem label="Actividad" value={fmtDateTime(p.last_activity_at)} />
+
+        {pedido ? (
+          <PedidoCardBody
+            pedido={pedido}
+            total={Number(p.monto_vendido ?? 0)}
+            horaIso={p.fecha_ingreso ?? p.last_activity_at ?? null}
+          />
+        ) : (
+          <div className="mt-3 grid grid-cols-2 gap-x-3 gap-y-1.5 rounded-xl bg-slate-50/80 px-3 py-2 text-[11px] text-slate-700">
+            <MetaItem label="Com." value={p.responsable_comercial?.nombre ?? "—"} />
+            <MetaItem label="Téc." value={p.responsable_tecnico?.nombre ?? "—"} />
+            <MetaItem label="Ingreso" value={fmtDate(p.fecha_ingreso)} />
+            <MetaItem label="Prometido" value={fmtDate(p.fecha_prometida)} />
+            <div className="col-span-2">
+              <MetaItem label="Actividad" value={fmtDateTime(p.last_activity_at)} />
+            </div>
           </div>
-        </div>
+        )}
       </button>
       {!dragOverlay ? (
         <>
@@ -726,6 +805,76 @@ function MetaItem({ label, value }: { label: string; value: string }) {
     <div className="min-w-0">
       <span className="font-semibold text-slate-500">{label}</span>{" "}
       <span className="break-words text-slate-800">{value}</span>
+    </div>
+  );
+}
+
+function PedidoCardBody({
+  pedido,
+  total,
+  horaIso,
+}: {
+  pedido: PedidoBrief;
+  total: number;
+  horaIso: string | null;
+}) {
+  const maxItems = 4;
+  const visibleItems = pedido.items.slice(0, maxItems);
+  const extra = Math.max(0, pedido.items.length - maxItems);
+
+  return (
+    <div className="mt-3 space-y-2 rounded-xl bg-slate-50/80 px-3 py-2 text-[12px] text-slate-700">
+      {/* Detalle modalidad */}
+      {pedido.modalidad === "delivery" && (
+        <div className="flex flex-col gap-0.5">
+          {pedido.cliente_telefono ? (
+            <div className="font-semibold text-slate-800">📞 {pedido.cliente_telefono}</div>
+          ) : null}
+          {pedido.direccion_entrega ? (
+            <div className="text-slate-600">📍 {pedido.direccion_entrega}</div>
+          ) : null}
+        </div>
+      )}
+      {pedido.modalidad === "carry_out" && (pedido.cliente_nombre || pedido.cliente_telefono) ? (
+        <div className="flex flex-col gap-0.5">
+          {pedido.cliente_nombre ? (
+            <div className="font-semibold text-slate-800">👤 {pedido.cliente_nombre}</div>
+          ) : null}
+          {pedido.cliente_telefono ? (
+            <div className="text-slate-600">📞 {pedido.cliente_telefono}</div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {/* Productos */}
+      {visibleItems.length > 0 ? (
+        <ul className="space-y-0.5 border-t border-slate-200 pt-1.5 text-[12px]">
+          {visibleItems.map((it, idx) => (
+            <li key={idx} className="flex items-baseline gap-1.5 text-slate-800">
+              <span className="font-semibold tabular-nums text-slate-900">{it.cantidad}×</span>
+              <span className="truncate">{it.producto_nombre}</span>
+            </li>
+          ))}
+          {extra > 0 ? (
+            <li className="text-[11px] italic text-slate-500">+{extra} más</li>
+          ) : null}
+        </ul>
+      ) : null}
+
+      {/* Observación */}
+      {pedido.observacion ? (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] italic text-amber-900">
+          {pedido.observacion}
+        </div>
+      ) : null}
+
+      {/* Footer total + hora */}
+      <div className="flex items-center justify-between border-t border-slate-200 pt-1.5">
+        <span className="text-[11px] text-slate-500">{fmtPedidoHora(horaIso)}</span>
+        <span className="text-[13px] font-semibold tabular-nums text-slate-900">
+          {fmtPedidoTotal(total)}
+        </span>
+      </div>
     </div>
   );
 }
