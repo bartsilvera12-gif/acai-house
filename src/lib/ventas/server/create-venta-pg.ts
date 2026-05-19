@@ -14,6 +14,15 @@ export interface CreateVentaItemInput {
   total_linea: number;
 }
 
+export interface CreateVentaPedidoCocinaInput {
+  modalidad: "local" | "delivery" | "carry_out";
+  mesa: string | null;
+  cliente_nombre: string | null;
+  cliente_telefono: string | null;
+  direccion_entrega: string | null;
+  observacion: string | null;
+}
+
 export interface CreateVentaPgParams {
   schema: string;
   empresaId: string;
@@ -28,6 +37,8 @@ export interface CreateVentaPgParams {
   subtotalDeclarado: number;
   montoIvaDeclarado: number;
   totalDeclarado: number;
+  /** Si presente, dentro de la misma transacción se crea una tarjeta en `proyectos` (módulo Pedidos). */
+  pedidoCocina?: CreateVentaPedidoCocinaInput | null;
 }
 
 function qTable(schema: string, table: string): string {
@@ -85,6 +96,9 @@ export async function createVentaTransaccionalPg(
   const movT = qTable(params.schema, "movimientos_inventario");
   const prodT = qTable(params.schema, "productos");
   const cliT = qTable(params.schema, "clientes");
+  const proyT = qTable(params.schema, "proyectos");
+  const proyTipoT = qTable(params.schema, "proyecto_tipos");
+  const proyEstadoT = qTable(params.schema, "proyecto_estados");
 
   const client = await pool.connect();
   try {
@@ -246,6 +260,92 @@ export async function createVentaTransaccionalPg(
           numeroControl,
           fechaIso,
           ventaId,
+        ]
+      );
+    }
+
+    // Pedido cocina (tarjeta en módulo Pedidos = enlodemari.proyectos)
+    if (params.pedidoCocina) {
+      const tipoQ = await client.query<{ id: string }>(
+        `SELECT id FROM ${proyTipoT} WHERE empresa_id = $1 AND codigo = 'pedido' AND activo = true LIMIT 1`,
+        [params.empresaId]
+      );
+      if (tipoQ.rows.length === 0) {
+        throw new Error("Tipo de proyecto 'pedido' no configurado para esta empresa. Ejecutá la migración de pedidos.");
+      }
+      const tipoId = tipoQ.rows[0].id;
+
+      const estadoQ = await client.query<{ id: string }>(
+        `SELECT id FROM ${proyEstadoT} WHERE empresa_id = $1 AND codigo = 'nuevo' AND activo = true LIMIT 1`,
+        [params.empresaId]
+      );
+      if (estadoQ.rows.length === 0) {
+        throw new Error("Estado 'nuevo' no configurado para esta empresa.");
+      }
+      const estadoId = estadoQ.rows[0].id;
+
+      const itemsSnapshot = params.items.map((it) => ({
+        producto_id: it.producto_id,
+        producto_nombre: it.producto_nombre,
+        sku: it.sku,
+        cantidad: it.cantidad,
+        precio_venta: it.precio_venta,
+        total_linea: it.total_linea,
+      }));
+
+      const briefData = {
+        modalidad: params.pedidoCocina.modalidad,
+        mesa: params.pedidoCocina.mesa,
+        cliente_nombre: params.pedidoCocina.cliente_nombre,
+        cliente_telefono: params.pedidoCocina.cliente_telefono,
+        direccion_entrega: params.pedidoCocina.direccion_entrega,
+        observacion: params.pedidoCocina.observacion,
+        items: itemsSnapshot,
+        venta_id: ventaId,
+        numero_control: numeroControl,
+        fecha_iso: fechaIso,
+      };
+      const metadata = {
+        source: "venta",
+        venta_id: ventaId,
+        numero_control: numeroControl,
+        modalidad: params.pedidoCocina.modalidad,
+      };
+
+      const tituloModalidad =
+        params.pedidoCocina.modalidad === "local" ? "Local"
+        : params.pedidoCocina.modalidad === "delivery" ? "Delivery"
+        : "Retiro";
+      const detalle =
+        params.pedidoCocina.modalidad === "local" && params.pedidoCocina.mesa
+          ? ` · Mesa ${params.pedidoCocina.mesa}`
+          : params.pedidoCocina.modalidad === "delivery" && params.pedidoCocina.cliente_nombre
+          ? ` · ${params.pedidoCocina.cliente_nombre}`
+          : "";
+      const titulo = `Venta ${numeroControl} · ${tituloModalidad}${detalle}`.slice(0, 200);
+
+      await client.query(
+        `
+        INSERT INTO ${proyT} (
+          empresa_id, cliente_id, tipo_id, estado_id, titulo,
+          prioridad, monto_vendido, fecha_ingreso,
+          brief_data, metadata
+        ) VALUES (
+          $1, $2, $3, $4, $5,
+          'normal', $6, $7::timestamptz,
+          $8::jsonb, $9::jsonb
+        )
+        `,
+        [
+          params.empresaId,
+          params.clienteId,
+          tipoId,
+          estadoId,
+          titulo,
+          params.totalDeclarado,
+          fechaIso,
+          JSON.stringify(briefData),
+          JSON.stringify(metadata),
         ]
       );
     }

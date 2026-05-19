@@ -5,6 +5,16 @@ export type ResultadoGuardarVenta =
   | { success: true; venta: Venta }
   | { success: false; error: string };
 
+/** Modalidad del pedido (instancia gastronómica En lo de Mari). */
+export type PedidoCocinaInput = {
+  modalidad: "local" | "delivery" | "carry_out";
+  mesa?: string | null;
+  cliente_nombre?: string | null;
+  cliente_telefono?: string | null;
+  direccion_entrega?: string | null;
+  observacion?: string | null;
+};
+
 /**
  * Lista ventas del tenant (misma fuente que el dashboard: tablas `ventas` / `ventas_items`).
  */
@@ -31,7 +41,8 @@ export async function getVentas(): Promise<Venta[]> {
  * Crea una venta en base de datos (transacción servidor: ítems, stock, movimientos).
  */
 export async function saveVenta(
-  datos: Omit<Venta, "id" | "numero_control" | "fecha">
+  datos: Omit<Venta, "id" | "numero_control" | "fecha">,
+  pedidoCocina?: PedidoCocinaInput
 ): Promise<ResultadoGuardarVenta> {
   if (!datos.items || datos.items.length === 0) {
     return { success: false, error: "La venta debe tener al menos un producto." };
@@ -52,6 +63,7 @@ export async function saveVenta(
         plazo_dias: datos.plazo_dias,
         cliente_id: null,
         observaciones: null,
+        pedido_cocina: pedidoCocina ?? null,
       }),
     });
 

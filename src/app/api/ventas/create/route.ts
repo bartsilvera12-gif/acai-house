@@ -116,6 +116,50 @@ export async function POST(request: NextRequest) {
         ? null
         : String(o.observaciones).slice(0, 4000);
 
+    // Pedido de cocina (modalidad obligatoria en instancia En lo de Mari)
+    const pedidoRaw = (o.pedido_cocina ?? null) as Record<string, unknown> | null;
+    type PedidoCocinaParsed = {
+      modalidad: "local" | "delivery" | "carry_out";
+      mesa: string | null;
+      cliente_nombre: string | null;
+      cliente_telefono: string | null;
+      direccion_entrega: string | null;
+      observacion: string | null;
+    };
+    let pedidoCocina: PedidoCocinaParsed | null = null;
+    if (pedidoRaw && typeof pedidoRaw === "object") {
+      const m = pedidoRaw.modalidad;
+      if (m !== "local" && m !== "delivery" && m !== "carry_out") {
+        return NextResponse.json(
+          errorResponse("Modalidad de pedido inválida (local | delivery | carry_out)."),
+          { status: 400 }
+        );
+      }
+      const trim = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+      const mesa = trim(pedidoRaw.mesa);
+      const cliNombre = trim(pedidoRaw.cliente_nombre);
+      const cliTel = trim(pedidoRaw.cliente_telefono);
+      const direccion = trim(pedidoRaw.direccion_entrega);
+      const obs = trim(pedidoRaw.observacion);
+      if (m === "local" && mesa.length === 0) {
+        return NextResponse.json(errorResponse("Mesa requerida para modalidad En local."), { status: 400 });
+      }
+      if (m === "delivery" && (cliTel.length === 0 || direccion.length === 0)) {
+        return NextResponse.json(
+          errorResponse("Teléfono y dirección requeridos para Delivery."),
+          { status: 400 }
+        );
+      }
+      pedidoCocina = {
+        modalidad: m,
+        mesa: mesa || null,
+        cliente_nombre: cliNombre || null,
+        cliente_telefono: cliTel || null,
+        direccion_entrega: direccion || null,
+        observacion: obs || null,
+      };
+    }
+
     const subtotalDeclarado = Number(o.subtotal);
     const montoIvaDeclarado = Number(o.monto_iva);
     const totalDeclarado = Number(o.total);
@@ -143,6 +187,7 @@ export async function POST(request: NextRequest) {
       subtotalDeclarado,
       montoIvaDeclarado,
       totalDeclarado,
+      pedidoCocina,
     });
 
     let sub = 0;
