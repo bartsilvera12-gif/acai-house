@@ -468,7 +468,8 @@ export default function EditarProductoPage() {
                   </Link>
                 </div>
               </div>
-              <div className="md:col-span-4 min-w-0">
+              {/* Ubicación principal — oculta en instancia En lo de Mari (no aplica para gastronomía). */}
+              <div className="hidden md:col-span-4 min-w-0">
                 <label className={labelClass}>Ubicación principal</label>
                 <SelectFromList
                   value={ubicacionId}
@@ -673,7 +674,8 @@ export default function EditarProductoPage() {
             </div>
           </div>
 
-          <div>
+          {/* Método de valuación — oculto en instancia En lo de Mari (siempre CPP). */}
+          <div className="hidden">
             <label className={labelClass}>Método de valuación</label>
             <select
               name="metodo_valuacion"

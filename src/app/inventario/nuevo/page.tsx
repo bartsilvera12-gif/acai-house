@@ -656,8 +656,9 @@ export default function NuevoProductoPage() {
                 </div>
               </div>
 
-              {/* Ubicación — 4 cols */}
-              <div className="md:col-span-4 min-w-0">
+              {/* Ubicación principal — oculta en instancia En lo de Mari (no aplica para gastronomía).
+                  Lógica/state preservados; submit envía ubicacionId que queda en null por defecto. */}
+              <div className="hidden md:col-span-4 min-w-0">
                 <label className={labelClass}>Ubicación principal</label>
                 <SelectFromList
                   value={ubicacionId}
@@ -818,8 +819,9 @@ export default function NuevoProductoPage() {
             )}
           </div>
 
-          {/* Método de valuación */}
-          <div>
+          {/* Método de valuación — oculto en instancia En lo de Mari.
+              Se mantiene siempre 'CPP' (default del state form.metodo_valuacion) y se envía al backend tal cual. */}
+          <div className="hidden">
             <label className={labelClass}>Método de valuación</label>
             <select
               name="metodo_valuacion"
