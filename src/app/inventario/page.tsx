@@ -21,6 +21,10 @@ function formatGs(valor: number) {
   return `Gs. ${valor.toLocaleString("es-PY")}`;
 }
 
+function foldText(s: string): string {
+  return s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+}
+
 function calcularMargenVenta(costo: number, precio: number): number {
   if (precio === 0) return 0;
   return ((precio - costo) / precio) * 100;
@@ -76,14 +80,14 @@ export default function InventarioPage() {
   const ubicacionById = new Map(ubicaciones.map((u) => [u.id, u]));
 
   const productos = todos.filter((p) => {
-    // Nombre
+    // Nombre — fold accents/diacritics ("atun" matchea "ATÚN")
     if (filtroPorNombre.trim() !== "" &&
-        !p.nombre.toLowerCase().includes(filtroPorNombre.toLowerCase().trim()))
+        !foldText(p.nombre).includes(foldText(filtroPorNombre.trim())))
       return false;
 
     // SKU
     if (filtroPorSku.trim() !== "" &&
-        !p.sku.toLowerCase().includes(filtroPorSku.toLowerCase().trim()))
+        !foldText(p.sku).includes(foldText(filtroPorSku.trim())))
       return false;
 
     // Costo promedio — acepta "35000" o "35.000"
