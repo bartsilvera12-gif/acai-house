@@ -167,12 +167,15 @@ export default function NuevaVentaPage() {
     }
     // Convertir precio a PYG
     const precioPyg = moneda === "USD" ? precio_input * tipoCambioNum : precio_input;
-    // Verificar stock vs lo ya cargado
-    const yaEnCarrito = items.filter((i) => i.producto_id === p.id).reduce((s, i) => s + i.cantidad, 0);
-    const disp = p.stock_actual - yaEnCarrito;
-    if (cantidad > disp) {
-      // El modal mostrara su propio feedback; tambien actualizamos el banner.
-      return false;
+    // Verificar stock vs lo ya cargado SOLO si el producto controla stock.
+    // Productos del Menú (controla_stock=false) no validan stock.
+    const ctrlStock = (p as { controla_stock?: boolean }).controla_stock !== false;
+    if (ctrlStock) {
+      const yaEnCarrito = items.filter((i) => i.producto_id === p.id).reduce((s, i) => s + i.cantidad, 0);
+      const disp = p.stock_actual - yaEnCarrito;
+      if (cantidad > disp) {
+        return false;
+      }
     }
     const subtotal = cantidad * precioPyg;
     const montoIva = calcIva(iva, subtotal);
@@ -240,13 +243,16 @@ export default function NuevaVentaPage() {
   const enCarrito = items
     .filter((i) => i.producto_id === lineaProdId)
     .reduce((s, i) => s + i.cantidad, 0);
+  const prodSelControlaStock = prodSel ? prodSel.controla_stock !== false : true;
   const stockDisp = (prodSel?.stock_actual ?? 0) - enCarrito;
 
   const lineaSubtotal   = cantNum > 0 && precioGs > 0 ? cantNum * precioGs : 0;
   const lineaMontoIva   = calcIva(lineaIva, lineaSubtotal);
   const lineaTotalLinea = lineaSubtotal + lineaMontoIva;
 
-  const stockInsuf  = prodSel !== undefined && cantNum > 0 && cantNum > stockDisp;
+  // Solo validar stock para productos que lo controlan (Reventa).
+  // Productos del Menú (controla_stock=false) se venden sin restricción de stock.
+  const stockInsuf  = prodSel !== undefined && prodSelControlaStock && cantNum > 0 && cantNum > stockDisp;
   const lineaValida =
     !!prodSel && cantNum > 0 && precioGs > 0 && !stockInsuf &&
     (moneda === "GS" || tipoCambioNum > 0);
@@ -267,9 +273,11 @@ export default function NuevaVentaPage() {
   const vuelto           = montoRecibidoNum - totalGeneral;
 
   // ── Productos filtrados para el combobox ──────────────────────────────────
+  // Solo vendibles (Reventa + Menú). Excluye materia prima / insumos.
+  const productosVendibles = productos.filter((p) => p.es_vendible !== false);
   const comboFiltrados = comboQuery.trim() === ""
-    ? productos
-    : productos.filter((p) => {
+    ? productosVendibles
+    : productosVendibles.filter((p) => {
         const q = comboQuery.toLowerCase();
         return p.nombre.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q);
       });
