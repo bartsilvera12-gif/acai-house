@@ -116,7 +116,7 @@ export async function createVentaTransaccionalPg(
 
     const ids = [...qtyByProduct.keys()];
     const lockSql = `
-      SELECT id, stock_actual, costo_promedio, nombre, sku
+      SELECT id, stock_actual, costo_promedio, nombre, sku, controla_stock
       FROM ${prodT}
       WHERE empresa_id = $1 AND id = ANY($2::uuid[])
       FOR UPDATE
@@ -127,6 +127,7 @@ export async function createVentaTransaccionalPg(
       costo_promedio: string;
       nombre: string;
       sku: string;
+      controla_stock: boolean | null;
     }>(lockSql, [params.empresaId, ids]);
 
     if (locked.rows.length !== ids.length) {
@@ -135,7 +136,7 @@ export async function createVentaTransaccionalPg(
 
     const stockMap = new Map<
       string,
-      { stock: number; costo: number; nombre: string; sku: string }
+      { stock: number; costo: number; nombre: string; sku: string; controlaStock: boolean }
     >();
     for (const row of locked.rows) {
       stockMap.set(row.id, {
@@ -143,11 +144,15 @@ export async function createVentaTransaccionalPg(
         costo: Number(row.costo_promedio),
         nombre: row.nombre,
         sku: row.sku,
+        // default true: si la columna no está seteada, comportamiento legacy (descuenta).
+        controlaStock: row.controla_stock !== false,
       });
     }
 
+    // Validación de stock solo para productos que controlan stock.
     for (const [pid, need] of qtyByProduct) {
       const p = stockMap.get(pid)!;
+      if (!p.controlaStock) continue;
       if (p.stock < need) {
         throw new Error(
           `Stock insuficiente para "${p.nombre}". Disponible: ${p.stock} u.; requerido: ${need}.`
@@ -233,35 +238,39 @@ export async function createVentaTransaccionalPg(
         ]
       );
 
-      const nuevoStock = p.stock - line.cantidad;
-      await client.query(
-        `UPDATE ${prodT} SET stock_actual = $1 WHERE id = $2 AND empresa_id = $3`,
-        [nuevoStock, line.producto_id, params.empresaId]
-      );
-      p.stock = nuevoStock;
+      // Solo descuenta stock y genera movimiento si el producto controla stock.
+      // Productos del menú (controla_stock=false) no descuentan ni dejan rastro en movimientos.
+      if (p.controlaStock) {
+        const nuevoStock = p.stock - line.cantidad;
+        await client.query(
+          `UPDATE ${prodT} SET stock_actual = $1 WHERE id = $2 AND empresa_id = $3`,
+          [nuevoStock, line.producto_id, params.empresaId]
+        );
+        p.stock = nuevoStock;
 
-      await client.query(
-        `
-        INSERT INTO ${movT} (
-          empresa_id, producto_id, producto_nombre, producto_sku,
-          tipo, cantidad, costo_unitario, origen, referencia, fecha, venta_id
-        ) VALUES (
-          $1, $2, $3, $4,
-          'SALIDA', $5, $6, 'venta', $7, $8::timestamptz, $9
-        )
-        `,
-        [
-          params.empresaId,
-          line.producto_id,
-          line.producto_nombre,
-          line.sku,
-          line.cantidad,
-          p.costo,
-          numeroControl,
-          fechaIso,
-          ventaId,
-        ]
-      );
+        await client.query(
+          `
+          INSERT INTO ${movT} (
+            empresa_id, producto_id, producto_nombre, producto_sku,
+            tipo, cantidad, costo_unitario, origen, referencia, fecha, venta_id
+          ) VALUES (
+            $1, $2, $3, $4,
+            'SALIDA', $5, $6, 'venta', $7, $8::timestamptz, $9
+          )
+          `,
+          [
+            params.empresaId,
+            line.producto_id,
+            line.producto_nombre,
+            line.sku,
+            line.cantidad,
+            p.costo,
+            numeroControl,
+            fechaIso,
+            ventaId,
+          ]
+        );
+      }
     }
 
     // Pedido cocina (tarjeta en módulo Pedidos = enlodemari.proyectos)

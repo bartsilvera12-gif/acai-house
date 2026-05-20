@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { getProductos } from "@/lib/inventario/storage";
-import GastroInventoryView from "./_components/GastroInventoryView";
 import type { Producto, MetodoValuacion } from "@/lib/inventario/types";
 import ExportExcelButton from "@/components/ui/ExportExcelButton";
 import ImportExcelButton from "@/components/ui/ImportExcelButton";
@@ -49,7 +48,7 @@ export default function InventarioPage() {
   const [filtroValuacion,  setFiltroValuacion]  = useState<MetodoValuacion | "">("");
   const [filtroUbicacion,  setFiltroUbicacion]  = useState<string>(""); // "", "__sin__" o id
   const [filtroTipo,       setFiltroTipo]       = useState<"todos" | "vendibles" | "insumos" | "mixtos">("todos");
-  const [tab,              setTab]               = useState<"actual" | "gastro">("actual");
+  const [tab,              setTab]               = useState<"reventa" | "menu" | "materia">("reventa");
   const [cargandoLista,    setCargandoLista]     = useState(true);
   const [soloStockBajo,    setSoloStockBajo]    = useState(false);
 
@@ -127,6 +126,21 @@ export default function InventarioPage() {
       if (filtroTipo === "insumos" && !(i && !v)) return false;
     }
 
+    // Filtro por tab (Reventa | Menú | Materia prima)
+    const esVendible    = p.es_vendible !== false;
+    const esInsumo      = p.es_insumo === true;
+    const controlaStock = p.controla_stock !== false; // default true
+    if (tab === "reventa") {
+      // vendibles que mueven stock real (gaseosas, postres comprados, etc.)
+      if (!esVendible || !controlaStock || esInsumo) return false;
+    } else if (tab === "menu") {
+      // productos preparados (pizzas, lomitos, combos): vendibles SIN stock
+      if (!esVendible || controlaStock || esInsumo) return false;
+    } else {
+      // materia prima / insumos
+      if (!esInsumo) return false;
+    }
+
     return true;
   });
 
@@ -154,39 +168,32 @@ export default function InventarioPage() {
         <p className="text-gray-600">Gestión de productos y control de stock</p>
       </div>
 
-      {/* Tabs */}
+      {/* Tabs gastronómicos (filtran por tipo de producto) */}
       <div className="border-b border-gray-200">
         <nav className="-mb-px flex gap-6" aria-label="Tabs">
-          <button
-            type="button"
-            onClick={() => setTab("actual")}
-            className={`whitespace-nowrap border-b-2 py-2 px-1 text-sm font-medium transition-colors ${
-              tab === "actual"
-                ? "border-amber-500 text-amber-600"
-                : "border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700"
-            }`}
-          >
-            Inventario actual
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab("gastro")}
-            className={`whitespace-nowrap border-b-2 py-2 px-1 text-sm font-medium transition-colors ${
-              tab === "gastro"
-                ? "border-amber-500 text-amber-600"
-                : "border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700"
-            }`}
-          >
-            Inventario gastronómico
-          </button>
+          {([
+            { id: "reventa", label: "Reventa", subtitle: "Productos comprados y revendidos" },
+            { id: "menu",    label: "Menú",    subtitle: "Productos preparados por el local" },
+            { id: "materia", label: "Materia prima", subtitle: "Insumos para costeo/recetas" },
+          ] as const).map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setTab(t.id)}
+              className={`whitespace-nowrap border-b-2 py-2 px-1 text-sm font-medium transition-colors ${
+                tab === t.id
+                  ? "border-amber-500 text-amber-600"
+                  : "border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700"
+              }`}
+              title={t.subtitle}
+            >
+              {t.label}
+            </button>
+          ))}
         </nav>
       </div>
 
-      {tab === "gastro" && (
-        <GastroInventoryView productos={todos} loading={cargandoLista} />
-      )}
-
-      <div className={`bg-white border border-slate-200 rounded-xl shadow-sm p-6 ${tab === "actual" ? "" : "hidden"}`}>
+      <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-6">
 
         <div className="flex justify-between items-center mb-5">
           <div className="flex items-center gap-3">
