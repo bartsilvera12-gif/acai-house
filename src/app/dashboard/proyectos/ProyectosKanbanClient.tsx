@@ -463,20 +463,74 @@ export default function ProyectosKanbanClient() {
   }
 
   return (
-    <div className="mx-auto max-w-[1800px] space-y-6 p-4 md:p-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
+    <div className="mx-auto max-w-[1800px] space-y-4 p-4 md:p-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
           <h1 className="text-xl font-semibold text-slate-900">Pedidos</h1>
           <p className="text-sm text-slate-500">Tablero de cocina — pedidos por modalidad y estado.</p>
         </div>
-        {/* Botón "Nuevo proyecto" oculto en instancia En lo de Mari:
-            los pedidos nacen desde Ventas, no se crean manualmente desde el tablero. */}
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            className="w-56 rounded-md border border-slate-200 px-3 py-1.5 text-sm"
+            placeholder="Buscar título o cliente…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && void load()}
+          />
+          <button
+            type="button"
+            className="shrink-0 rounded-md bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-800 hover:bg-slate-200"
+            onClick={() => void load()}
+          >
+            Buscar
+          </button>
+          <select
+            className="w-40 rounded-md border border-slate-200 px-2 py-1.5 text-sm"
+            value={filtroEstado}
+            onChange={(e) => setFiltroEstado(e.target.value)}
+          >
+            <option value="">Todos los estados</option>
+            {estados.map((e) => (
+              <option key={e.id} value={e.id}>{e.nombre}</option>
+            ))}
+          </select>
+          <select
+            className="w-36 rounded-md border border-slate-200 px-2 py-1.5 text-sm"
+            value={filtroTipo}
+            onChange={(e) => setFiltroTipo(e.target.value)}
+          >
+            <option value="">Todos los tipos</option>
+            {tipoOpts.map((t) => (
+              <option key={t.id} value={t.id}>{t.nombre}</option>
+            ))}
+          </select>
+          <select
+            className="w-40 rounded-md border border-slate-200 px-2 py-1.5 text-sm"
+            value={filtroRc}
+            onChange={(e) => setFiltroRc(e.target.value)}
+          >
+            <option value="">Resp. comercial</option>
+            {userOpts.map((u) => (
+              <option key={u.id} value={u.id}>{u.nombre ?? u.id.slice(0, 8)}</option>
+            ))}
+          </select>
+          <select
+            className="w-40 rounded-md border border-slate-200 px-2 py-1.5 text-sm"
+            value={filtroRt}
+            onChange={(e) => setFiltroRt(e.target.value)}
+          >
+            <option value="">Resp. técnico</option>
+            {userOpts.map((u) => (
+              <option key={`t-${u.id}`} value={u.id}>{u.nombre ?? u.id.slice(0, 8)}</option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {err ? <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">{err}</div> : null}
 
       <div className="overflow-x-auto pb-1">
-        <div className="flex min-w-full gap-3">
+        <div className="flex min-w-full gap-2">
           {estados.map((estado) => (
             <EstadoMetric
               key={estado.id}
@@ -486,71 +540,6 @@ export default function ProyectosKanbanClient() {
             />
           ))}
         </div>
-      </div>
-
-      <div className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-white p-4 shadow-sm xl:flex-row xl:flex-wrap xl:items-center">
-        <input
-          className="min-w-[200px] flex-1 rounded-md border border-slate-200 px-3 py-2 text-sm"
-          placeholder="Buscar título o cliente…"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && void load()}
-        />
-        <button
-          type="button"
-          className="shrink-0 rounded-md bg-slate-100 px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-200"
-          onClick={() => void load()}
-        >
-          Buscar
-        </button>
-        <select
-          className="min-w-[160px] shrink-0 rounded-md border border-slate-200 px-2 py-2 text-sm"
-          value={filtroEstado}
-          onChange={(e) => setFiltroEstado(e.target.value)}
-        >
-          <option value="">Todos los estados</option>
-          {estados.map((e) => (
-            <option key={e.id} value={e.id}>
-              {e.nombre}
-            </option>
-          ))}
-        </select>
-        <select
-          className="min-w-[140px] shrink-0 rounded-md border border-slate-200 px-2 py-2 text-sm"
-          value={filtroTipo}
-          onChange={(e) => setFiltroTipo(e.target.value)}
-        >
-          <option value="">Todos los tipos</option>
-          {tipoOpts.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.nombre}
-            </option>
-          ))}
-        </select>
-        <select
-          className="min-w-[170px] shrink-0 rounded-md border border-slate-200 px-2 py-2 text-sm"
-          value={filtroRc}
-          onChange={(e) => setFiltroRc(e.target.value)}
-        >
-          <option value="">Resp. comercial</option>
-          {userOpts.map((u) => (
-            <option key={u.id} value={u.id}>
-              {u.nombre ?? u.id.slice(0, 8)}
-            </option>
-          ))}
-        </select>
-        <select
-          className="min-w-[170px] shrink-0 rounded-md border border-slate-200 px-2 py-2 text-sm"
-          value={filtroRt}
-          onChange={(e) => setFiltroRt(e.target.value)}
-        >
-          <option value="">Resp. técnico</option>
-          {userOpts.map((u) => (
-            <option key={`t-${u.id}`} value={u.id}>
-              {u.nombre ?? u.id.slice(0, 8)}
-            </option>
-          ))}
-        </select>
       </div>
 
       <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
@@ -682,7 +671,7 @@ function ProjectCardView({
       style={style}
       {...attributes}
       {...listeners}
-      className={`touch-none rounded-2xl border border-l-4 bg-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md ${
+      className={`touch-none rounded-xl border border-l-4 bg-white p-2.5 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md ${
         dragOverlay ? "rotate-1 cursor-grabbing shadow-2xl" : "cursor-grab active:cursor-grabbing"
       } ${priorityStyles.cardAccentClass} ${isDragging ? "opacity-40" : ""} ${moving ? "ring-2 ring-sky-100" : ""}`}
     >
@@ -696,15 +685,15 @@ function ProjectCardView({
         <div className="flex items-start gap-2">
           <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${priorityStyles.iconDotClass}`} />
           <div className="min-w-0 flex-1">
-            <div className="text-[15px] font-semibold leading-snug text-slate-950 hover:underline">
+            <div className="text-sm font-semibold leading-snug text-slate-950 hover:underline">
               {p.titulo}
             </div>
-            <div className="mt-1 text-xs font-medium text-slate-600">
+            <div className="mt-0.5 text-[11px] font-medium text-slate-600">
               {cli}
             </div>
           </div>
         </div>
-        <div className="mt-3 flex flex-wrap gap-1.5">
+        <div className="mt-2 flex flex-wrap gap-1">
           {pedido ? (
             <span className={`${baseBadgeClass} font-semibold ${PEDIDO_MODALIDAD_BADGE[pedido.modalidad].cls}`}>
               {PEDIDO_MODALIDAD_BADGE[pedido.modalidad].label}
@@ -885,12 +874,14 @@ function EstadoMetric({
   color: string;
 }) {
   return (
-    <div className="min-w-[190px] flex-1 rounded-xl border border-slate-200 bg-white px-3 py-3 shadow-sm">
-      <div className="mb-2 h-1 rounded-full" style={{ backgroundColor: color || "#94a3b8" }} />
-      <div className="truncate text-[11px] font-medium uppercase tracking-wide text-slate-500" title={label}>
-        {label}
+    <div className="min-w-[120px] flex-1 rounded-lg border border-slate-200 bg-white px-2.5 py-2 shadow-sm">
+      <div className="mb-1 h-0.5 rounded-full" style={{ backgroundColor: color || "#94a3b8" }} />
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="truncate text-[10px] font-medium uppercase tracking-wide text-slate-500" title={label}>
+          {label}
+        </span>
+        <span className="text-base font-semibold text-slate-900 tabular-nums">{value}</span>
       </div>
-      <div className="mt-1 text-2xl font-semibold text-slate-900">{value}</div>
     </div>
   );
 }
