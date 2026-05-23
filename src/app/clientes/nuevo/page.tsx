@@ -468,7 +468,7 @@ function NuevoClienteForm() {
               </select>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label className={labelClass}>
                   {form.tipo_cliente === "empresa" ? "Persona de contacto" : "Nombre completo"}{" "}
@@ -515,7 +515,7 @@ function NuevoClienteForm() {
           <section className="space-y-4">
             <SectionTitle>Contacto</SectionTitle>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label className={labelClass}>Teléfono principal</label>
                 <input
@@ -540,7 +540,7 @@ function NuevoClienteForm() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label className={labelClass}>Email principal</label>
                 <input
@@ -577,7 +577,7 @@ function NuevoClienteForm() {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label className={labelClass}>Ciudad</label>
                 <input
@@ -736,7 +736,7 @@ function NuevoClienteForm() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label className={labelClass}>Origen del cliente</label>
                 <select
@@ -853,7 +853,7 @@ function NuevoClienteForm() {
                     min={1}
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div>
                     <label className={labelClass}>Día facturación (1–28)</label>
                     <input

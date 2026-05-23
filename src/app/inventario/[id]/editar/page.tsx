@@ -705,7 +705,7 @@ export default function EditarProductoPage() {
               </div>
             </div>
             {tieneAmbos && markupCalc !== null && margenVentaCalc !== null && (
-              <div className="mt-4 grid grid-cols-2 gap-4">
+              <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div className={`border rounded-lg px-4 py-3 ${esPerdida ? "bg-red-50 border-red-200" : "bg-blue-50 border-blue-100"}`}>
                   <p className={`text-xs font-medium mb-1 ${esPerdida ? "text-red-500" : "text-blue-500"}`}>Markup</p>
                   <p className={`text-lg font-bold tabular-nums ${esPerdida ? "text-red-700" : "text-blue-700"}`}>

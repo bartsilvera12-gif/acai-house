@@ -419,7 +419,7 @@ export default function NuevaCompraPage() {
                 <InlineFormBox titulo="Nuevo proveedor" onCancel={handleCancelarProveedor} onSave={handleAgregarProveedor}
                   saveDisabled={!formProveedor.nombre.trim() || !formProveedor.ruc.trim()}
                 >
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div>
                       <label className={labelSmClass}>Nombre / Razón social <span className="text-red-500">*</span></label>
                       <input type="text" name="nombre" value={formProveedor.nombre}
@@ -504,7 +504,7 @@ export default function NuevaCompraPage() {
                 <InlineFormBox titulo="Nuevo producto" onCancel={handleCancelarProducto} onSave={handleAgregarProducto}
                   saveDisabled={!formProducto.nombre.trim() || !formProducto.sku.trim()}
                 >
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                     <div>
                       <label className={labelSmClass}>Nombre <span className="text-red-500">*</span></label>
                       <input type="text" name="nombre" value={formProducto.nombre}

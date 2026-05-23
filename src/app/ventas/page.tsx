@@ -216,7 +216,7 @@ export default function VentasPage() {
             weekday: "long", day: "numeric", month: "long", year: "numeric",
           })}
         </p>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <MetricCard
             label="Facturación de hoy"
             value={`Gs. ${metricas.facturacion.toLocaleString("es-PY")}`}

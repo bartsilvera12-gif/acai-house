@@ -777,7 +777,7 @@ function DashComercial({
 
   return (
     <div className="space-y-8">
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard
           variant="zentra"
           icon="🎯"
@@ -1645,7 +1645,7 @@ function DashInventario({
     <div className="space-y-5">
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard icon="📦" label="Productos totales"      value={String(totalProductos)} color="text-[#0EA5E9]" variation={4} />
         <KpiCard icon="🔢" label="Stock total (unidades)" value={formatGs(totalUnidades)} color="text-[#0EA5E9]" />
         <KpiCard icon="⚠️" label="Bajo stock mínimo"      value={String(bajosStock)}
@@ -1849,7 +1849,7 @@ function DashVentas({
     <div className="space-y-5">
 
       {/* KPIs principales */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard icon="📅" label="Ventas del día"    value={`Gs. ${formatGsFull(totalHoy)}`}
           sub={`${ventasHoy.length} transacciones`} color="text-blue-600" />
         <KpiCard icon="📆" label="Ventas del mes"    value={`Gs. ${formatGsFull(totalMes)}`}
