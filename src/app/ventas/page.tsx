@@ -188,8 +188,18 @@ export default function VentasPage() {
     <div className="space-y-8">
 
       <div>
-        <h1 className="text-3xl font-bold text-gray-800">Ventas</h1>
-        <p className="text-gray-600">Registro de ventas y salidas de inventario</p>
+        <div className="flex items-center gap-2">
+          <span
+            aria-hidden="true"
+            className="inline-block h-1.5 w-1.5 rounded-full bg-[#4FAEB2]"
+            style={{ boxShadow: "0 0 0 3px rgba(79, 174, 178, 0.18)" }}
+          />
+          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#4FAEB2]">
+            Zentra · Operaciones
+          </p>
+        </div>
+        <h1 className="mt-1 text-lg font-semibold tracking-tight text-slate-900">Ventas</h1>
+        <p className="mt-0.5 text-xs text-slate-500">Registro de ventas y salidas de inventario</p>
       </div>
 
       {/* ── Métricas del día ──────────────────────────────────────────────────── */}

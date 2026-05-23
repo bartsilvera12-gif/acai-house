@@ -56,14 +56,24 @@ export default function GastosPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between">
+      <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-gray-800">Gastos operativos</h1>
-          <p className="text-gray-500 text-sm mt-1">Registro de gastos de la empresa</p>
+          <div className="flex items-center gap-2">
+            <span
+              aria-hidden="true"
+              className="inline-block h-1.5 w-1.5 rounded-full bg-[#4FAEB2]"
+              style={{ boxShadow: "0 0 0 3px rgba(79, 174, 178, 0.18)" }}
+            />
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#4FAEB2]">
+              Zentra · Egresos
+            </p>
+          </div>
+          <h1 className="mt-1 text-lg font-semibold tracking-tight text-slate-900">Gastos operativos</h1>
+          <p className="mt-0.5 text-xs text-slate-500">Registro de gastos de la empresa</p>
         </div>
         <Link
           href="/gastos/nuevo"
-          className="flex items-center gap-1.5 bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors shadow-sm shrink-0"
+          className="flex shrink-0 items-center gap-1.5 rounded-lg bg-[#4FAEB2] px-3 py-1.5 text-xs font-semibold text-white shadow-sm shadow-[#4FAEB2]/25 transition-colors hover:bg-[#3F8E91] active:scale-95"
         >
           <span>+</span>
           Nuevo gasto

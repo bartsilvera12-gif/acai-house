@@ -169,8 +169,18 @@ export default function InventarioPage() {
 
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold text-gray-800">Inventario</h1>
-          <p className="text-gray-600">Gestión de productos y control de stock</p>
+          <div className="flex items-center gap-2">
+            <span
+              aria-hidden="true"
+              className="inline-block h-1.5 w-1.5 rounded-full bg-[#4FAEB2]"
+              style={{ boxShadow: "0 0 0 3px rgba(79, 174, 178, 0.18)" }}
+            />
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[#4FAEB2]">
+              Zentra · Stock
+            </p>
+          </div>
+          <h1 className="mt-1 text-lg font-semibold tracking-tight text-slate-900">Inventario</h1>
+          <p className="mt-0.5 text-xs text-slate-500">Gestión de productos y control de stock</p>
         </div>
         <div className="flex items-center gap-2 mt-1">
           <ExportExcelButton url="/api/inventario/productos/export" />
@@ -218,7 +228,7 @@ export default function InventarioPage() {
             <h2 className="text-xl font-semibold">Productos</h2>
             <Link
               href="/inventario/nuevo"
-              className="bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm"
+              className="rounded-lg bg-[#4FAEB2] px-3 py-1.5 text-xs font-semibold text-white shadow-sm shadow-[#4FAEB2]/25 transition-colors hover:bg-[#3F8E91] active:scale-95"
             >
               Nuevo producto
             </Link>
