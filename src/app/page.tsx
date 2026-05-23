@@ -50,16 +50,17 @@ import {
 } from "recharts";
 
 // ── ZENTRA (solo dashboard / esta página) ─────────────────────────────────────
-// Paleta turquesa #4FAEB2 (rediseño 2026). Conserva el shell oscuro del dashboard
-// pero migra el acento de teal Tailwind (#14B8A6) al turquesa de marca Zentra.
+// Paleta turquesa #4FAEB2 (rediseño 2026). Shell BLANCO con detalles turquesa
+// (paleta dashboard Zentra). Cards blancas con ring turquesa, texto en slate
+// oscuro, acentos en #4FAEB2.
 const Z = {
-  bg:       "#0A2E30",
-  surface:  "#103B3E",
-  card:     "#164B4F",
-  accent:   "#4FAEB2",
-  accentHover: "#3F8E91",
-  text:     "#FFFFFF",
-  muted:    "#A8CCCA",
+  bg:       "#F8FAFC",      // app shell background
+  surface:  "#FFFFFF",       // card surface
+  card:     "#FFFFFF",       // card interior
+  accent:   "#4FAEB2",       // turquesa principal
+  accentHover: "#3F8E91",    // turquesa hover/dark
+  text:     "#0F172A",       // slate-900 para texto principal
+  muted:    "#64748B",       // slate-500 para texto secundario
   success:  "#22C55E",
   error:    "#EF4444",
 } as const;
@@ -67,8 +68,7 @@ const Z = {
 function ZentraMark({ className = "" }: { className?: string }) {
   return (
     <div
-      className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-white/10 shadow-inner ${className}`}
-      style={{ backgroundColor: Z.card }}
+      className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-[#4FAEB2]/30 bg-white shadow-sm ring-1 ring-[#4FAEB2]/10 ${className}`}
     >
       <span className="text-xl font-extrabold leading-none tracking-tight" style={{ color: Z.accent }}>
         Z
@@ -343,7 +343,7 @@ function DonutChart({
     return (
       <div className="flex items-center gap-6">
         <div
-          className={`flex h-32 w-32 shrink-0 items-center justify-center rounded-full ${isZ ? "border border-white/10" : "bg-gray-100"}`}
+          className={`flex h-32 w-32 shrink-0 items-center justify-center rounded-full ${isZ ? "border border-slate-200" : "bg-gray-100"}`}
           style={isZ ? { backgroundColor: Z.surface } : undefined}
         >
           <span className={`text-xs ${isZ ? "" : "text-gray-400"}`} style={isZ ? { color: Z.muted } : undefined}>
@@ -506,7 +506,7 @@ function KpiCard({
     return (
       <motion.div
         whileHover={{ y: -2 }}
-        className="rounded-2xl border border-white/10 p-6 shadow-lg shadow-black/10"
+        className="rounded-2xl border border-slate-200 p-6 shadow-lg shadow-black/10"
         style={{ backgroundColor: Z.card }}
       >
         <div className="flex items-start justify-between gap-2">
@@ -770,7 +770,7 @@ function DashComercial({
   const nClientesNuevos = filasClientesPeriodo.length;
   const ticketPromedio = nClientesNuevos > 0 ? totalValorClientesNuevos / nClientesNuevos : 0;
 
-  const panelClass = "rounded-2xl border border-white/10 p-6 shadow-lg shadow-black/10 sm:p-8";
+  const panelClass = "rounded-2xl border border-slate-200 p-6 shadow-lg shadow-black/10 sm:p-8";
   const panelStyle = { backgroundColor: Z.card } as const;
   const titleClass = "text-xs font-bold uppercase tracking-wider";
   const titleStyle = { color: Z.muted } as const;
@@ -863,7 +863,7 @@ function DashComercial({
         className="rounded-2xl border p-6 shadow-xl shadow-black/25 sm:p-10"
         style={{ backgroundColor: Z.surface, borderColor: "rgba(37,99,235,0.35)" }}
       >
-        <div className="flex flex-col gap-2 border-b border-white/10 pb-6 lg:flex-row lg:items-end lg:justify-between">
+        <div className="flex flex-col gap-2 border-b border-slate-200 pb-6 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-[0.2em]" style={{ color: Z.accent }}>
               Cartera · período
@@ -882,7 +882,7 @@ function DashComercial({
         </div>
 
         <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <div className="rounded-xl border border-white/10 px-5 py-4" style={{ backgroundColor: Z.card }}>
+          <div className="rounded-xl border border-slate-200 px-5 py-4" style={{ backgroundColor: Z.card }}>
             <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: Z.muted }}>
               Clientes nuevos
             </p>
@@ -890,7 +890,7 @@ function DashComercial({
               {nClientesNuevos}
             </p>
           </div>
-          <div className="rounded-xl border border-white/10 px-5 py-4" style={{ backgroundColor: Z.card }}>
+          <div className="rounded-xl border border-slate-200 px-5 py-4" style={{ backgroundColor: Z.card }}>
             <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: Z.muted }}>
               Valor asociado (Gs.)
             </p>
@@ -898,7 +898,7 @@ function DashComercial({
               {formatGsM(totalValorClientesNuevos)}
             </p>
           </div>
-          <div className="rounded-xl border border-white/10 px-5 py-4" style={{ backgroundColor: Z.card }}>
+          <div className="rounded-xl border border-slate-200 px-5 py-4" style={{ backgroundColor: Z.card }}>
             <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: Z.muted }}>
               Ticket promedio
             </p>
@@ -914,11 +914,11 @@ function DashComercial({
           </p>
         ) : (
           <div
-            className="mt-8 max-h-[min(28rem,55vh)] overflow-auto rounded-xl border border-white/10"
+            className="mt-8 max-h-[min(28rem,55vh)] overflow-auto rounded-xl border border-slate-200"
             style={{ backgroundColor: Z.card }}
           >
             <table className="w-full text-sm">
-              <thead className="sticky top-0 border-b border-white/10" style={{ backgroundColor: Z.card }}>
+              <thead className="sticky top-0 border-b border-slate-200" style={{ backgroundColor: Z.card }}>
                 <tr>
                   {["Cliente", "Alta", "Plan / servicio", "Monto (Gs.)", "Origen valor", "Vendedor"].map((h) => (
                     <th
@@ -2154,7 +2154,7 @@ export default function DashboardPage() {
   if (dashScope.kind === "empty") {
     return (
       <div
-        className="zentra-dashboard-shell space-y-8 rounded-2xl border border-white/10 px-4 py-8 sm:px-6 md:px-8"
+        className="zentra-dashboard-shell space-y-8 rounded-2xl border border-slate-200 px-4 py-8 sm:px-6 md:px-8"
         style={{ color: Z.muted }}
       >
         <header className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
@@ -2174,7 +2174,7 @@ export default function DashboardPage() {
           </div>
         </header>
         <div
-          className="rounded-2xl border border-white/10 px-5 py-10 text-center text-sm"
+          className="rounded-2xl border border-slate-200 px-5 py-10 text-center text-sm"
           style={{ backgroundColor: Z.surface, color: Z.muted }}
         >
           <p className="font-medium" style={{ color: Z.text }}>
@@ -2192,7 +2192,7 @@ export default function DashboardPage() {
 
   return (
     <div
-      className="zentra-dashboard-shell space-y-8 rounded-2xl border border-white/10 px-4 py-8 sm:px-6 md:px-8"
+      className="zentra-dashboard-shell space-y-8 rounded-2xl border border-slate-200 px-4 py-8 sm:px-6 md:px-8"
       style={{ color: Z.muted }}
     >
       <header className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
@@ -2220,7 +2220,7 @@ export default function DashboardPage() {
               <select
                 value={usuarioId ?? ""}
                 onChange={(e) => handleUsuarioChange(parseInt(e.target.value, 10))}
-                className="rounded-lg border border-white/15 px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-offset-0"
+                className="rounded-lg border border-slate-200 px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-offset-0"
                 style={{ backgroundColor: Z.surface, color: Z.text, borderColor: "rgba(255,255,255,0.12)" }}
               >
                 {usuarios.map((u) => (
@@ -2231,7 +2231,7 @@ export default function DashboardPage() {
               </select>
             </div>
           )}
-          <div className="flex flex-wrap gap-1 rounded-xl border border-white/10 p-1" style={{ backgroundColor: Z.surface }}>
+          <div className="flex flex-wrap gap-1 rounded-xl border border-slate-200 p-1" style={{ backgroundColor: Z.surface }}>
             {PERIODO_OPTS.map((p) => (
               <button
                 key={p.id}
@@ -2253,7 +2253,7 @@ export default function DashboardPage() {
 
       {showTabNav ? (
         <nav
-          className="flex w-full flex-wrap gap-1 rounded-2xl border border-white/10 p-1.5 sm:w-fit"
+          className="flex w-full flex-wrap gap-1 rounded-2xl border border-slate-200 p-1.5 sm:w-fit"
           style={{ backgroundColor: Z.surface }}
         >
           {effectiveTabs.map((tid) => {
