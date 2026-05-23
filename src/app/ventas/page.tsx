@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import EdgeScrollArea from "@/components/ui/EdgeScrollArea";
+import { FancySelect } from "@/components/ui/FancySelect";
 import { getVentas } from "@/lib/ventas/storage";
 import type { Venta, TipoVenta, TipoIvaVenta } from "@/lib/ventas/types";
 
@@ -262,25 +263,31 @@ export default function VentasPage() {
             onChange={(e) => setBusqueda(e.target.value)}
             className={`${inputFilterClass} min-w-64`}
           />
-          <select
+          <FancySelect
             value={filtroTipo}
-            onChange={(e) => setFiltroTipo(e.target.value as TipoVenta | "")}
-            className={inputFilterClass}
-          >
-            <option value="">Todos los tipos</option>
-            <option value="CONTADO">Contado</option>
-            <option value="CREDITO">Crédito</option>
-          </select>
-          <select
+            onChange={(v) => setFiltroTipo(v as TipoVenta | "")}
+            ariaLabel="Filtrar por tipo de venta"
+            className="w-44"
+            size="sm"
+            options={[
+              { value: "", label: "Todos los tipos" },
+              { value: "CONTADO", label: "Contado" },
+              { value: "CREDITO", label: "Crédito" },
+            ]}
+          />
+          <FancySelect
             value={filtroIva}
-            onChange={(e) => setFiltroIva(e.target.value as TipoIvaVenta | "")}
-            className={inputFilterClass}
-          >
-            <option value="">Todos los IVA</option>
-            <option value="EXENTA">Exenta</option>
-            <option value="5%">IVA 5%</option>
-            <option value="10%">IVA 10%</option>
-          </select>
+            onChange={(v) => setFiltroIva(v as TipoIvaVenta | "")}
+            ariaLabel="Filtrar por IVA"
+            className="w-44"
+            size="sm"
+            options={[
+              { value: "", label: "Todos los IVA" },
+              { value: "EXENTA", label: "Exenta" },
+              { value: "5%", label: "IVA 5%" },
+              { value: "10%", label: "IVA 10%" },
+            ]}
+          />
           {hayFiltros && (
             <button
               onClick={() => { setBusqueda(""); setFiltroTipo(""); setFiltroIva(""); }}

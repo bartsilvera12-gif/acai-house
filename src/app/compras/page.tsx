@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { getCompras } from "@/lib/compras/storage";
 import ExportExcelButton from "@/components/ui/ExportExcelButton";
 import EdgeScrollArea from "@/components/ui/EdgeScrollArea";
+import { FancySelect } from "@/components/ui/FancySelect";
 import type { Compra, TipoPago } from "@/lib/compras/types";
 
 const inputFilterClass =
@@ -108,15 +109,18 @@ export default function ComprasPage() {
             onChange={(e) => setBusqueda(e.target.value)}
             className={`${inputFilterClass} min-w-72`}
           />
-          <select
+          <FancySelect
             value={filtroTipoPago}
-            onChange={(e) => setFiltroTipoPago(e.target.value as TipoPago | "")}
-            className={inputFilterClass}
-          >
-            <option value="">Todos los pagos</option>
-            <option value="contado">Contado</option>
-            <option value="credito">Crédito</option>
-          </select>
+            onChange={(v) => setFiltroTipoPago(v as TipoPago | "")}
+            ariaLabel="Filtrar por tipo de pago"
+            className="w-44"
+            size="sm"
+            options={[
+              { value: "", label: "Todos los pagos" },
+              { value: "contado", label: "Contado" },
+              { value: "credito", label: "Crédito" },
+            ]}
+          />
           {hayFiltros && (
             <button
               onClick={() => { setBusqueda(""); setFiltroTipoPago(""); }}
