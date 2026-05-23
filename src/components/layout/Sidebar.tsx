@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import Image from "next/image";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -215,6 +215,7 @@ function NavItem({
 }) {
   const Icon = item.icon;
   const p = usePathname() ?? "";
+  const router = useRouter();
 
   if (!hasAccess) return null;
 
@@ -231,6 +232,7 @@ function NavItem({
           <Link
             href={item.href}
             prefetch={false}
+            onMouseEnter={() => router.prefetch(item.href)}
             className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2.5"
             title={item.label}
           >
@@ -272,6 +274,7 @@ function NavItem({
                   key={c.href}
                   href={c.href}
                   prefetch={false}
+                  onMouseEnter={() => router.prefetch(c.href)}
                   className={`block rounded-lg px-3 py-2 text-sm transition-all ${
                     menuChildPathActive(p, c.href, c.exactMatch)
                       ? "bg-[color:var(--zentra-sidebar-active)] text-white font-medium shadow-[inset_3px_0_0_var(--zentra-sidebar-accent)]"
@@ -292,6 +295,7 @@ function NavItem({
     <Link
       href={item.href}
       prefetch={false}
+      onMouseEnter={() => router.prefetch(item.href)}
       className={`group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all ${
         isActive
           ? "bg-[color:var(--zentra-sidebar-active)] text-white shadow-[inset_3px_0_0_var(--zentra-sidebar-accent)]"
