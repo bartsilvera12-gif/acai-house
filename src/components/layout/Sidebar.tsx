@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   LayoutDashboard,
@@ -30,7 +30,6 @@ import {
   Activity,
   ScrollText,
   ListChecks,
-  FolderKanban,
   Percent,
   ChefHat,
   Utensils,
@@ -325,6 +324,13 @@ function NavItem({
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const navScrollRef = useRef<HTMLElement | null>(null);
+  const navContentRef = useRef<HTMLDivElement | null>(null);
+  const [scrollIndicator, setScrollIndicator] = useState({
+    visible: false,
+    thumbHeight: 0,
+    thumbTop: 0,
+  });
   // ── Hidratación SÍNCRONA desde cache (localStorage) ───────────────────────
   // Si hay cache válido del último login, arrancamos con módulos + cargando=false.
   // Esto elimina el flash "Cargando…" cuando Chrome descarta la pestaña en
@@ -357,6 +363,37 @@ export default function Sidebar() {
   /** Filtro visual del menú (no altera permisos ni rutas). */
   const [menuSearchQuery, setMenuSearchQuery] = useState("");
   const { setSidebarReady, mobileSidebarOpen, setMobileSidebarOpen } = useBoot();
+
+  const updateScrollIndicator = useCallback(() => {
+    const el = navScrollRef.current;
+    if (!el) return;
+
+    const scrollable = el.scrollHeight > el.clientHeight + 1;
+    if (!scrollable) {
+      setScrollIndicator((prev) =>
+        prev.visible ? { visible: false, thumbHeight: 0, thumbTop: 0 } : prev
+      );
+      return;
+    }
+
+    const trackHeight = Math.max(el.clientHeight - 20, 1);
+    const thumbHeight = Math.max(36, (el.clientHeight / el.scrollHeight) * trackHeight);
+    const maxThumbTop = Math.max(trackHeight - thumbHeight, 0);
+    const maxScrollTop = Math.max(el.scrollHeight - el.clientHeight, 1);
+    const thumbTop = (el.scrollTop / maxScrollTop) * maxThumbTop;
+
+    setScrollIndicator((prev) => {
+      const next = { visible: true, thumbHeight, thumbTop };
+      if (
+        prev.visible === next.visible &&
+        Math.abs(prev.thumbHeight - next.thumbHeight) < 0.5 &&
+        Math.abs(prev.thumbTop - next.thumbTop) < 0.5
+      ) {
+        return prev;
+      }
+      return next;
+    });
+  }, []);
 
   /** Cerrar el drawer mobile al cambiar de ruta. */
   useEffect(() => {
@@ -561,6 +598,27 @@ export default function Sidebar() {
     });
   }, [menuSearchQuery]);
 
+  useEffect(() => {
+    const el = navScrollRef.current;
+    if (!el) return;
+
+    updateScrollIndicator();
+    const observer = new ResizeObserver(updateScrollIndicator);
+    observer.observe(el);
+    if (navContentRef.current) observer.observe(navContentRef.current);
+    el.addEventListener("scroll", updateScrollIndicator, { passive: true });
+
+    return () => {
+      observer.disconnect();
+      el.removeEventListener("scroll", updateScrollIndicator);
+    };
+  }, [updateScrollIndicator]);
+
+  useEffect(() => {
+    const raf = window.requestAnimationFrame(updateScrollIndicator);
+    return () => window.cancelAnimationFrame(raf);
+  });
+
   return (
     <>
       {/* Backdrop mobile: cubre el contenido cuando el drawer esta abierto */}
@@ -634,7 +692,12 @@ export default function Sidebar() {
         </div>
       )}
 
-      <nav className="zentra-sidebar-scroll min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain p-3">
+      <div className="relative min-h-0 flex-1">
+      <nav
+        ref={navScrollRef}
+        className="zentra-sidebar-scroll h-full min-h-0 overflow-y-auto overflow-x-hidden overscroll-y-contain p-3"
+      >
+        <div ref={navContentRef}>
         {showMenuNoResults ? (
           <p className="px-2 py-6 text-center text-xs text-slate-400">Sin resultados</p>
         ) : null}
@@ -706,7 +769,19 @@ export default function Sidebar() {
             </Link>
           </div>
         )}
+        </div>
       </nav>
+
+        {scrollIndicator.visible ? (
+          <div className="pointer-events-none absolute inset-y-2.5 right-1.5 w-1 rounded-full bg-white/[0.035]">
+            <motion.span
+              className="absolute left-0 top-0 block w-full rounded-full bg-[#4FAEB2]/55 shadow-[0_0_10px_rgba(79,174,178,0.32)]"
+              animate={{ height: scrollIndicator.thumbHeight, y: scrollIndicator.thumbTop }}
+              transition={{ type: "spring", stiffness: 420, damping: 38, mass: 0.35 }}
+            />
+          </div>
+        ) : null}
+      </div>
       </motion.aside>
     </>
   );
