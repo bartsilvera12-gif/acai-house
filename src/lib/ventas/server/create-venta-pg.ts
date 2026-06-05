@@ -61,9 +61,13 @@ const TOL = 2;
  * si algún paso post-venta falla, se intenta rollback eliminando venta+items creados.
  * Para una instancia gastronómica de bajo volumen es aceptable.
  *
- * Regla `controla_stock`:
- *  - true (Reventa): valida stock disponible, descuenta stock, genera movimiento.
- *  - false (Menú): se inserta en ventas_items igual, NO valida stock, NO descuenta, NO movimiento.
+ * Regla `controla_stock` / recetas:
+ *  - Producto con receta activa (Menú elaborado): NO descuenta su propio stock; explota la
+ *    receta y descuenta cada insumo/materia prima (consumo = cantidad·(1+merma_pct)/rendimiento,
+ *    consistente con fn_receta_costeo), generando un movimiento SALIDA (origen 'venta', ligado por
+ *    venta_id) por insumo. Valida disponibilidad de insumos.
+ *  - `controla_stock=true` (Reventa, sin receta): valida stock, descuenta stock, genera movimiento.
+ *  - `controla_stock=false` (Menú sin receta / servicio): se inserta en ventas_items, NO descuenta.
  */
 export async function createVentaTransaccionalPg(
   params: CreateVentaPgParams
@@ -133,12 +137,113 @@ export async function createVentaTransaccionalPg(
     });
   }
 
-  // 3) Validar stock SOLO para productos que controlan stock (Reventa).
+  // 2b) Recetas: para cada producto vendido con receta activa, calcular el consumo de
+  //     materia prima (insumos). Consistente con el costeo (fn_receta_costeo):
+  //     consumo por unidad vendida = cantidad * (1 + merma_pct) / rendimiento.
+  const recetasQ = await sb
+    .from("recetas")
+    .select("id, producto_id, rendimiento_cantidad")
+    .eq("empresa_id", params.empresaId)
+    .eq("activa", true)
+    .in("producto_id", ids);
+  if (recetasQ.error) throw new Error(recetasQ.error.message);
+  const recetaRows = (recetasQ.data ?? []) as unknown as Array<{
+    id: string;
+    producto_id: string;
+    rendimiento_cantidad: number | string | null;
+  }>;
+  const recetaByProducto = new Map<string, { id: string; rendimiento: number }>();
+  for (const r of recetaRows) {
+    const rend = Number(r.rendimiento_cantidad);
+    recetaByProducto.set(r.producto_id, { id: r.id, rendimiento: rend > 0 ? rend : 1 });
+  }
+
+  // insumo_producto_id -> cantidad total a descontar en esta venta (agregada por todos los ítems).
+  const insumoNeed = new Map<string, number>();
+  if (recetaRows.length) {
+    const recetaIds = recetaRows.map((r) => r.id);
+    const itemsQ = await sb
+      .from("receta_items")
+      .select("receta_id, insumo_producto_id, cantidad, merma_pct")
+      .in("receta_id", recetaIds);
+    if (itemsQ.error) throw new Error(itemsQ.error.message);
+    const itemsByReceta = new Map<string, Array<{ insumo_producto_id: string; cantidad: number; merma_pct: number }>>();
+    for (const it of (itemsQ.data ?? []) as unknown as Array<{
+      receta_id: string;
+      insumo_producto_id: string;
+      cantidad: number | string;
+      merma_pct: number | string | null;
+    }>) {
+      const arr = itemsByReceta.get(it.receta_id) ?? [];
+      arr.push({
+        insumo_producto_id: it.insumo_producto_id,
+        cantidad: Number(it.cantidad),
+        merma_pct: Number(it.merma_pct ?? 0),
+      });
+      itemsByReceta.set(it.receta_id, arr);
+    }
+    for (const [pid, qtySold] of qtyByProduct) {
+      const rec = recetaByProducto.get(pid);
+      if (!rec) continue;
+      for (const ri of itemsByReceta.get(rec.id) ?? []) {
+        const consumo = (qtySold * ri.cantidad * (1 + ri.merma_pct)) / rec.rendimiento;
+        if (!(consumo > 0)) continue;
+        insumoNeed.set(ri.insumo_producto_id, (insumoNeed.get(ri.insumo_producto_id) ?? 0) + consumo);
+      }
+    }
+  }
+  // Redondeo a 6 decimales para evitar ruido de coma flotante (la columna es numeric sin escala).
+  for (const [k, v] of insumoNeed) insumoNeed.set(k, Math.round(v * 1e6) / 1e6);
+
+  // Metadata de insumos (stock/costo/nombre/sku) para validar disponibilidad y registrar movimientos.
+  type InsumoMeta = { stock: number; costo: number; nombre: string; sku: string };
+  const insumoMeta = new Map<string, InsumoMeta>();
+  if (insumoNeed.size) {
+    const insumoIds = [...insumoNeed.keys()];
+    const insQ = await sb
+      .from("productos")
+      .select("id, stock_actual, costo_promedio, nombre, sku")
+      .eq("empresa_id", params.empresaId)
+      .in("id", insumoIds);
+    if (insQ.error) throw new Error(insQ.error.message);
+    const insRows = (insQ.data ?? []) as unknown as Array<{
+      id: string;
+      stock_actual: number | string;
+      costo_promedio: number | string;
+      nombre: string;
+      sku: string;
+    }>;
+    if (insRows.length !== insumoIds.length) {
+      const found = new Set(insRows.map((r) => r.id));
+      const faltan = insumoIds.filter((i) => !found.has(i));
+      throw new Error(`La receta referencia insumos inexistentes en esta empresa: ${faltan.join(", ")}`);
+    }
+    for (const r of insRows) {
+      insumoMeta.set(r.id, {
+        stock: Number(r.stock_actual),
+        costo: Number(r.costo_promedio),
+        nombre: r.nombre,
+        sku: r.sku,
+      });
+    }
+  }
+
+  // 3) Validar stock SOLO para productos que controlan stock (Reventa) y NO tienen receta.
+  //    Un producto con receta consume insumos (validado en 3b), no su propio stock.
   for (const [pid, need] of qtyByProduct) {
     const p = stockMap.get(pid)!;
+    if (recetaByProducto.has(pid)) continue;
     if (!p.controlaStock) continue;
     if (p.stock < need) {
       throw new Error(`Stock insuficiente para "${p.nombre}". Disponible: ${p.stock} u.; requerido: ${need}.`);
+    }
+  }
+
+  // 3b) Validar disponibilidad de materia prima (insumos) requerida por las recetas.
+  for (const [insId, need] of insumoNeed) {
+    const m = insumoMeta.get(insId)!;
+    if (m.stock < need) {
+      throw new Error(`Materia prima insuficiente: "${m.nombre}". Disponible: ${m.stock}; requerido por esta venta: ${need}.`);
     }
   }
 
@@ -216,9 +321,10 @@ export async function createVentaTransaccionalPg(
     const insItems = await sb.from("ventas_items").insert(itemsRows);
     if (insItems.error) throw new Error(insItems.error.message);
 
-    // 7) Descuento de stock + movimientos solo para productos con controla_stock=true.
+    // 7) Descuento de stock + movimientos solo para productos con controla_stock=true SIN receta.
     for (const line of items) {
       const p = stockMap.get(line.producto_id)!;
+      if (recetaByProducto.has(line.producto_id)) continue;
       if (!p.controlaStock) continue;
       const nuevoStock = p.stock - line.cantidad;
       const upd = await sb
@@ -237,6 +343,36 @@ export async function createVentaTransaccionalPg(
         tipo: "SALIDA",
         cantidad: line.cantidad,
         costo_unitario: p.costo,
+        origen: "venta",
+        referencia: numeroControl,
+        fecha: fechaIso,
+        venta_id: ventaId,
+      });
+      if (mov.error) throw new Error(mov.error.message);
+    }
+
+    // 7b) Descontar materia prima (insumos) por explosión de receta + movimiento SALIDA por insumo.
+    for (const [insId, need] of insumoNeed) {
+      const m = insumoMeta.get(insId)!;
+      const nuevoStock = m.stock - need;
+      const upd = await sb
+        .from("productos")
+        .update({ stock_actual: nuevoStock })
+        .eq("id", insId)
+        .eq("empresa_id", params.empresaId);
+      if (upd.error) throw new Error(upd.error.message);
+      m.stock = nuevoStock;
+
+      const mov = await sb.from("movimientos_inventario").insert({
+        empresa_id: params.empresaId,
+        producto_id: insId,
+        producto_nombre: m.nombre,
+        producto_sku: m.sku,
+        tipo: "SALIDA",
+        cantidad: need,
+        costo_unitario: m.costo,
+        // origen restringido por CHECK a compra|venta|ajuste_manual|inventario_inicial.
+        // El consumo de insumo lo causa una venta → 'venta' (se distingue por venta_id + producto insumo).
         origen: "venta",
         referencia: numeroControl,
         fecha: fechaIso,
