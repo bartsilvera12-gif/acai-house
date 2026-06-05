@@ -6,15 +6,14 @@
   --foreground: #0F172A;
   --foreground-muted: #475569;
   --card: #FFFFFF;
-  /* Sidebar Zentra — rediseño blanco premium 2026: superficie clara, acento turquesa.
-     (Antes era deep teal oscuro; migrado a blanco para una estética más limpia.) */
-  --zentra-sidebar: #FFFFFF;
-  --zentra-sidebar-elevated: #F8FAFC;
-  --zentra-sidebar-border: #E9EEF3;
-  --zentra-sidebar-hover: #F1F5F9;
-  --zentra-sidebar-active: #E5F4F4;
+  /* Sidebar Zentra — teal oficial: deep teal oscuro con acento turquesa. */
+  --zentra-sidebar: #0B3A3D;
+  --zentra-sidebar-elevated: #104A4E;
+  --zentra-sidebar-border: rgba(255, 255, 255, 0.08);
+  --zentra-sidebar-hover: rgba(255, 255, 255, 0.06);
+  --zentra-sidebar-active: rgba(255, 255, 255, 0.18);
   --zentra-sidebar-accent: #4FAEB2;
-  --zentra-sidebar-active-text: #2F6E71;
+  --zentra-sidebar-active-text: #FFFFFF;
   --zentra-login-bg-mid: #145053;
   --zentra-login-bg-deep: #0a3437;
   --sidebar: var(--zentra-sidebar);
@@ -171,8 +170,9 @@ body {
    ============================================================================= */
 .zentra-sidebar-bg {
   background:
-    radial-gradient(ellipse 120% 50% at 100% 0%, rgba(79, 174, 178, 0.05), transparent 58%),
-    linear-gradient(180deg, #FFFFFF 0%, #FCFEFE 55%, #F6FAFB 100%);
+    radial-gradient(ellipse 120% 60% at 100% 0%, rgba(255, 255, 255, 0.06), transparent 55%),
+    radial-gradient(ellipse 120% 60% at 0% 0%, rgba(255, 255, 255, 0.04), transparent 55%),
+    linear-gradient(180deg, #104A4E 0%, #0B3A3D 35%, #082A2D 100%);
 }
 
 /* =============================================================================

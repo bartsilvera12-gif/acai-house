@@ -225,8 +225,8 @@ function NavItem({
   if (item.children) {
     const rowTone =
       isActive || childActive
-        ? "bg-[color:var(--zentra-sidebar-active)] text-[color:var(--zentra-sidebar-active-text)] font-semibold shadow-[inset_3px_0_0_var(--zentra-sidebar-accent)]"
-        : "text-slate-600 hover:bg-[color:var(--zentra-sidebar-hover)] hover:text-slate-900";
+        ? "bg-[color:var(--zentra-sidebar-active)] text-white shadow-[inset_3px_0_0_var(--zentra-sidebar-accent)]"
+        : "text-slate-200 hover:bg-[color:var(--zentra-sidebar-hover)]";
     return (
       <div className="space-y-0.5">
         <div className={`flex items-center gap-0.5 rounded-lg text-sm font-medium transition-colors ${rowTone}`}>
@@ -237,7 +237,7 @@ function NavItem({
             className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2.5"
             title={item.label}
           >
-            <Icon className={`h-5 w-5 shrink-0 ${isActive || childActive ? "text-[#4FAEB2]" : "text-slate-400"}`} />
+            <Icon className={`h-5 w-5 shrink-0 ${isActive || childActive ? "text-white" : "text-slate-400"}`} />
             {!collapsed && <span className="flex-1 truncate">{item.label}</span>}
           </Link>
           {!collapsed && (
@@ -245,7 +245,7 @@ function NavItem({
               <button
                 type="button"
                 onClick={() => onToggleFavorito(itemId)}
-                className={`shrink-0 rounded p-0.5 ${isFavorito ? "text-amber-500" : "text-slate-400 hover:text-amber-500"}`}
+                className={`shrink-0 rounded p-0.5 ${isFavorito ? "text-amber-300" : "text-slate-500 hover:text-amber-300"}`}
                 aria-label="Favorito"
               >
                 <Star className={`h-4 w-4 ${isFavorito ? "fill-current" : ""}`} />
@@ -278,8 +278,8 @@ function NavItem({
                   onMouseEnter={() => router.prefetch(c.href)}
                   className={`block rounded-lg px-3 py-2 text-sm transition-all ${
                     menuChildPathActive(p, c.href, c.exactMatch)
-                      ? "bg-[color:var(--zentra-sidebar-active)] text-[color:var(--zentra-sidebar-active-text)] font-semibold shadow-[inset_3px_0_0_var(--zentra-sidebar-accent)]"
-                      : "text-slate-500 hover:bg-[color:var(--zentra-sidebar-hover)] hover:text-slate-800"
+                      ? "bg-[color:var(--zentra-sidebar-active)] text-white font-medium shadow-[inset_3px_0_0_var(--zentra-sidebar-accent)]"
+                      : "text-slate-300 hover:bg-[color:var(--zentra-sidebar-hover)]"
                   }`}
                 >
                   {c.label}
@@ -299,11 +299,11 @@ function NavItem({
       onMouseEnter={() => router.prefetch(item.href)}
       className={`group flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all ${
         isActive
-          ? "bg-[color:var(--zentra-sidebar-active)] text-[color:var(--zentra-sidebar-active-text)] font-semibold shadow-[inset_3px_0_0_var(--zentra-sidebar-accent)]"
-          : "text-slate-600 hover:bg-[color:var(--zentra-sidebar-hover)] hover:text-slate-900"
+          ? "bg-[color:var(--zentra-sidebar-active)] text-white shadow-[inset_3px_0_0_var(--zentra-sidebar-accent)]"
+          : "text-slate-200 hover:bg-[color:var(--zentra-sidebar-hover)]"
       }`}
     >
-      <Icon className={`h-5 w-5 shrink-0 ${isActive ? "text-[#4FAEB2]" : "text-slate-400"}`} />
+      <Icon className={`h-5 w-5 shrink-0 ${isActive ? "text-white" : "text-slate-400"}`} />
       {!collapsed && (
         <>
           <span className="flex-1 truncate">{item.label}</span>
@@ -311,7 +311,7 @@ function NavItem({
             type="button"
             onClick={(e) => { e.preventDefault(); onToggleFavorito(itemId); }}
             className={`rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100 ${
-              isFavorito ? "opacity-100 text-amber-500" : "text-slate-400 hover:text-amber-500"
+              isFavorito ? "opacity-100 text-amber-300" : "text-slate-500 hover:text-amber-300"
             }`}
           >
             <Star className={`h-4 w-4 ${isFavorito ? "fill-current" : ""}`} />
@@ -642,14 +642,14 @@ export default function Sidebar() {
             : "fixed inset-y-0 left-0 z-50 -translate-x-full lg:translate-x-0 transition-transform duration-200"
         }`}
       >
-      {/* Logo oficial ZENTRA (teal sobre superficie blanca) */}
-      <div className="flex h-[7.25rem] shrink-0 items-center justify-between gap-2 border-b border-[color:var(--zentra-sidebar-border)] bg-[color:var(--zentra-sidebar-elevated)] px-3 py-2.5">
+      {/* Logo oficial ZENTRA (blanco sobre azul marca) */}
+      <div className="flex h-[7.25rem] shrink-0 items-center justify-between gap-2 border-b border-[color:var(--zentra-sidebar-border)] bg-[color:var(--zentra-sidebar-elevated)]/35 px-3 py-2.5">
         <Link href="/" className={`flex items-center justify-center min-w-0 flex-1 overflow-hidden`}>
           <div
             className={`relative flex items-center justify-center ${collapsed ? "h-11 w-11" : "h-[4.5rem] w-full max-w-[200px]"}`}
           >
             <Image
-              src="/brand/zentra-logo-teal.png"
+              src="/brand/zentra-logo-official.png"
               alt="ZENTRA"
               width={400}
               height={220}
@@ -662,7 +662,7 @@ export default function Sidebar() {
         <button
           type="button"
           onClick={() => setCollapsed(!collapsed)}
-          className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-[color:var(--zentra-sidebar-hover)] hover:text-slate-700"
+          className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-[color:var(--zentra-sidebar-hover)] hover:text-white"
           aria-label={collapsed ? "Expandir sidebar" : "Colapsar sidebar"}
         >
           {collapsed ? <PanelLeft className="h-5 w-5" /> : <PanelLeftClose className="h-5 w-5" />}
@@ -686,7 +686,7 @@ export default function Sidebar() {
               placeholder="Buscar en el menú…"
               value={menuSearchQuery}
               onChange={(e) => setMenuSearchQuery(e.target.value)}
-              className="w-full rounded-lg border border-slate-200 bg-slate-50 py-2 pl-8 pr-2.5 text-xs text-slate-700 outline-none transition-[border-color,box-shadow] placeholder:text-slate-400 focus:border-[#4FAEB2] focus:bg-white focus:ring-2 focus:ring-[#4FAEB2]/25"
+              className="w-full rounded-lg border border-white/15 bg-white/10 py-2 pl-8 pr-2.5 text-xs text-white outline-none transition-[border-color,box-shadow] placeholder:text-slate-400 focus:border-sky-400/45 focus:ring-2 focus:ring-sky-400/35"
             />
           </div>
         </div>
@@ -760,8 +760,8 @@ export default function Sidebar() {
               href="/admin/empresas"
               className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all ${
                 (pathname ?? "").startsWith("/admin/empresas")
-                  ? "bg-amber-50 text-amber-700 shadow-[inset_3px_0_0_#F59E0B]"
-                  : "text-amber-600 hover:bg-amber-50/60"
+                  ? "bg-[color:var(--zentra-sidebar-active)] text-amber-100 shadow-[inset_3px_0_0_var(--zentra-sidebar-accent)]"
+                  : "text-amber-300/95 hover:bg-[color:var(--zentra-sidebar-hover)]"
               }`}
             >
               <Building2 className="h-5 w-5 shrink-0" />
@@ -773,7 +773,7 @@ export default function Sidebar() {
       </nav>
 
         {scrollIndicator.visible ? (
-          <div className="pointer-events-none absolute inset-y-2.5 right-1.5 w-1 rounded-full bg-slate-200/70">
+          <div className="pointer-events-none absolute inset-y-2.5 right-1.5 w-1 rounded-full bg-white/[0.035]">
             <motion.span
               className="absolute left-0 top-0 block w-full rounded-full bg-[#4FAEB2]/55 shadow-[0_0_10px_rgba(79,174,178,0.32)]"
               animate={{ height: scrollIndicator.thumbHeight, y: scrollIndicator.thumbTop }}
