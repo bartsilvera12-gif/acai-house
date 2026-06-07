@@ -2,7 +2,7 @@
 
 import PageHeader from "@/components/ui/PageHeader";
 import { ReportCard } from "@/components/reportes/ReportCard";
-import { Wallet, Truck, Package } from "lucide-react";
+import { Wallet, Truck, Package, ShoppingCart } from "lucide-react";
 
 /** Hub de reportería operativa (Fase 1: Estado de cuenta + Proveedores). */
 export default function ReportesPage() {
@@ -22,6 +22,15 @@ export default function ReportesPage() {
             icon={Wallet}
             description="Resumen de ventas, compras, gastos y resultado del período, con sus movimientos."
             href="/reportes/estado-cuenta"
+          />
+        </li>
+        <li>
+          <ReportCard
+            title="Ventas"
+            subtitle="Facturación y operaciones"
+            icon={ShoppingCart}
+            description="Ventas del mes, desglose por tipo de precio (minorista/mayorista/al costo) y por producto."
+            href="/reportes/ventas"
           />
         </li>
         <li>

@@ -23,6 +23,11 @@ import type {
   ItemCompradoRow,
   CompraProveedorTotal,
   CompraProductoTotal,
+  VentasReporte,
+  VentaReporteRow,
+  ItemVendidoRow,
+  VentaProductoTotal,
+  TipoPrecioReporte,
 } from "@/lib/reportes/types";
 
 function pool() {
@@ -273,6 +278,104 @@ export async function getReporteCompras(
       cantidad: num(i.cantidad),
       costo_unitario: num(i.costo_unitario),
       total_linea: num(i.total_linea),
+    })),
+  };
+}
+
+// ── Ventas (cabecera `ventas` + líneas `ventas_items`, desglose por tipo_precio) ─
+
+/** Normaliza tipo_precio (null/'' → minorista). */
+const TP_SQL = `COALESCE(NULLIF(vi.tipo_precio,''),'minorista')`;
+function normTipoPrecio(v: unknown): TipoPrecioReporte {
+  return v === "mayorista" || v === "costo" ? v : "minorista";
+}
+
+export async function getReporteVentas(
+  schemaRaw: string,
+  empresaId: string,
+  b: MesBounds
+): Promise<VentasReporte> {
+  const schema = assertAllowedChatDataSchema(schemaRaw);
+  const tV = quoteSchemaTable(schema, "ventas");
+  const tVI = quoteSchemaTable(schema, "ventas_items");
+  const tCli = quoteSchemaTable(schema, "clientes");
+  const p = pool();
+  const perV = `v.empresa_id=$1::uuid AND v.fecha>=$2::timestamptz AND v.fecha<=$3::timestamptz`;
+  const args = [empresaId, b.start, b.end];
+
+  // Totales de cabecera.
+  const totQ = p.query<{ ventas: number; total: number }>(
+    `SELECT count(*)::int AS ventas, COALESCE(SUM(total),0)::float8 AS total
+       FROM ${tV} v WHERE ${perV}`, args);
+  // Ítems / unidades.
+  const itemsTotQ = p.query<{ items: number; unidades: number }>(
+    `SELECT count(*)::int AS items, COALESCE(SUM(vi.cantidad),0)::float8 AS unidades
+       FROM ${tVI} vi JOIN ${tV} v ON v.id=vi.venta_id WHERE ${perV}`, args);
+  // Desglose por tipo_precio (null → minorista).
+  const tipoPrecioQ = p.query<{ tipo_precio: string; items: number; total: number }>(
+    `SELECT ${TP_SQL} AS tipo_precio, count(*)::int AS items, COALESCE(SUM(vi.total_linea),0)::float8 AS total
+       FROM ${tVI} vi JOIN ${tV} v ON v.id=vi.venta_id WHERE ${perV}
+      GROUP BY ${TP_SQL}`, args);
+  // Total por producto.
+  const porProdQ = p.query<VentaProductoTotal>(
+    `SELECT vi.producto_nombre, SUM(vi.cantidad)::float8 AS cantidad, SUM(vi.total_linea)::float8 AS total
+       FROM ${tVI} vi JOIN ${tV} v ON v.id=vi.venta_id WHERE ${perV}
+      GROUP BY vi.producto_id, vi.producto_nombre ORDER BY total DESC`, args);
+  // Detalle de ventas (con cliente opcional).
+  const ventasQ = p.query<VentaReporteRow>(
+    `SELECT v.id, v.numero_control, v.fecha, c.nombre AS cliente, v.metodo_pago,
+            (SELECT count(*) FROM ${tVI} vi WHERE vi.venta_id=v.id)::int AS items_count,
+            v.total::float8 AS total
+       FROM ${tV} v
+       LEFT JOIN ${tCli} c ON c.id=v.cliente_id AND c.empresa_id=v.empresa_id
+      WHERE ${perV} ORDER BY v.fecha DESC, v.numero_control DESC`, args);
+  // Detalle por línea.
+  const itemsQ = p.query<ItemVendidoRow>(
+    `SELECT v.numero_control, v.fecha, vi.producto_nombre,
+            vi.cantidad::float8 AS cantidad, vi.precio_venta::float8 AS precio_venta,
+            vi.subtotal::float8 AS subtotal, vi.monto_iva::float8 AS monto_iva,
+            vi.total_linea::float8 AS total_linea, ${TP_SQL} AS tipo_precio
+       FROM ${tVI} vi JOIN ${tV} v ON v.id=vi.venta_id WHERE ${perV}
+      ORDER BY v.fecha DESC, v.numero_control DESC`, args);
+
+  const [tot, itemsTot, tipoPrecio, porProd, ventas, items] = await Promise.all([
+    totQ, itemsTotQ, tipoPrecioQ, porProdQ, ventasQ, itemsQ]);
+
+  const cantidadVentas = num(tot.rows[0]?.ventas);
+  const totalVendido = num(tot.rows[0]?.total);
+  const porTipoPrecio: Record<TipoPrecioReporte, { items: number; total: number }> = {
+    minorista: { items: 0, total: 0 },
+    mayorista: { items: 0, total: 0 },
+    costo: { items: 0, total: 0 },
+  };
+  for (const r of tipoPrecio.rows) {
+    porTipoPrecio[normTipoPrecio(r.tipo_precio)] = { items: num(r.items), total: num(r.total) };
+  }
+
+  return {
+    mes: b.mes,
+    totalVendido,
+    cantidadVentas,
+    cantidadItems: num(itemsTot.rows[0]?.items),
+    ticketPromedio: cantidadVentas > 0 ? totalVendido / cantidadVentas : 0,
+    unidadesVendidas: num(itemsTot.rows[0]?.unidades),
+    porTipoPrecio,
+    porProducto: porProd.rows.map((r) => ({ ...r, cantidad: num(r.cantidad), total: num(r.total) })),
+    ventas: ventas.rows.map((v) => ({
+      ...v,
+      cliente: v.cliente || null,
+      metodo_pago: v.metodo_pago || null,
+      items_count: num(v.items_count),
+      total: num(v.total),
+    })),
+    items: items.rows.map((i) => ({
+      ...i,
+      cantidad: num(i.cantidad),
+      precio_venta: num(i.precio_venta),
+      subtotal: num(i.subtotal),
+      monto_iva: num(i.monto_iva),
+      total_linea: num(i.total_linea),
+      tipo_precio: normTipoPrecio(i.tipo_precio),
     })),
   };
 }

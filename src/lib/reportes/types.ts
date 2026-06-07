@@ -97,3 +97,57 @@ export interface ComprasReporte {
   compras: CompraReporteRow[];
   items: ItemCompradoRow[];
 }
+
+// ── Ventas (header `ventas` + líneas `ventas_items`, con tipo_precio) ──────────
+
+export type TipoPrecioReporte = "minorista" | "mayorista" | "costo";
+
+/** Totales por nivel de precio: monto e ítems (líneas). */
+export interface VentaTipoPrecioTotal {
+  items: number;
+  total: number;
+}
+
+export interface VentaProductoTotal {
+  producto_nombre: string;
+  cantidad: number;
+  total: number;
+}
+
+/** Una venta (cabecera). */
+export interface VentaReporteRow {
+  id: string;
+  numero_control: string;
+  fecha: string;
+  cliente: string | null;
+  metodo_pago: string | null;
+  items_count: number;
+  total: number;
+}
+
+/** Una línea de venta. tipo_precio nunca null en la salida (null → 'minorista'). */
+export interface ItemVendidoRow {
+  numero_control: string;
+  fecha: string;
+  producto_nombre: string;
+  cantidad: number;
+  precio_venta: number;
+  subtotal: number;
+  monto_iva: number;
+  total_linea: number;
+  tipo_precio: TipoPrecioReporte;
+}
+
+export interface VentasReporte {
+  mes: string;
+  totalVendido: number;
+  cantidadVentas: number;
+  cantidadItems: number;     // líneas vendidas
+  ticketPromedio: number;
+  unidadesVendidas: number;  // SUM(cantidad)
+  /** Desglose por nivel de precio (datos null se cuentan como minorista). */
+  porTipoPrecio: Record<TipoPrecioReporte, VentaTipoPrecioTotal>;
+  porProducto: VentaProductoTotal[];
+  ventas: VentaReporteRow[];
+  items: ItemVendidoRow[];
+}
