@@ -8,6 +8,7 @@ import { getProducto, productoExiste, updateProducto } from "@/lib/inventario/st
 import type { MetodoValuacion } from "@/lib/inventario/types";
 import ProductImageUploader from "@/components/inventario/ProductImageUploader";
 import SelectFromList from "@/components/inventario/SelectFromList";
+import ProveedoresCostos from "@/components/inventario/ProveedoresCostos";
 
 // Opciones estándar de unidad de medida (UX simplificada gastro)
 const UNIDADES_OPCIONES = [
@@ -785,6 +786,8 @@ export default function EditarProductoPage() {
           </div>
         </form>
       </div>
+
+      {id && <ProveedoresCostos productoId={id} />}
     </div>
   );
 }
