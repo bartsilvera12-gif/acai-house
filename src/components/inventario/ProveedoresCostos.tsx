@@ -18,6 +18,7 @@ type HistorialItem = {
 type ProveedorCosto = {
   proveedor_id: string;
   proveedor_nombre: string;
+  marca: string | null;
   ultimo_costo: number;
   ultima_fecha: string;
   moneda_ultimo_costo: string;
@@ -46,6 +47,10 @@ export default function ProveedoresCostos({ productoId }: { productoId: string }
   const [error, setError] = useState<string | null>(null);
   const [proveedores, setProveedores] = useState<ProveedorCosto[]>([]);
   const [abiertos, setAbiertos] = useState<Set<string>>(new Set());
+  const [editando, setEditando] = useState<string | null>(null); // proveedor_id en edición
+  const [marcaInput, setMarcaInput] = useState("");
+  const [guardando, setGuardando] = useState(false);
+  const [errorMarca, setErrorMarca] = useState<string | null>(null);
 
   useEffect(() => {
     if (!productoId) return;
@@ -74,6 +79,51 @@ export default function ProveedoresCostos({ productoId }: { productoId: string }
       if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
+  }
+
+  function abrirEdicion(proveedorId: string, marcaActual: string | null) {
+    setEditando(proveedorId);
+    setMarcaInput(marcaActual ?? "");
+    setErrorMarca(null);
+  }
+
+  function cancelarEdicion() {
+    setEditando(null);
+    setMarcaInput("");
+    setErrorMarca(null);
+  }
+
+  async function guardarMarca(proveedorId: string) {
+    if (!proveedorId) return;
+    setGuardando(true);
+    setErrorMarca(null);
+    const nueva = marcaInput.trim() === "" ? null : marcaInput.trim();
+    try {
+      const r = await fetch(
+        `/api/productos/${productoId}/proveedores-costos/${proveedorId}`,
+        {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ marca: nueva }),
+        }
+      );
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j?.success) {
+        setErrorMarca((j as { error?: string })?.error ?? "No se pudo guardar la marca.");
+        return;
+      }
+      const marcaGuardada = (j.data as { marca?: string | null })?.marca ?? null;
+      setProveedores((prev) =>
+        prev.map((p) => (p.proveedor_id === proveedorId ? { ...p, marca: marcaGuardada } : p))
+      );
+      setEditando(null);
+      setMarcaInput("");
+    } catch (e) {
+      setErrorMarca(e instanceof Error ? e.message : "Error de red");
+    } finally {
+      setGuardando(false);
+    }
   }
 
   return (
@@ -110,6 +160,61 @@ export default function ProveedoresCostos({ productoId }: { productoId: string }
                       <p className="text-xs text-slate-500">
                         {p.cantidad_compras} {p.cantidad_compras === 1 ? "compra" : "compras"} · última {fecha(p.ultima_fecha)}
                       </p>
+                      {/* Marca por proveedor */}
+                      {p.proveedor_id && (
+                        editando === p.proveedor_id ? (
+                          <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                            <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Marca</span>
+                            <input
+                              type="text"
+                              value={marcaInput}
+                              onChange={(e) => setMarcaInput(e.target.value)}
+                              placeholder="Ej: Natural Life"
+                              maxLength={120}
+                              autoFocus
+                              disabled={guardando}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") { e.preventDefault(); guardarMarca(p.proveedor_id); }
+                                if (e.key === "Escape") { e.preventDefault(); cancelarEdicion(); }
+                              }}
+                              className="rounded-md border border-slate-300 px-2 py-1 text-xs text-slate-800 focus:border-[#4FAEB2] focus:outline-none focus:ring-1 focus:ring-[#4FAEB2]/40"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => guardarMarca(p.proveedor_id)}
+                              disabled={guardando}
+                              className="rounded-md bg-[#4FAEB2] px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-[#3F8E91] disabled:opacity-60"
+                            >
+                              {guardando ? "Guardando…" : "Guardar"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={cancelarEdicion}
+                              disabled={guardando}
+                              className="rounded-md px-2 py-1 text-xs font-medium text-slate-500 hover:text-slate-700 disabled:opacity-60"
+                            >
+                              Cancelar
+                            </button>
+                            {errorMarca && <span className="text-xs text-red-600">{errorMarca}</span>}
+                          </div>
+                        ) : (
+                          <div className="mt-1.5 flex items-center gap-2">
+                            <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">Marca</span>
+                            {p.marca ? (
+                              <span className="rounded-full bg-[#4FAEB2]/10 px-2 py-0.5 text-xs font-medium text-[#3F8E91]">{p.marca}</span>
+                            ) : (
+                              <span className="text-xs text-slate-400">Sin marca</span>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => abrirEdicion(p.proveedor_id, p.marca)}
+                              className="text-xs font-medium text-[#4FAEB2] hover:text-[#3F8E91] hover:underline"
+                            >
+                              {p.marca ? "Editar" : "Agregar marca"}
+                            </button>
+                          </div>
+                        )
+                      )}
                     </div>
                     <button
                       type="button"

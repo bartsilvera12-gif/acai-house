@@ -57,6 +57,7 @@ export async function GET(
     const map = new Map<string, {
       proveedor_id: string;
       proveedor_nombre: string;
+      marca: string | null;
       ultimo_costo: number;
       ultima_fecha: string;
       moneda_ultimo_costo: string;
@@ -90,6 +91,7 @@ export async function GET(
         g = {
           proveedor_id: r.proveedor_id,
           proveedor_nombre: r.proveedor_nombre,
+          marca: null,
           ultimo_costo: costo,
           ultima_fecha: r.fecha,
           moneda_ultimo_costo: r.moneda,
@@ -119,6 +121,27 @@ export async function GET(
         origen: "compra",
         tiene_comprobante: !!r.comprobante_storage_path,
       });
+    }
+
+    // Adjuntar marca desde proveedor_productos (dato simple por producto+proveedor).
+    try {
+      const { data: ppRows } = await ctx.supabase
+        .from("proveedor_productos")
+        .select("proveedor_id, marca")
+        .eq("empresa_id", empresaId)
+        .eq("producto_id", productoId);
+      const marcaPorProveedor = new Map<string, string | null>();
+      for (const pp of (ppRows ?? []) as Array<{ proveedor_id: string; marca: string | null }>) {
+        marcaPorProveedor.set(pp.proveedor_id, pp.marca ?? null);
+      }
+      for (const g of map.values()) {
+        if (g.proveedor_id && marcaPorProveedor.has(g.proveedor_id)) {
+          g.marca = marcaPorProveedor.get(g.proveedor_id) ?? null;
+        }
+      }
+    } catch (e) {
+      // best-effort: si falla, devolvemos los costos sin marca
+      console.error("[productos/proveedores-costos] merge marca", e instanceof Error ? e.message : e);
     }
 
     const proveedores = [...map.values()]

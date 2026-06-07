@@ -16,6 +16,45 @@ function pool() {
   return p;
 }
 
+/**
+ * Upsert best-effort de la relación producto↔proveedor en `proveedor_productos`.
+ * - Actualiza `costo_habitual` con el último costo_unitario de la compra.
+ * - Marca `es_principal=true` SOLO si el producto aún no tiene un proveedor
+ *   principal (respeta el índice parcial único un_principal).
+ * - NUNCA toca `marca` (se preserva el valor existente; null si es nueva fila).
+ * Se ejecuta dentro de un SAVEPOINT: si falla, no aborta la compra.
+ */
+async function upsertProveedorProducto(
+  client: import("pg").PoolClient,
+  tPP: string,
+  empresaId: string,
+  productoId: string,
+  proveedorId: string,
+  costoHabitual: number
+): Promise<void> {
+  if (!proveedorId) return; // sin proveedor no hay relación que mantener
+  try {
+    await client.query("SAVEPOINT sp_pp");
+    await client.query(
+      `INSERT INTO ${tPP} (empresa_id, producto_id, proveedor_id, costo_habitual, es_principal, updated_at)
+       VALUES ($1::uuid, $2::uuid, $3::uuid, $4::numeric,
+               NOT EXISTS (SELECT 1 FROM ${tPP} pp
+                            WHERE pp.empresa_id = $1::uuid AND pp.producto_id = $2::uuid AND pp.es_principal),
+               now())
+       ON CONFLICT (empresa_id, producto_id, proveedor_id)
+       DO UPDATE SET costo_habitual = EXCLUDED.costo_habitual, updated_at = now()`,
+      [empresaId, productoId, proveedorId, costoHabitual]
+    );
+    await client.query("RELEASE SAVEPOINT sp_pp");
+  } catch (e) {
+    await client.query("ROLLBACK TO SAVEPOINT sp_pp").catch(() => null);
+    console.error("[compras-pg] upsert proveedor_productos fallo (best-effort)", {
+      empresaId, productoId, proveedorId,
+      message: e instanceof Error ? e.message : String(e),
+    });
+  }
+}
+
 export interface CompraRow {
   id: string;
   empresa_id: string;
@@ -180,6 +219,7 @@ export async function insertComprasConImpacto(
   const tC = quoteSchemaTable(schema, "compras");
   const tM = quoteSchemaTable(schema, "movimientos_inventario");
   const tP = quoteSchemaTable(schema, "productos");
+  const tPP = quoteSchemaTable(schema, "proveedor_productos");
 
   const client = await pool().connect();
   const insertedRows: CompraRow[] = [];
@@ -253,6 +293,11 @@ export async function insertComprasConImpacto(
           WHERE id = $4::uuid AND empresa_id = $5::uuid`,
         [it.cantidad, it.costo_unitario, it.precio_venta, it.producto_id, empresaId]
       );
+
+      // Mantener relación producto↔proveedor (costo_habitual). No pisa marca.
+      await upsertProveedorProducto(
+        client, tPP, empresaId, it.producto_id, header.proveedor_id, it.costo_unitario
+      );
     }
 
     await client.query("COMMIT");
@@ -280,6 +325,7 @@ export async function insertCompraConImpacto(
   const tC = quoteSchemaTable(schema, "compras");
   const tM = quoteSchemaTable(schema, "movimientos_inventario");
   const tP = quoteSchemaTable(schema, "productos");
+  const tPP = quoteSchemaTable(schema, "proveedor_productos");
 
   const client = await pool().connect();
   let movimientoId: string | null = null;
@@ -377,6 +423,11 @@ export async function insertCompraConImpacto(
               updated_at = now()
         WHERE id = $4::uuid AND empresa_id = $5::uuid`,
       [d.cantidad, d.costo_unitario, d.precio_venta, d.producto_id, empresaId]
+    );
+
+    // Mantener relación producto↔proveedor (costo_habitual). No pisa marca.
+    await upsertProveedorProducto(
+      client, tPP, empresaId, d.producto_id, d.proveedor_id, d.costo_unitario
     );
 
     await client.query("COMMIT");
