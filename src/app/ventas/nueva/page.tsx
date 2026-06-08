@@ -535,11 +535,20 @@ export default function NuevaVentaPage() {
   return (
     <div className="space-y-8">
 
-      <div>
-        <h1 className="text-2xl sm:text-3xl font-bold text-gray-800">Nueva venta</h1>
-        <p className="text-gray-600">
-          Agregá productos de reventa o del catálogo. Al confirmar se registra la venta.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-800">Nueva venta</h1>
+          <p className="text-gray-600">
+            Agregá productos de reventa o del catálogo. Al confirmar se registra la venta.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setPickerOpen(true)}
+          className="shrink-0 inline-flex items-center gap-1.5 rounded-lg bg-[#0EA5E9] px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-colors hover:bg-[#0284C7] active:scale-95"
+        >
+          + Agregar producto
+        </button>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6 max-w-7xl">
@@ -648,220 +657,6 @@ export default function NuevaVentaPage() {
             </div>
 
           </div>
-        </div>
-
-        {/* ── SECCIÓN 1: Agregar producto ───────────────────────────────────── */}
-        <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 sm:p-6">
-          <SectionTitle>Agregar producto</SectionTitle>
-
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:items-end">
-
-            {/* ── Combobox con búsqueda — 4 cols ────────────────────────────── */}
-            <div className="lg:col-span-4" ref={comboContainerRef}>
-              <label className={labelClass}>
-                Producto
-                <span className="ml-1 text-gray-400 font-normal normal-case tracking-normal text-xs">
-                  — escribí o usá el buscador
-                </span>
-              </label>
-
-              {/* Input de búsqueda + botón modal */}
-              <div className="flex gap-2">
-               <div className="relative flex-1">
-                <input
-                  ref={comboInputRef}
-                  type="text"
-                  value={comboQuery}
-                  readOnly
-                  onFocus={() => setPickerOpen(true)}
-                  onClick={() => setPickerOpen(true)}
-                  placeholder="Click para abrir buscador — nombre, SKU, código, categoría, ubicación..."
-                  autoComplete="off"
-                  className={`${inputClass} pr-8 cursor-pointer bg-white`}
-                />
-                {/* Icono chevron */}
-                <svg
-                  xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"
-                  className="w-4 h-4 absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
-                >
-                  <path fillRule="evenodd" d="M5.22 8.22a.75.75 0 0 1 1.06 0L10 11.94l3.72-3.72a.75.75 0 1 1 1.06 1.06l-4.25 4.25a.75.75 0 0 1-1.06 0L5.22 9.28a.75.75 0 0 1 0-1.06Z" clipRule="evenodd" />
-                </svg>
-
-                {/* Dropdown */}
-                {comboOpen && comboFiltrados.length > 0 && (
-                  <ul className="absolute z-50 mt-1 w-full max-h-60 overflow-y-auto bg-white border border-gray-200 rounded-lg shadow-lg py-1">
-                    {comboFiltrados.map((p, idx) => {
-                      const enCarro    = items.filter(i => i.producto_id === p.id).reduce((s, i) => s + i.cantidad, 0);
-                      const ctrl       = p.controla_stock !== false;
-                      const disponible = p.stock_actual - enCarro;
-                      const sinStock   = ctrl && disponible <= 0;
-                      const isMenuItem = !ctrl;
-                      const isActive   = idx === comboHighlight;
-                      return (
-                        <li
-                          key={p.id}
-                          id={`combo-opt-${idx}`}
-                          onMouseDown={(e) => { e.preventDefault(); if (!sinStock) seleccionarProducto(p); }}
-                          onMouseEnter={() => !sinStock && setComboHighlight(idx)}
-                          className={`px-3 py-2.5 text-sm cursor-pointer
-                            ${sinStock ? "opacity-40 cursor-not-allowed" : ""}
-                            ${isActive && !sinStock ? "bg-[#0EA5E9] text-white" : "hover:bg-slate-50"}
-                          `}
-                        >
-                          <span className="font-medium">{p.nombre}</span>
-                          <span className={`ml-2 text-xs ${isActive ? "text-gray-300" : "text-gray-400"}`}>
-                            — {p.sku}
-                          </span>
-                          {sinStock && (
-                            <span className="ml-2 text-xs text-red-400 font-medium">SIN STOCK</span>
-                          )}
-                          {isMenuItem && (
-                            <span className={`ml-2 text-[10px] font-medium px-1.5 py-0.5 rounded-full ${isActive ? "bg-white/20 text-white" : "bg-amber-100 text-amber-800"}`}>Menú</span>
-                          )}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-
-                {/* Sin resultados */}
-                {comboOpen && comboQuery.trim() !== "" && comboFiltrados.length === 0 && (
-                  <div className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-lg px-3 py-3 text-sm text-gray-400">
-                    Sin resultados para &ldquo;{comboQuery}&rdquo;
-                  </div>
-                )}
-               </div>
-                <button
-                  type="button"
-                  onClick={() => setPickerOpen(true)}
-                  title="Abrir buscador avanzado (catálogo completo, con imagen)"
-                  className="shrink-0 inline-flex items-center justify-center gap-1.5 border border-slate-200 hover:bg-slate-50 text-slate-700 px-3 rounded-lg text-sm font-medium transition-colors"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-                    <path fillRule="evenodd" d="M9 3.5a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11ZM2 9a7 7 0 1 1 12.452 4.391l3.328 3.329a.75.75 0 1 1-1.06 1.06l-3.329-3.328A7 7 0 0 1 2 9Z" clipRule="evenodd" />
-                  </svg>
-                  Buscar
-                </button>
-              </div>
-
-              {/* Info del producto seleccionado */}
-              {prodSel && (
-                <div className="mt-1.5 flex gap-3 text-xs text-gray-500">
-                  <span>Precio: <strong>{formatGs(prodSel.precio_venta)}</strong></span>
-                  {prodSelControlaStock ? (
-                    <span>Disp: <strong className={stockDisp <= 0 ? "text-red-600" : "text-gray-700"}>
-                      {stockDisp} u.
-                    </strong></span>
-                  ) : (
-                    <span><span className="inline-flex items-center rounded-full bg-amber-100 text-amber-800 font-medium px-2 py-0.5">Menú</span></span>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Cantidad — 2 cols */}
-            <div className="lg:col-span-2">
-              <label className={labelClass}>Cantidad</label>
-              <input
-                type="number"
-                value={lineaCant}
-                onChange={(e) => { setErrorLinea(null); setLineaCant(e.target.value); }}
-                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleAgregarLinea(); }}}
-                placeholder="Cant."
-                className={`${inputClass} ${stockInsuf ? "border-red-400 bg-red-50" : ""}`}
-                min={1} step={1}
-              />
-            </div>
-
-            {/* Precio — 2 cols */}
-            <div className="lg:col-span-2">
-              <label className={labelClass}>Precio (Gs.)</label>
-              <MontoInput
-                value={lineaPrecio}
-                onChange={(n) => { setErrorLinea(null); setLineaPrecio(String(n)); }}
-                onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleAgregarLinea(); }}}
-                placeholder="Precio"
-                className={inputClass}
-                decimals={false}
-              />
-            </div>
-
-            {/* IVA — 2 cols */}
-            <div className="lg:col-span-2">
-              <label className={labelClass}>IVA</label>
-              <SegmentedControl<TipoIvaVenta>
-                value={lineaIva}
-                options={[
-                  { value: "EXENTA", label: "Ex"  },
-                  { value: "5%",     label: "5%"  },
-                  { value: "10%",    label: "10%" },
-                ]}
-                onChange={setLineaIva}
-              />
-            </div>
-
-            {/* Botón — 2 cols */}
-            <div className="flex flex-col lg:col-span-2">
-              <label className="invisible text-xs mb-1.5">.</label>
-              <button
-                type="button"
-                onClick={handleAgregarLinea}
-                disabled={!lineaValida}
-                className="flex items-center justify-center gap-1.5 w-full bg-[#0EA5E9] hover:bg-[#0284C7] text-white px-4 py-2.5 rounded-lg text-sm font-medium transition-colors shadow-sm disabled:opacity-40 disabled:cursor-not-allowed active:scale-95"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4 shrink-0">
-                  <path d="M10.75 4.75a.75.75 0 0 0-1.5 0v4.5h-4.5a.75.75 0 0 0 0 1.5h4.5v4.5a.75.75 0 0 0 1.5 0v-4.5h4.5a.75.75 0 0 0 0-1.5h-4.5v-4.5Z" />
-                </svg>
-                Agregar producto
-              </button>
-            </div>
-
-          </div>
-
-          {/* Tipo de precio (minorista / mayorista / al costo) — visible al elegir producto */}
-          {prodSel && (
-            <div className="mt-4">
-              <label className={labelClass}>Tipo de precio</label>
-              <div className="flex max-w-md border border-slate-200 rounded-lg overflow-hidden">
-                {TIPOS_PRECIO_UI.map((t) => (
-                  <button
-                    key={t}
-                    type="button"
-                    onClick={() => handleLineaTipoPrecio(t)}
-                    className={`flex-1 py-2 px-1 text-center transition-colors ${
-                      lineaTipoPrecio === t ? "bg-[#0EA5E9] text-white" : "bg-white text-slate-600 hover:bg-slate-50"
-                    }`}
-                  >
-                    <span className="block text-sm font-medium">{tipoPrecioLabel[t]}</span>
-                    <span className={`block text-[11px] tabular-nums ${lineaTipoPrecio === t ? "text-white/90" : "text-slate-400"}`}>
-                      {formatGs(precioPorTipo(prodSel, t))}
-                    </span>
-                  </button>
-                ))}
-              </div>
-              <p className="mt-1 text-[11px] text-gray-400">
-                El precio unitario se ajusta al tipo elegido; podés editarlo manualmente si hace falta.
-              </p>
-            </div>
-          )}
-
-          {/* Preview totales de la línea */}
-          {lineaSubtotal > 0 && (
-            <div className="mt-3 flex gap-4 text-xs text-gray-500">
-              <span>Subtotal: <strong className="text-gray-800">{formatGs(lineaSubtotal)}</strong></span>
-              <span>IVA: <strong className="text-gray-800">
-                {lineaIva === "EXENTA" ? "—" : formatGs(lineaMontoIva)}
-              </strong></span>
-              <span>Total línea: <strong className="text-gray-900">{formatGs(lineaTotalLinea)}</strong></span>
-            </div>
-          )}
-
-          {/* Error agregar */}
-          {errorLinea && (
-            <div className="mt-3 flex items-center gap-2 bg-red-50 border border-red-200 rounded-lg px-3 py-2 text-xs text-red-700">
-              <span>⚠</span><span className="font-medium">{errorLinea}</span>
-            </div>
-          )}
         </div>
 
         {/* ── SECCIÓN 3: Carrito + totales + confirmar ─────────────────────── */}
