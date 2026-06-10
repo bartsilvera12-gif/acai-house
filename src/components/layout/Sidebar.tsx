@@ -34,6 +34,7 @@ import {
   ChefHat,
   Utensils,
   BarChart3,
+  Banknote,
 } from "lucide-react";
 import type { Session } from "@supabase/supabase-js";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
@@ -132,6 +133,7 @@ const MENU_STRUCTURE: MenuItem[] = [
     // "Depósitos / Ubicaciones" oculto en instancia En lo de Mari (no aplica para gastronomía).
   ]},
   { key: "clientes", slug: "clientes", label: "Clientes", href: "/clientes", icon: Users },
+  { key: "cobros", slug: "cobros", label: "Cobros", href: "/cobros", icon: Banknote },
   {
     key: "compras",
     slug: "compras",

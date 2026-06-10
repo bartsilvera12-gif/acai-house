@@ -112,7 +112,7 @@ export default function NuevaVentaPage() {
   const [faltantes, setFaltantes] = useState<FaltanteStock[]>([]);
   const [confirmSinStockOpen, setConfirmSinStockOpen] = useState(false);
   // Panel post-venta: tras confirmar, ofrece abrir ticket y (si aplica) nota de remisión.
-  const [postVenta, setPostVenta] = useState<{ id: string; numero: string; generaNota: boolean } | null>(null);
+  const [postVenta, setPostVenta] = useState<{ id: string; numero: string; generaNota: boolean; credito: boolean } | null>(null);
   // Guard anti doble-submit: estado para UI (botón/spinner) + ref para bloqueo síncrono
   // inmediato (React puede tardar en aplicar el estado; el ref corta el segundo disparo ya).
   const [guardando, setGuardando] = useState(false);
@@ -396,7 +396,8 @@ export default function NuevaVentaPage() {
   const totalGeneral  = items.reduce((s, i) => s + i.total_linea, 0);
   // Condición de venta: si es Crédito, exigir plazo de al menos 1 día.
   const plazoDiasNum = parseInt(plazoDias) || 0;
-  const creditoValido = tipoVenta === "CONTADO" || plazoDiasNum >= 1;
+  // Crédito exige cliente seleccionado Y plazo/vencimiento (≥1 día). Genera cuenta por cobrar.
+  const creditoValido = tipoVenta === "CONTADO" || (plazoDiasNum >= 1 && !!clienteId);
   const ventaValida   = items.length > 0 && creditoValido;
 
   // Cliente (opcional) — selección + filtrado del buscador.
@@ -602,7 +603,7 @@ export default function NuevaVentaPage() {
       if (generaNota) { try { window.open(remisionUrl, "_blank", "noopener"); } catch {} }
       // Panel post-venta: botones siempre disponibles aunque el popup se bloquee.
       // NOTA: abrir el ticket / la nota / el panel NO vuelve a llamar saveVenta.
-      setPostVenta({ id: v.id, numero: v.numero_control, generaNota });
+      setPostVenta({ id: v.id, numero: v.numero_control, generaNota, credito: tipoVenta === "CREDITO" });
     } finally {
       // Liberar el guard SIEMPRE: éxito, error o flujo de "confirmar sin stock".
       isSubmittingRef.current = false;
@@ -752,6 +753,10 @@ export default function NuevaVentaPage() {
                   {plazoDiasNum < 1 && (
                     <p className="mt-1 text-[11px] text-red-600">Ingresá un plazo de al menos 1 día.</p>
                   )}
+                  {!clienteId && (
+                    <p className="mt-1 text-[11px] text-red-600">La venta a crédito requiere un cliente seleccionado.</p>
+                  )}
+                  <p className="mt-1 text-[11px] text-slate-500">Al confirmar se genera una cuenta por cobrar por el total.</p>
                 </div>
               )}
             </div>
@@ -1097,6 +1102,9 @@ export default function NuevaVentaPage() {
             <div className="text-3xl">✅</div>
             <div>
               <h3 className="text-base font-semibold text-slate-800">Venta {postVenta.numero} registrada</h3>
+              {postVenta.credito && (
+                <p className="mt-1 text-sm font-medium text-amber-700">Venta a crédito registrada. Cuenta por cobrar generada.</p>
+              )}
               {postVenta.generaNota && (
                 <p className="mt-1 text-sm text-sky-700">Esta venta genera nota de remisión.</p>
               )}

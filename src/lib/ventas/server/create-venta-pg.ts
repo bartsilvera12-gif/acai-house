@@ -58,6 +58,8 @@ export interface CreateVentaPgParams {
   tipoCambio: number;
   tipoVenta: "CONTADO" | "CREDITO";
   plazoDias: number | null;
+  /** Fecha de vencimiento explícita (YYYY-MM-DD) para crédito. Si falta, se calcula con plazoDias. */
+  fechaVencimiento?: string | null;
   metodoPago: "efectivo" | "tarjeta" | "transferencia" | null;
   items: CreateVentaItemInput[];
   subtotalDeclarado: number;
@@ -102,7 +104,7 @@ const TOL = 2;
  */
 export async function createVentaTransaccionalPg(
   params: CreateVentaPgParams
-): Promise<{ ventaId: string; numeroControl: string; fechaIso: string; notaRemisionNumero: string | null }> {
+): Promise<{ ventaId: string; numeroControl: string; fechaIso: string; notaRemisionNumero: string | null; cuentaPorCobrarId?: string | null }> {
   const items = params.items;
   if (!items.length) {
     throw new Error("La venta debe tener al menos un ítem.");
@@ -408,6 +410,9 @@ export async function createVentaTransaccionalPg(
   // Helper de rollback best-effort
   const rollback = async () => {
     try {
+      await sb.from("cuentas_por_cobrar").delete().eq("venta_id", ventaId).eq("empresa_id", params.empresaId);
+    } catch {}
+    try {
       await sb.from("movimientos_inventario").delete().eq("venta_id", ventaId).eq("empresa_id", params.empresaId);
     } catch {}
     try {
@@ -582,7 +587,41 @@ export async function createVentaTransaccionalPg(
       if (insProy.error) throw new Error(insProy.error.message);
     }
 
-    return { ventaId, numeroControl, fechaIso, notaRemisionNumero };
+    // 9) Cuenta por cobrar (solo CRÉDITO con cliente). El saldo inicial = total de la venta;
+    //    estado 'pendiente'. NO afecta stock ni movimientos: es cobranza. Un índice único
+    //    sobre venta_id impide CxC duplicada si la venta se reintentara.
+    let cuentaPorCobrarId: string | null = null;
+    if (params.tipoVenta === "CREDITO" && params.clienteId) {
+      const fechaEmision = fechaIso.slice(0, 10);
+      let fechaVencimiento: string | null = null;
+      if (params.fechaVencimiento) {
+        fechaVencimiento = params.fechaVencimiento;
+      } else if (params.plazoDias && params.plazoDias > 0) {
+        const d = new Date(fechaIso);
+        d.setDate(d.getDate() + params.plazoDias);
+        fechaVencimiento = d.toISOString().slice(0, 10);
+      }
+      const insCxc = await sb
+        .from("cuentas_por_cobrar")
+        .insert({
+          empresa_id: params.empresaId,
+          cliente_id: params.clienteId,
+          venta_id: ventaId,
+          numero_venta: numeroControl,
+          fecha_emision: fechaEmision,
+          fecha_vencimiento: fechaVencimiento,
+          moneda: params.moneda === "USD" ? "USD" : "PYG",
+          total: calc.total,
+          saldo: calc.total,
+          estado: "pendiente",
+        })
+        .select("id")
+        .single();
+      if (insCxc.error) throw new Error(insCxc.error.message);
+      cuentaPorCobrarId = String((insCxc.data as { id: string }).id);
+    }
+
+    return { ventaId, numeroControl, fechaIso, notaRemisionNumero, cuentaPorCobrarId };
   } catch (err) {
     await rollback();
     throw err;
