@@ -6,6 +6,7 @@ import MontoInput from "@/components/ui/MontoInput";
 import ProductPickerModal, { type ProductoPickerItem, type AgregarVentaPayload } from "@/components/inventario/ProductPickerModal";
 import { saveVenta, type FaltanteStock } from "@/lib/ventas/storage";
 import { getProductos } from "@/lib/inventario/storage";
+import { generarYAbrirRecibo } from "@/lib/recibos/client";
 import type { TipoIvaVenta, TipoVenta, MonedaVenta, LineaVenta, MetodoPago, TipoPrecioVenta } from "@/lib/ventas/types";
 import type { Producto } from "@/lib/inventario/types";
 
@@ -1131,6 +1132,19 @@ export default function NuevaVentaPage() {
                 >
                   Abrir nota de remisión
                 </a>
+              )}
+              {/* Recibo de dinero solo para venta contado (en crédito el recibo sale al cobrar). */}
+              {!postVenta.credito && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const r = await generarYAbrirRecibo({ origen: "venta_contado", venta_id: postVenta.id });
+                    if (!r.ok) setErrorVenta(r.error ?? "No se pudo generar el recibo.");
+                  }}
+                  className="rounded-lg border border-[#4FAEB2]/40 bg-[#4FAEB2]/[0.08] px-4 py-2.5 text-sm font-medium text-[#3F8E91] hover:bg-[#4FAEB2]/[0.16]"
+                >
+                  Generar recibo de dinero
+                </button>
               )}
             </div>
 

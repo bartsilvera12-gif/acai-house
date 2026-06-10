@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Banknote, Loader2 } from "lucide-react";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
+import { generarYAbrirRecibo } from "@/lib/recibos/client";
 
 type Cuenta = {
   id: string;
@@ -299,6 +300,7 @@ export default function PagosPage() {
                     <th className="py-3 px-4 font-medium">Referencia</th>
                     <th className="py-3 px-4 font-medium">Registrado por</th>
                     <th className="py-3 px-4 font-medium text-right">Monto</th>
+                    <th className="py-3 px-4 font-medium text-right">Recibo</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -313,6 +315,18 @@ export default function PagosPage() {
                       <td className="py-2.5 px-4 text-gray-500">{c.referencia ?? "—"}</td>
                       <td className="py-2.5 px-4 text-gray-600">{c.usuario_nombre ?? "—"}</td>
                       <td className="py-2.5 px-4 text-right tabular-nums font-semibold text-emerald-700">{fmtGs(c.monto)}</td>
+                      <td className="py-2.5 px-4 text-right">
+                        <button
+                          onClick={async () => {
+                            const r = await generarYAbrirRecibo({ origen: "cobro_cxc", cobro_cliente_id: c.id });
+                            if (r.ok) { setToast("Recibo generado"); setTimeout(() => setToast(null), 2500); }
+                            else { setError(r.error ?? "No se pudo generar el recibo."); }
+                          }}
+                          className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                        >
+                          Recibo
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -324,6 +338,7 @@ export default function PagosPage() {
                     </td>
                     <td className="px-4 py-3 text-right text-[10px] font-semibold uppercase tracking-wide text-slate-500">Cobrado</td>
                     <td className="px-4 py-3 text-right"><p className="text-sm font-bold tabular-nums text-emerald-700">{fmtGs(sumCob)}</p></td>
+                    <td className="px-4 py-3" />
                   </tr>
                 </tfoot>
               </table>

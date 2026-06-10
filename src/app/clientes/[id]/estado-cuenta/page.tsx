@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Loader2, Banknote, Download } from "lucide-react";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
+import { generarYAbrirRecibo } from "@/lib/recibos/client";
 
 type Mov = {
   id: string;
@@ -246,6 +247,7 @@ export default function EstadoCuentaPage() {
                   <th className="py-2.5 px-4 font-medium">Método</th>
                   <th className="py-2.5 px-4 font-medium">Referencia</th>
                   <th className="py-2.5 px-4 font-medium text-right">Monto</th>
+                  <th className="py-2.5 px-4 font-medium text-right">Recibo</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -255,6 +257,18 @@ export default function EstadoCuentaPage() {
                     <td className="py-2.5 px-4 text-gray-700 capitalize">{c.metodo_pago}</td>
                     <td className="py-2.5 px-4 text-gray-500">{c.referencia ?? "—"}</td>
                     <td className="py-2.5 px-4 text-right tabular-nums font-semibold text-emerald-700">{fmtGs(c.monto)}</td>
+                    <td className="py-2.5 px-4 text-right">
+                      <button
+                        onClick={async () => {
+                          const r = await generarYAbrirRecibo({ origen: "cobro_cxc", cobro_cliente_id: c.id });
+                          if (r.ok) { setToast("Recibo generado"); setTimeout(() => setToast(null), 2500); }
+                          else { setError(r.error ?? "No se pudo generar el recibo."); }
+                        }}
+                        className="rounded-lg border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
+                      >
+                        Recibo
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
