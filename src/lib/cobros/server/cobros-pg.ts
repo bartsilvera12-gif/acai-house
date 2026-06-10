@@ -11,6 +11,8 @@ export interface RegistrarCobroInput {
   titular?: string | null;
   observaciones?: string | null;
   fecha_pago?: string | null;
+  usuario_id?: string | null;
+  usuario_nombre?: string | null;
 }
 
 export class CobroError extends Error {
@@ -88,6 +90,8 @@ export async function registrarCobro(
       referencia: input.referencia?.trim() || null,
       titular: input.titular?.trim() || null,
       observaciones: input.observaciones?.trim() || null,
+      usuario_id: input.usuario_id || null,
+      usuario_nombre: input.usuario_nombre?.trim() || null,
     })
     .select("id")
     .single();

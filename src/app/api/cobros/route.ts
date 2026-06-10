@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getTenantSupabaseFromAuth } from "@/lib/supabase/tenant-api";
+import { getTenantSupabaseFromAuthWithRol } from "@/lib/supabase/tenant-api";
 import { successResponse, errorResponse } from "@/lib/api/response";
 import { API_ERRORS } from "@/lib/api/errors";
 import { registrarCobro, CobroError } from "@/lib/cobros/server/cobros-pg";
@@ -7,8 +7,10 @@ import { registrarCobro, CobroError } from "@/lib/cobros/server/cobros-pg";
 /** POST /api/cobros — registra un cobro contra una cuenta por cobrar. */
 export async function POST(request: NextRequest) {
   try {
-    const ctx = await getTenantSupabaseFromAuth(request);
+    const ctx = await getTenantSupabaseFromAuthWithRol(request);
     if (!ctx) return NextResponse.json(errorResponse(API_ERRORS.UNAUTHORIZED), { status: 401 });
+    const usuarioNombre = ctx.auth.nombre ?? ctx.auth.user?.email ?? null;
+    const usuarioId = ctx.auth.user?.id ?? null;
 
     let body: Record<string, unknown>;
     try {
@@ -26,6 +28,8 @@ export async function POST(request: NextRequest) {
       titular: body.titular ? String(body.titular) : null,
       observaciones: body.observaciones ? String(body.observaciones) : null,
       fecha_pago: typeof body.fecha_pago === "string" ? body.fecha_pago : null,
+      usuario_id: usuarioId,
+      usuario_nombre: usuarioNombre,
     });
 
     return NextResponse.json(successResponse(result));

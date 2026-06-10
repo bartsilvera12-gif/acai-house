@@ -95,10 +95,10 @@ export async function GET(request: NextRequest) {
     // Historial de cobros recientes (para la pestaña de cobros registrados).
     const histQ = await ctx.supabase
       .from("cobros_clientes")
-      .select("id, cliente_id, venta_id, cuenta_por_cobrar_id, fecha_pago, monto, metodo_pago, referencia")
+      .select("id, cliente_id, venta_id, cuenta_por_cobrar_id, fecha_pago, monto, metodo_pago, referencia, usuario_nombre")
       .eq("empresa_id", empresaId)
       .order("fecha_pago", { ascending: false })
-      .limit(200);
+      .limit(500);
     const histRows = (histQ.data ?? []) as Record<string, unknown>[];
     // Nombres de clientes que aún no estén en el mapa.
     const faltanIds = [...new Set(histRows.map((r) => String(r.cliente_id)).filter((idc) => idc && !nombreById.has(idc)))];
@@ -125,6 +125,7 @@ export async function GET(request: NextRequest) {
       monto: Number(r.monto) || 0,
       metodo_pago: r.metodo_pago ?? "efectivo",
       referencia: r.referencia ?? null,
+      usuario_nombre: r.usuario_nombre ?? null,
     }));
 
     return NextResponse.json(
