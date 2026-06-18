@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, PackageX, Coins, ClipboardList, Download, Rows3, Boxes } from "lucide-react";
+import { AlertTriangle, PackageX, Coins, Download, Rows3, Boxes, TrendingUp, TrendingDown } from "lucide-react";
 import { getMovimientos, getProductos } from "@/lib/inventario/storage";
 import type { MovimientoInventario } from "@/lib/inventario/types";
 
@@ -43,6 +43,14 @@ function primerDiaMes(): string {
 function hoyISO(): string {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** Desplaza una fecha YYYY-MM-DD por N días (en UTC, sin sorpresas de zona). */
+function shiftISO(iso: string, days: number): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  dt.setUTCDate(dt.getUTCDate() + days);
+  return dt.toISOString().slice(0, 10);
 }
 
 /** Extrae el motivo legible de la referencia del movimiento ("Pérdida: X" → "X"). */
@@ -92,25 +100,27 @@ export default function PerdidasPage() {
     return Array.from(set).sort();
   }, [movs, unidadPorProducto]);
 
-  const filtrados = useMemo(() => {
+  // Predicado base (búsqueda inteligente + unidad), sin fecha — reutilizable
+  // para comparar el período actual con el anterior bajo los mismos filtros.
+  const matchBase = useMemo(() => {
     const terminos = norm(busqueda).split(/\s+/).filter(Boolean);
-    return movs.filter((m) => {
+    return (m: MovimientoInventario) => {
       const unidad = unidadPorProducto[m.producto_id] || "UNIDAD";
-      // Búsqueda inteligente: todos los términos deben aparecer en nombre+sku+motivo.
       const heno = norm(`${m.producto_nombre} ${m.producto_sku} ${motivoDeReferencia(m.referencia)}`);
-      const coincideBusqueda = terminos.every((t) => heno.includes(t));
-      const coincideUnidad = filtroUnidad === "" || unidad === filtroUnidad;
-      const fechaMov = m.fecha.slice(0, 10);
-      const coincideDesde = fechaDesde === "" || fechaMov >= fechaDesde;
-      const coincideHasta = fechaHasta === "" || fechaMov <= fechaHasta;
-      return coincideBusqueda && coincideUnidad && coincideDesde && coincideHasta;
-    });
-  }, [movs, unidadPorProducto, busqueda, filtroUnidad, fechaDesde, fechaHasta]);
+      return terminos.every((t) => heno.includes(t)) && (filtroUnidad === "" || unidad === filtroUnidad);
+    };
+  }, [busqueda, filtroUnidad, unidadPorProducto]);
 
-  // Totales del rango filtrado.
-  const totalUnidades = filtrados.reduce((s, m) => s + Math.abs(m.cantidad), 0);
+  const filtrados = useMemo(() => {
+    return movs.filter((m) => {
+      if (!matchBase(m)) return false;
+      const f = m.fecha.slice(0, 10);
+      return (fechaDesde === "" || f >= fechaDesde) && (fechaHasta === "" || f <= fechaHasta);
+    });
+  }, [movs, matchBase, fechaDesde, fechaHasta]);
+
+  // Valor perdido al costo en el período filtrado (la métrica que importa).
   const totalValor = filtrados.reduce((s, m) => s + Math.abs(m.cantidad) * m.costo_unitario, 0);
-  const productosDistintos = new Set(filtrados.map((m) => m.producto_id)).size;
 
   // Agrupado por producto: total perdido, valor y registros en el período filtrado.
   const agrupados = useMemo(() => {
@@ -143,6 +153,23 @@ export default function PerdidasPage() {
     }
     return Array.from(map.values()).sort((a, b) => b.valor - a.valor);
   }, [filtrados, unidadPorProducto]);
+
+  // Producto con mayor valor perdido en el período (dónde se va la plata).
+  const topProducto = agrupados[0] ?? null;
+
+  // Comparación con el período anterior de igual duración (misma búsqueda+unidad).
+  const { valorPrevio, deltaPct } = useMemo(() => {
+    if (!fechaDesde || !fechaHasta) return { valorPrevio: null as number | null, deltaPct: null as number | null };
+    const len = Math.round((Date.parse(fechaHasta) - Date.parse(fechaDesde)) / 86_400_000) + 1;
+    if (!Number.isFinite(len) || len <= 0) return { valorPrevio: null, deltaPct: null };
+    const prevHasta = shiftISO(fechaDesde, -1);
+    const prevDesde = shiftISO(prevHasta, -(len - 1));
+    const prev = movs
+      .filter((m) => matchBase(m) && m.fecha.slice(0, 10) >= prevDesde && m.fecha.slice(0, 10) <= prevHasta)
+      .reduce((s, m) => s + Math.abs(m.cantidad) * m.costo_unitario, 0);
+    const pct = prev > 0 ? ((totalValor - prev) / prev) * 100 : null;
+    return { valorPrevio: prev, deltaPct: pct };
+  }, [movs, matchBase, fechaDesde, fechaHasta, totalValor]);
 
   /** Descarga un arreglo de filas como CSV (separador ';' + BOM, compatible con Excel es). */
   function descargarCSV(filas: (string | number)[][], nombre: string) {
@@ -210,29 +237,66 @@ export default function PerdidasPage() {
         </p>
       </div>
 
-      {/* Tarjetas resumen */}
+      {/* Tarjetas resumen — enfocadas en plata y acción */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        {/* 1) Valor perdido (la métrica que importa) */}
         <div className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4">
-          <PackageX className="h-8 w-8 shrink-0 text-amber-600" />
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Unidades perdidas</p>
-            <p className="text-2xl font-bold tabular-nums text-amber-900">{totalUnidades}</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4">
-          <Coins className="h-8 w-8 shrink-0 text-amber-600" />
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Valor al costo</p>
+          <Coins className="h-9 w-9 shrink-0 text-amber-600" />
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Valor perdido (al costo)</p>
             <p className="text-2xl font-bold tabular-nums text-amber-900">{formatGs(totalValor)}</p>
           </div>
         </div>
+
+        {/* 2) Producto que más perdés (dónde se va la plata) */}
         <div className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4">
-          <ClipboardList className="h-8 w-8 shrink-0 text-amber-600" />
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Registros · productos</p>
-            <p className="text-2xl font-bold tabular-nums text-amber-900">
-              {filtrados.length} · {productosDistintos}
-            </p>
+          <PackageX className="h-9 w-9 shrink-0 text-amber-600" />
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">Producto que más perdés</p>
+            {topProducto ? (
+              <>
+                <p className="truncate text-lg font-bold text-amber-900" title={topProducto.nombre}>{topProducto.nombre}</p>
+                <p className="text-sm tabular-nums text-amber-700">
+                  {formatGs(topProducto.valor)} · {topProducto.cantidad} {topProducto.unidad}
+                </p>
+              </>
+            ) : (
+              <p className="text-2xl font-bold text-amber-900">—</p>
+            )}
+          </div>
+        </div>
+
+        {/* 3) Tendencia vs período anterior de igual duración */}
+        <div className="flex items-center gap-3 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4">
+          {deltaPct !== null && deltaPct > 0 ? (
+            <TrendingUp className="h-9 w-9 shrink-0 text-red-500" />
+          ) : deltaPct !== null && deltaPct < 0 ? (
+            <TrendingDown className="h-9 w-9 shrink-0 text-emerald-600" />
+          ) : (
+            <TrendingDown className="h-9 w-9 shrink-0 text-amber-600" />
+          )}
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">vs período anterior</p>
+            {deltaPct !== null ? (
+              <>
+                <p
+                  className={`text-2xl font-bold tabular-nums ${
+                    deltaPct > 0 ? "text-red-600" : deltaPct < 0 ? "text-emerald-600" : "text-amber-900"
+                  }`}
+                >
+                  {deltaPct > 0 ? "+" : deltaPct < 0 ? "−" : ""}
+                  {Math.abs(deltaPct).toFixed(0)}%
+                </p>
+                <p className="text-xs text-amber-700">antes {formatGs(valorPrevio ?? 0)}</p>
+              </>
+            ) : (
+              <>
+                <p className="text-2xl font-bold text-amber-900">
+                  {valorPrevio === 0 && totalValor > 0 ? "Nuevo" : "—"}
+                </p>
+                <p className="text-xs text-amber-700">sin pérdidas en el período anterior</p>
+              </>
+            )}
           </div>
         </div>
       </div>
