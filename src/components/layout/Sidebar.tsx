@@ -16,10 +16,9 @@ import {
   Building2,
   ChevronDown,
   ChevronRight,
+  ChevronLeft,
   Star,
   Sparkles,
-  PanelLeftClose,
-  PanelLeft,
   Search,
   Receipt,
   Megaphone,
@@ -687,7 +686,7 @@ export default function Sidebar() {
         }`}
       >
       {/* Logo oficial ZENTRA (blanco sobre azul marca) */}
-      <div className="flex h-[7.25rem] shrink-0 items-center justify-between gap-2 border-b border-[color:var(--zentra-sidebar-border)] bg-[color:var(--zentra-sidebar-elevated)]/35 px-3 py-2.5">
+      <div className="flex h-[7.25rem] shrink-0 items-center justify-center gap-2 border-b border-[color:var(--zentra-sidebar-border)] bg-[color:var(--zentra-sidebar-elevated)]/35 px-3 py-2.5">
         <Link href="/" className={`flex items-center justify-center min-w-0 flex-1 overflow-hidden`}>
           <div
             className={`relative flex items-center justify-center ${collapsed ? "h-11 w-11" : "h-[4.5rem] w-full max-w-[200px]"}`}
@@ -703,15 +702,21 @@ export default function Sidebar() {
             />
           </div>
         </Link>
-        <button
-          type="button"
-          onClick={() => setCollapsed(!collapsed)}
-          className="rounded-lg p-2 text-slate-400 transition-colors hover:bg-[color:var(--zentra-sidebar-hover)] hover:text-white"
-          aria-label={collapsed ? "Expandir sidebar" : "Colapsar sidebar"}
-        >
-          {collapsed ? <PanelLeft className="h-5 w-5" /> : <PanelLeftClose className="h-5 w-5" />}
-        </button>
       </div>
+
+      {/* Toggle flotante estilo Coolify: pestaña circular en el borde derecho
+          del sidebar. Solo en desktop (lg+), donde el colapso a 80px aplica;
+          en mobile el sidebar es un drawer. */}
+      <button
+        type="button"
+        onClick={() => setCollapsed(!collapsed)}
+        aria-label={collapsed ? "Expandir sidebar" : "Colapsar sidebar"}
+        title={collapsed ? "Expandir" : "Colapsar"}
+        style={{ backgroundColor: "#104A4E" }}
+        className="absolute top-[8rem] -right-3 z-50 hidden h-7 w-7 items-center justify-center rounded-full border border-[color:var(--zentra-sidebar-border)] text-white shadow-[0_4px_10px_rgba(0,0,0,0.35)] transition-transform hover:scale-105 lg:flex"
+      >
+        {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+      </button>
 
       {!collapsed && (
         <div className="shrink-0 border-b border-[color:var(--zentra-sidebar-border)] px-3 py-2.5">
