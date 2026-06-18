@@ -371,6 +371,9 @@ export async function saveMovimiento(
     origen: mov.origen,
     referencia: mov.referencia ?? null,
     fecha: mov.fecha,
+    // Quién registró el movimiento (para trazabilidad en el historial).
+    created_by: usuario.id ?? null,
+    usuario_nombre: usuario.nombre ?? usuario.email ?? null,
   };
 
   const { data: movData, error: movError } = await supabase
