@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, PackageX, Coins, ClipboardList } from "lucide-react";
+import { AlertTriangle, PackageX, Coins, ClipboardList, Download, Rows3, Boxes } from "lucide-react";
 import { getMovimientos, getProductos } from "@/lib/inventario/storage";
 import type { MovimientoInventario } from "@/lib/inventario/types";
 
@@ -66,6 +66,9 @@ export default function PerdidasPage() {
   const [fechaDesde, setFechaDesde] = useState(primerDiaMes());
   const [fechaHasta, setFechaHasta] = useState(hoyISO());
 
+  // Vista: detalle (un registro por pérdida) o agrupada por producto.
+  const [vista, setVista] = useState<"detalle" | "producto">("detalle");
+
   useEffect(() => {
     let cancel = false;
     (async () => {
@@ -108,6 +111,83 @@ export default function PerdidasPage() {
   const totalUnidades = filtrados.reduce((s, m) => s + Math.abs(m.cantidad), 0);
   const totalValor = filtrados.reduce((s, m) => s + Math.abs(m.cantidad) * m.costo_unitario, 0);
   const productosDistintos = new Set(filtrados.map((m) => m.producto_id)).size;
+
+  // Agrupado por producto: total perdido, valor y registros en el período filtrado.
+  const agrupados = useMemo(() => {
+    const map = new Map<
+      string,
+      { producto_id: string; nombre: string; sku: string; unidad: string; cantidad: number; valor: number; registros: number; ultima: string }
+    >();
+    for (const m of filtrados) {
+      const unidad = unidadPorProducto[m.producto_id] || "UNIDAD";
+      const cant = Math.abs(m.cantidad);
+      const val = cant * m.costo_unitario;
+      const prev = map.get(m.producto_id);
+      if (prev) {
+        prev.cantidad += cant;
+        prev.valor += val;
+        prev.registros += 1;
+        if (m.fecha > prev.ultima) prev.ultima = m.fecha;
+      } else {
+        map.set(m.producto_id, {
+          producto_id: m.producto_id,
+          nombre: m.producto_nombre,
+          sku: m.producto_sku,
+          unidad,
+          cantidad: cant,
+          valor: val,
+          registros: 1,
+          ultima: m.fecha,
+        });
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => b.valor - a.valor);
+  }, [filtrados, unidadPorProducto]);
+
+  /** Descarga un arreglo de filas como CSV (separador ';' + BOM, compatible con Excel es). */
+  function descargarCSV(filas: (string | number)[][], nombre: string) {
+    const csv = filas
+      .map((fila) => fila.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(";"))
+      .join("\r\n");
+    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = nombre;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function exportar() {
+    const sufijo = `${fechaDesde}_a_${fechaHasta}`;
+    if (vista === "producto") {
+      const filas: (string | number)[][] = [
+        ["Producto", "SKU", "Cantidad perdida", "Unidad", "Valor (Gs)", "Registros", "Última pérdida"],
+      ];
+      agrupados.forEach((g) =>
+        filas.push([g.nombre, g.sku, g.cantidad, g.unidad, Math.round(g.valor), g.registros, formatFecha(g.ultima)])
+      );
+      descargarCSV(filas, `perdidas_por_producto_${sufijo}.csv`);
+    } else {
+      const filas: (string | number)[][] = [
+        ["Producto", "SKU", "Cantidad", "Unidad", "Valor (Gs)", "Motivo", "Usuario", "Fecha"],
+      ];
+      filtrados.forEach((m) => {
+        const unidad = unidadPorProducto[m.producto_id] || "UNIDAD";
+        filas.push([
+          m.producto_nombre,
+          m.producto_sku,
+          Math.abs(m.cantidad),
+          unidad,
+          Math.round(Math.abs(m.cantidad) * m.costo_unitario),
+          motivoDeReferencia(m.referencia),
+          m.usuario_nombre ?? "",
+          formatFecha(m.fecha),
+        ]);
+      });
+      descargarCSV(filas, `perdidas_detalle_${sufijo}.csv`);
+    }
+  }
 
   const esMesActual = fechaDesde === primerDiaMes() && fechaHasta === hoyISO();
   const hayFiltrosExtra = busqueda !== "" || filtroUnidad !== "" || !esMesActual;
@@ -161,14 +241,44 @@ export default function PerdidasPage() {
         {/* Header */}
         <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <h2 className="text-xl font-semibold">Detalle de pérdidas</h2>
+            <h2 className="text-xl font-semibold">{vista === "producto" ? "Pérdidas por producto" : "Detalle de pérdidas"}</h2>
             <span className="text-sm text-gray-400">
-              {filtrados.length} {filtrados.length === 1 ? "registro" : "registros"}
+              {vista === "producto"
+                ? `${agrupados.length} ${agrupados.length === 1 ? "producto" : "productos"}`
+                : `${filtrados.length} ${filtrados.length === 1 ? "registro" : "registros"}`}
             </span>
           </div>
-          <p className="text-xs text-gray-400">
-            Las pérdidas se registran desde el botón <span className="font-medium text-gray-500">Registrar pérdida</span> en cada producto.
-          </p>
+          <div className="flex items-center gap-2">
+            {/* Toggle de vista */}
+            <div className="inline-flex overflow-hidden rounded-lg border border-gray-200">
+              <button
+                type="button"
+                onClick={() => setVista("detalle")}
+                className={`inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium transition-colors ${
+                  vista === "detalle" ? "bg-amber-600 text-white" : "bg-white text-gray-600 hover:bg-gray-50"
+                }`}
+              >
+                <Rows3 className="h-3.5 w-3.5" /> Detalle
+              </button>
+              <button
+                type="button"
+                onClick={() => setVista("producto")}
+                className={`inline-flex items-center gap-1.5 border-l border-gray-200 px-3 py-2 text-xs font-medium transition-colors ${
+                  vista === "producto" ? "bg-amber-600 text-white" : "bg-white text-gray-600 hover:bg-gray-50"
+                }`}
+              >
+                <Boxes className="h-3.5 w-3.5" /> Por producto
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={exportar}
+              disabled={filtrados.length === 0}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Download className="h-3.5 w-3.5" /> Exportar CSV
+            </button>
+          </div>
         </div>
 
         {/* Filtros */}
@@ -217,6 +327,7 @@ export default function PerdidasPage() {
         </div>
 
         {/* Tabla */}
+        {vista === "detalle" ? (
         <div className="overflow-x-auto">
           <table className="w-full min-w-[820px] sm:min-w-0 text-left text-sm">
             <thead>
@@ -271,6 +382,48 @@ export default function PerdidasPage() {
             </tbody>
           </table>
         </div>
+        ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[720px] sm:min-w-0 text-left text-sm">
+            <thead>
+              <tr className="border-b text-gray-500">
+                <th className="py-3 pr-4 font-medium">Producto</th>
+                <th className="py-3 pr-4 font-medium hidden md:table-cell">SKU</th>
+                <th className="py-3 pr-4 font-medium text-right">Cantidad perdida</th>
+                <th className="py-3 pr-4 font-medium hidden sm:table-cell">Unidad</th>
+                <th className="py-3 pr-4 font-medium text-right">Valor</th>
+                <th className="py-3 pr-4 font-medium text-right hidden lg:table-cell">Registros</th>
+                <th className="py-3 font-medium hidden lg:table-cell">Última pérdida</th>
+              </tr>
+            </thead>
+            <tbody>
+              {cargando ? (
+                <tr>
+                  <td colSpan={7} className="py-12 text-center text-gray-400 animate-pulse">Cargando…</td>
+                </tr>
+              ) : agrupados.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="py-12 text-center text-gray-400">
+                    {movs.length === 0 ? "Todavía no hay pérdidas registradas." : "Ninguna pérdida coincide con los filtros."}
+                  </td>
+                </tr>
+              ) : (
+                agrupados.map((g) => (
+                  <tr key={g.producto_id} className="border-b last:border-0 hover:bg-gray-50">
+                    <td className="py-4 pr-4 font-medium text-gray-800">{g.nombre}</td>
+                    <td className="py-4 pr-4 font-mono text-gray-500 hidden md:table-cell">{g.sku}</td>
+                    <td className="py-4 pr-4 text-right font-semibold tabular-nums text-amber-700">−{g.cantidad}</td>
+                    <td className="py-4 pr-4 text-gray-600 hidden sm:table-cell">{g.unidad}</td>
+                    <td className="py-4 pr-4 text-right font-semibold tabular-nums text-gray-800">{formatGs(g.valor)}</td>
+                    <td className="py-4 pr-4 text-right tabular-nums text-gray-600 hidden lg:table-cell">{g.registros}</td>
+                    <td className="py-4 text-xs tabular-nums text-gray-500 hidden lg:table-cell">{formatFecha(g.ultima)}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+        )}
       </div>
 
       <div className="flex items-start gap-2 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3 text-xs text-gray-500">
