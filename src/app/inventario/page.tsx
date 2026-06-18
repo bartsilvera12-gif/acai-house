@@ -9,6 +9,7 @@ import ImportExcelButton from "@/components/ui/ImportExcelButton";
 import EdgeScrollArea from "@/components/ui/EdgeScrollArea";
 import StatCard from "@/components/ui/StatCard";
 import { useIsAdmin } from "@/lib/auth/use-is-admin";
+import { Search, Pencil, PackageOpen } from "lucide-react";
 
 const inputFilterClass =
   "border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-[#0EA5E9] focus:outline-none";
@@ -206,6 +207,11 @@ export default function InventarioPage() {
     setFiltroTipo("todos");
   }
 
+  // Columnas visibles según contexto (limpieza visual: no mostrar columnas vacías).
+  const showPrecioYMargen = tab !== "materia";
+  const showUbicacion = ubicaciones.length > 0;
+  const colCount = 6 + (showPrecioYMargen ? 2 : 0) + (showUbicacion ? 1 : 0);
+
   return (
     <div className="space-y-8">
 
@@ -278,22 +284,32 @@ export default function InventarioPage() {
 
       <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm ring-1 ring-[#4FAEB2]/15 sm:p-5 lg:p-6">
 
-        <div className="flex flex-wrap justify-between items-center gap-3 mb-5">
-          <div className="flex items-center gap-3 flex-wrap">
-            <h2 className="text-xl font-semibold">Productos</h2>
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-baseline gap-2">
+            <h2 className="text-lg font-semibold text-slate-900">Productos</h2>
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500">
+              {productos.length}
+            </span>
+          </div>
+          <div className="flex flex-1 items-center justify-end gap-2 sm:flex-none">
+            <div className="relative min-w-0 flex-1 sm:flex-none">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Buscar por nombre…"
+                value={filtroPorNombre}
+                onChange={(e) => setFiltroPorNombre(e.target.value)}
+                className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm outline-none transition focus:border-[#4FAEB2] focus:ring-2 focus:ring-[#4FAEB2]/20 sm:w-64"
+              />
+            </div>
             <Link
               href="/inventario/nuevo"
-              className="rounded-lg bg-[#4FAEB2] px-3 py-1.5 text-xs font-semibold text-white shadow-sm shadow-[#4FAEB2]/25 transition-colors hover:bg-[#3F8E91] active:scale-95"
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-[#4FAEB2] px-3.5 py-2 text-sm font-semibold text-white shadow-sm shadow-[#4FAEB2]/25 transition hover:bg-[#3F8E91] active:scale-95"
             >
-              Nuevo producto
+              <span className="text-base leading-none">+</span>
+              <span className="hidden sm:inline">Nuevo producto</span>
+              <span className="sm:hidden">Nuevo</span>
             </Link>
-            <input
-              type="text"
-              placeholder="Buscar por nombre..."
-              value={filtroPorNombre}
-              onChange={(e) => setFiltroPorNombre(e.target.value)}
-              className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#0EA5E9] focus:outline-none sm:w-64 sm:flex-none"
-            />
           </div>
         </div>
 
@@ -420,102 +436,152 @@ export default function InventarioPage() {
           {/* min-w-[1100px] fuerza scroll horizontal real en mobile; en >=lg
               vuelve a comportarse natural. Columnas no críticas (SKU, Unidad,
               Ubicacion, Valuacion, Margen) se ocultan progresivamente. */}
-          <table className="w-full min-w-[780px] lg:min-w-0 text-left text-sm">
+          <table className="w-full min-w-[720px] lg:min-w-0 text-left text-sm">
 
             <thead>
-              <tr className="bg-slate-50 text-slate-600 text-sm font-semibold">
-                <th className="py-3 pr-4 font-medium">Nombre</th>
-                <th className="hidden py-3 pr-4 font-medium lg:table-cell">SKU</th>
-                <th className="py-3 pr-4 font-medium">Costo Prom.</th>
-                {tab !== "materia" && <th className="py-3 pr-4 font-medium">Precio Venta</th>}
-                <th className="py-3 pr-4 font-medium text-center">Stock actual</th>
-                <th className="py-3 pr-4 text-center font-medium hidden lg:table-cell">Stock Mín.</th>
-                <th className="py-3 pr-4 font-medium hidden lg:table-cell">Ubicación</th>
-                <th className="py-3 pr-4 font-medium hidden lg:table-cell">Valuación</th>
-                {tab !== "materia" && (
-                  <th className="hidden py-3 pr-6 text-right font-medium lg:table-cell">
-                    <span title="(precio - costo) / precio × 100">Margen s/venta</span>
+              <tr className="border-b border-slate-200 text-[11px] uppercase tracking-wide text-slate-400">
+                <th className="py-3 pr-4 font-semibold">Producto</th>
+                <th className="py-3 pr-4 text-right font-semibold">Costo</th>
+                {showPrecioYMargen && <th className="py-3 pr-4 text-right font-semibold">Precio</th>}
+                <th className="py-3 pr-4 text-center font-semibold">Stock</th>
+                <th className="hidden py-3 pr-4 text-center font-semibold lg:table-cell">Mínimo</th>
+                {showUbicacion && <th className="hidden py-3 pr-4 font-semibold lg:table-cell">Ubicación</th>}
+                <th className="hidden py-3 pr-4 text-center font-semibold lg:table-cell">Valuación</th>
+                {showPrecioYMargen && (
+                  <th className="hidden py-3 pr-4 text-right font-semibold lg:table-cell">
+                    <span title="(precio - costo) / precio × 100">Margen</span>
                   </th>
                 )}
-                <th className="py-3 pl-4 font-medium text-center w-28">Acción</th>
+                <th className="w-24 py-3 pl-4 text-center font-semibold">Acción</th>
               </tr>
             </thead>
 
-            <tbody>
-              {productos.map((p) => {
-                const stockBajo = p.stock_actual <= p.stock_minimo;
-                const margen = calcularMargenVenta(p.costo_promedio, p.precio_venta);
-                // "Sin control" SOLO para Menú (vendible sin stock). Los insumos
-                // (Materia prima) sí tienen stock real aunque controla_stock=false.
-                const sinControl =
-                  p.controla_stock === false && p.es_insumo !== true && p.modo_receta !== "produccion_previa";
-                return (
-                  <tr key={p.id} className="border-b border-slate-200 last:border-0 hover:bg-[#4FAEB2]/[0.04] transition-colors">
-                    <td className="py-4 pr-4 font-medium text-gray-800">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span>{p.nombre}</span>
-                        {(() => {
-                          const v = p.es_vendible !== false;
-                          const i = p.es_insumo === true;
-                          // Mixto/Insumo se siguen mostrando; Vendible queda oculto (redundante: ya hay tab).
-                          if (v && i) return <span className="inline-flex items-center rounded-full bg-purple-100 text-purple-700 text-[10px] font-medium px-2 py-0.5">Mixto</span>;
-                          if (i) return <span className="inline-flex items-center rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-medium px-2 py-0.5">Insumo</span>;
-                          return null;
-                        })()}
-                      </div>
-                    </td>
-                    <td className="hidden py-4 pr-4 font-mono text-gray-500 lg:table-cell">{p.sku}</td>
-                    <td className="py-4 pr-4 text-gray-700">{formatGs(p.costo_promedio)}</td>
-                    {tab !== "materia" && <td className="py-4 pr-4 text-gray-700">{formatGs(p.precio_venta)}</td>}
-                    <td className="py-4 pr-4 text-center">
-                      {sinControl ? (
-                        <span className="text-xs text-gray-400">— sin control</span>
-                      ) : (
-                        <span className={`font-semibold tabular-nums ${stockBajo ? "text-red-600" : "text-gray-800"}`}>
-                          {formatStock(p.stock_actual)}{" "}
-                          <span className={`text-xs font-normal ${stockBajo ? "text-red-400" : "text-gray-400"}`}>{p.unidad_medida}</span>
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-4 pr-4 text-center text-gray-500 hidden lg:table-cell">
-                      {sinControl ? "—" : <span className="tabular-nums">{formatStock(p.stock_minimo)}</span>}
-                    </td>
-                    <td className="py-4 pr-4 text-gray-600 text-xs hidden lg:table-cell">
-                      {p.ubicacion_principal_id
-                        ? (() => {
-                            const u = ubicacionById.get(p.ubicacion_principal_id);
-                            return u ? (
-                              <span>
-                                <span className="font-medium text-gray-700">{u.nombre}</span>
-                                <span className="text-gray-400"> — {u.tipo}</span>
-                              </span>
-                            ) : (
-                              <span className="text-gray-300">—</span>
-                            );
-                          })()
-                        : <span className="text-gray-300">—</span>}
-                    </td>
-                    <td className="py-4 pr-4 hidden lg:table-cell">
-                      <span className={`px-2 py-1 rounded-full text-xs font-semibold ${metodoBadge[p.metodo_valuacion]}`}>
-                        {p.metodo_valuacion}
-                      </span>
-                    </td>
-                    {tab !== "materia" && (
-                      <td className={`hidden py-4 pr-6 text-right font-semibold tabular-nums lg:table-cell ${margenColor(margen)}`}>
-                        {margen.toFixed(2)}%
-                      </td>
-                    )}
-                    <td className="py-4 pl-4 text-center">
-                      <Link
-                        href={`/inventario/${p.id}/editar`}
-                        className="inline-flex items-center justify-center min-h-[40px] rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:border-slate-300 hover:bg-slate-50 transition-colors"
-                      >
-                        Editar
-                      </Link>
+            <tbody className="divide-y divide-slate-100">
+              {cargandoLista ? (
+                Array.from({ length: 6 }).map((_, i) => (
+                  <tr key={`sk-${i}`}>
+                    <td className="py-3.5 pr-4" colSpan={colCount}>
+                      <div className="h-9 w-full animate-pulse rounded-lg bg-slate-100" />
                     </td>
                   </tr>
-                );
-              })}
+                ))
+              ) : productos.length === 0 ? (
+                <tr>
+                  <td colSpan={colCount} className="py-16 text-center">
+                    <div className="mx-auto flex max-w-xs flex-col items-center gap-2 text-slate-400">
+                      <PackageOpen className="h-10 w-10 text-slate-300" />
+                      <p className="text-sm font-medium text-slate-500">No hay productos en esta vista</p>
+                      <p className="text-xs">
+                        {filtroPorNombre ? "Probá con otra búsqueda." : "Cambiá de pestaña o cargá un producto nuevo."}
+                      </p>
+                      <Link
+                        href="/inventario/nuevo"
+                        className="mt-1 inline-flex items-center gap-1.5 rounded-lg bg-[#4FAEB2] px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-[#3F8E91]"
+                      >
+                        + Nuevo producto
+                      </Link>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                productos.map((p) => {
+                  const stockBajo = p.stock_actual <= p.stock_minimo;
+                  const margen = calcularMargenVenta(p.costo_promedio, p.precio_venta);
+                  // "Sin control" SOLO para Menú (vendible sin stock). Los insumos
+                  // (Materia prima) sí tienen stock real aunque controla_stock=false.
+                  const sinControl =
+                    p.controla_stock === false && p.es_insumo !== true && p.modo_receta !== "produccion_previa";
+                  const v = p.es_vendible !== false;
+                  const esInsumo = p.es_insumo === true;
+                  return (
+                    <tr key={p.id} className="group transition-colors hover:bg-[#4FAEB2]/[0.04]">
+                      {/* Producto: avatar inicial + nombre + SKU */}
+                      <td className="py-3 pr-4">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[#4FAEB2]/10 text-sm font-bold uppercase text-[#3F8E91]">
+                            {p.nombre.trim().charAt(0) || "?"}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="truncate font-medium text-slate-800">{p.nombre}</span>
+                              {v && esInsumo ? (
+                                <span className="inline-flex shrink-0 items-center rounded-full bg-purple-100 px-2 py-0.5 text-[10px] font-medium text-purple-700">Mixto</span>
+                              ) : esInsumo ? (
+                                <span className="inline-flex shrink-0 items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-700">Insumo</span>
+                              ) : null}
+                            </div>
+                            <span className="font-mono text-xs text-slate-400">{p.sku}</span>
+                          </div>
+                        </div>
+                      </td>
+                      {/* Costo */}
+                      <td className="py-3 pr-4 text-right tabular-nums text-slate-600">{formatGs(p.costo_promedio)}</td>
+                      {/* Precio */}
+                      {showPrecioYMargen && (
+                        <td className="py-3 pr-4 text-right tabular-nums text-slate-700">{formatGs(p.precio_venta)}</td>
+                      )}
+                      {/* Stock como pill con color */}
+                      <td className="py-3 pr-4 text-center">
+                        {sinControl ? (
+                          <span className="text-xs text-slate-400">Sin control</span>
+                        ) : (
+                          <span
+                            className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold tabular-nums ${
+                              stockBajo ? "bg-red-50 text-red-600 ring-1 ring-red-100" : "bg-emerald-50 text-emerald-700"
+                            }`}
+                          >
+                            {formatStock(p.stock_actual)}
+                            <span className="font-normal opacity-70">{p.unidad_medida}</span>
+                          </span>
+                        )}
+                      </td>
+                      {/* Mínimo */}
+                      <td className="hidden py-3 pr-4 text-center text-slate-500 lg:table-cell">
+                        {sinControl ? "—" : <span className="tabular-nums">{formatStock(p.stock_minimo)}</span>}
+                      </td>
+                      {/* Ubicación (solo si hay ubicaciones cargadas) */}
+                      {showUbicacion && (
+                        <td className="hidden py-3 pr-4 text-xs text-slate-600 lg:table-cell">
+                          {p.ubicacion_principal_id
+                            ? (() => {
+                                const u = ubicacionById.get(p.ubicacion_principal_id);
+                                return u ? (
+                                  <span>
+                                    <span className="font-medium text-slate-700">{u.nombre}</span>
+                                    <span className="text-slate-400"> — {u.tipo}</span>
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-300">—</span>
+                                );
+                              })()
+                            : <span className="text-slate-300">—</span>}
+                        </td>
+                      )}
+                      {/* Valuación */}
+                      <td className="hidden py-3 pr-4 text-center lg:table-cell">
+                        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${metodoBadge[p.metodo_valuacion]}`}>
+                          {p.metodo_valuacion}
+                        </span>
+                      </td>
+                      {/* Margen */}
+                      {showPrecioYMargen && (
+                        <td className={`hidden py-3 pr-4 text-right font-semibold tabular-nums lg:table-cell ${margenColor(margen)}`}>
+                          {margen.toFixed(1)}%
+                        </td>
+                      )}
+                      {/* Acción */}
+                      <td className="py-3 pl-4 text-center">
+                        <Link
+                          href={`/inventario/${p.id}/editar`}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:border-[#4FAEB2]/50 hover:bg-[#4FAEB2]/5 hover:text-[#3F8E91]"
+                        >
+                          <Pencil className="h-3.5 w-3.5" /> Editar
+                        </Link>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
 
           </table>
