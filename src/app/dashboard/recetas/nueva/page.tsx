@@ -8,7 +8,7 @@ import { ChefHat, ArrowLeft, Loader2 } from "lucide-react";
 import { NEURA_CLIENT_SCHEMA } from "@/lib/supabase/schema";
 
 /** Reserva monocliente: la receta pertenece al producto; el nombre se autogenera. */
-const RECETA_SIMPLE = NEURA_CLIENT_SCHEMA === "reservacaacupe";
+const RECETA_SIMPLE = ["reservacaacupe", "acaihouse"].includes(NEURA_CLIENT_SCHEMA);
 
 type Producto = {
   id: string;

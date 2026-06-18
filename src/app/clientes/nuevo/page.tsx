@@ -29,7 +29,7 @@ import type { Plan } from "@/lib/planes/types";
 import { NEURA_CLIENT_SCHEMA } from "@/lib/supabase/schema";
 
 /** Instancia monocliente Reserva: formulario de clientes simplificado (sin campos SaaS/Neura). */
-const SIMPLE_CLIENTE = NEURA_CLIENT_SCHEMA === "reservacaacupe";
+const SIMPLE_CLIENTE = ["reservacaacupe", "acaihouse"].includes(NEURA_CLIENT_SCHEMA);
 
 // ── Estilos ────────────────────────────────────────────────────────────────────
 

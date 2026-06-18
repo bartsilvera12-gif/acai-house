@@ -9,6 +9,7 @@ import type { MetodoValuacion } from "@/lib/inventario/types";
 import ProductImageUploader from "@/components/inventario/ProductImageUploader";
 import SelectFromList from "@/components/inventario/SelectFromList";
 import ProveedoresCostos from "@/components/inventario/ProveedoresCostos";
+import MarcarPerdidaCard from "@/components/inventario/MarcarPerdidaCard";
 import { ShoppingBag, Boxes, ClipboardList, type LucideIcon } from "lucide-react";
 
 // Opciones estándar de unidad de medida (UX simplificada gastro)
@@ -975,6 +976,23 @@ export default function EditarProductoPage() {
           </div>
         </form>
       </div>
+
+      {/* Registrar pérdida / merma — solo productos que controlan stock (reventa / materia prima). */}
+      {id && showStock && (
+        <MarcarPerdidaCard
+          producto={{
+            id,
+            nombre: form.nombre,
+            sku: form.sku,
+            costo_promedio: parseFloat(form.costo_promedio) || 0,
+            stock_actual: parseInt(form.stock_actual) || 0,
+            unidad_medida: form.unidad_medida,
+          }}
+          onRegistrado={(nuevoStock) =>
+            setForm((prev) => ({ ...prev, stock_actual: String(nuevoStock) }))
+          }
+        />
+      )}
 
       {id && <ProveedoresCostos productoId={id} />}
     </div>

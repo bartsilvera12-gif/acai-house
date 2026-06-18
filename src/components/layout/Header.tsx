@@ -125,7 +125,7 @@ export default function Header() {
             >
               <Image
                 src="/brand/reservacaacupe-logo.png"
-                alt="Reserva Ecológica Caacupé"
+                alt="Açaí House"
                 width={72}
                 height={72}
                 sizes="36px"

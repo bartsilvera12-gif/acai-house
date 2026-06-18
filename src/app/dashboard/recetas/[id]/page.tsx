@@ -10,7 +10,7 @@ import { formatUnidad } from "@/lib/unidades/format";
 import { unidadesCompatibles, familiaUnidad } from "@/lib/unidades/convert";
 
 /** Reserva monocliente: receta pertenece al producto; nombre interno oculto (autogenera). */
-const RECETA_SIMPLE = NEURA_CLIENT_SCHEMA === "reservacaacupe";
+const RECETA_SIMPLE = ["reservacaacupe", "acaihouse"].includes(NEURA_CLIENT_SCHEMA);
 
 type Receta = {
   id: string;

@@ -16,6 +16,8 @@ const origenLabel: Record<OrigenMovimiento, string> = {
   venta: "Venta",
   ajuste_manual: "Ajuste manual",
   inventario_inicial: "Inventario inicial",
+  produccion: "Producción",
+  merma: "Merma",
 };
 
 const origenBadge: Record<OrigenMovimiento, string> = {
@@ -23,6 +25,8 @@ const origenBadge: Record<OrigenMovimiento, string> = {
   venta: "bg-purple-50 text-purple-600",
   ajuste_manual: "bg-gray-100 text-gray-600",
   inventario_inicial: "bg-orange-50 text-orange-600",
+  produccion: "bg-teal-50 text-teal-600",
+  merma: "bg-amber-100 text-amber-700",
 };
 
 function formatGs(valor: number) {
@@ -81,12 +85,51 @@ export default function MovimientosPage() {
     return coincideTexto && coincideTipo && coincideOrigen && coincideDesde && coincideHasta;
   });
 
+  // Resumen de pérdidas/mermas del mes en curso (para seguimiento mensual).
+  const ahora = new Date();
+  const mesActual = `${ahora.getFullYear()}-${String(ahora.getMonth() + 1).padStart(2, "0")}`; // "YYYY-MM"
+  const nombreMes = ahora.toLocaleDateString("es-PY", { month: "long", year: "numeric" });
+  const mermasMes = todos.filter((m) => m.origen === "merma" && m.fecha.slice(0, 7) === mesActual);
+  const mermasMesUnidades = mermasMes.reduce((s, m) => s + Math.abs(m.cantidad), 0);
+  const mermasMesValor = mermasMes.reduce((s, m) => s + Math.abs(m.cantidad) * m.costo_unitario, 0);
+
   return (
     <div className="space-y-8">
 
       <div>
         <h1 className="text-3xl font-bold text-gray-800">Movimientos de inventario</h1>
         <p className="text-gray-600">Registro de entradas, salidas y ajustes de stock</p>
+      </div>
+
+      {/* Resumen de pérdidas / mermas del mes en curso */}
+      <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wide text-amber-700">
+            Pérdidas / mermas — {nombreMes}
+          </p>
+          <p className="mt-1 text-sm text-amber-900">
+            <span className="font-bold tabular-nums">{mermasMesUnidades}</span> unidades dadas por perdidas
+            <span className="mx-2 text-amber-400">·</span>
+            <span className="font-bold tabular-nums">Gs. {Math.round(mermasMesValor).toLocaleString("es-PY")}</span> al costo
+            <span className="mx-2 text-amber-400">·</span>
+            <span className="tabular-nums">{mermasMes.length}</span> registros
+          </p>
+        </div>
+        {filtroOrigen !== "merma" ? (
+          <button
+            onClick={() => setFiltroOrigen("merma")}
+            className="shrink-0 rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-100"
+          >
+            Ver solo mermas
+          </button>
+        ) : (
+          <button
+            onClick={() => setFiltroOrigen("")}
+            className="shrink-0 rounded-lg border border-amber-300 bg-white px-3 py-2 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-100"
+          >
+            Quitar filtro
+          </button>
+        )}
       </div>
 
       <div className="bg-white rounded-xl shadow p-6">
@@ -139,6 +182,8 @@ export default function MovimientosPage() {
             <option value="compra">Compra</option>
             <option value="venta">Venta</option>
             <option value="ajuste_manual">Ajuste manual</option>
+            <option value="produccion">Producción</option>
+            <option value="merma">Merma</option>
           </select>
 
           {/* Separador visual entre grupos */}

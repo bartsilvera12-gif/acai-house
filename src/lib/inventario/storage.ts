@@ -398,3 +398,31 @@ export async function saveMovimiento(
 
   return rowToMovimiento(movData as MovimientoRow);
 }
+
+/**
+ * Registra una pérdida / merma de stock de un producto (ej. materia prima vencida,
+ * dañada o desperdiciada). Genera un movimiento SALIDA con origen 'merma', descuenta
+ * el stock y valoriza la pérdida al costo promedio del producto. El motivo opcional
+ * se guarda en la referencia del movimiento para el seguimiento mensual.
+ */
+export async function registrarPerdida(args: {
+  producto: Pick<Producto, "id" | "nombre" | "sku" | "costo_promedio">;
+  cantidad: number;
+  motivo?: string | null;
+}): Promise<MovimientoInventario | null> {
+  const cantidad = Math.abs(args.cantidad);
+  if (!cantidad || cantidad <= 0) throw new Error("La cantidad a dar por perdida debe ser mayor a 0.");
+
+  const motivo = args.motivo?.trim();
+  return saveMovimiento({
+    producto_id: args.producto.id,
+    producto_nombre: args.producto.nombre,
+    producto_sku: args.producto.sku,
+    tipo: "SALIDA",
+    cantidad,
+    costo_unitario: args.producto.costo_promedio || 0,
+    origen: "merma",
+    referencia: motivo ? `Pérdida: ${motivo}` : "Pérdida / merma",
+    fecha: new Date().toISOString(),
+  });
+}
