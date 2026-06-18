@@ -128,6 +128,7 @@ const MENU_STRUCTURE: MenuItem[] = [
   { key: "inventario", slug: "inventario", label: "Inventario", href: "/inventario", icon: Package, children: [
     { label: "Productos", href: "/inventario" },
     { label: "Movimientos", href: "/inventario/movimientos" },
+    { label: "Pérdidas", href: "/inventario/perdidas" },
     { label: "Categorías", href: "/inventario/categorias" },
     // "Depósitos / Ubicaciones" oculto en instancia En lo de Mari (no aplica para gastronomía).
   ]},
