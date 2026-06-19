@@ -1,18 +1,17 @@
-import { createClient } from "@supabase/supabase-js";
-import { supabaseServiceRoleClientOptions } from "@/lib/supabase/schema";
 import { NextResponse } from "next/server";
+import { requireSuperAdmin } from "@/lib/auth/require-super-admin";
 
-export async function GET() {
+/**
+ * Lista todas las empresas del catálogo. SOLO super_admin (rol o bootstrap).
+ * Antes no validaba auth → cualquiera podía pegarle al endpoint y recibir
+ * el catálogo completo (datos sensibles via service role).
+ */
+export async function GET(request: Request) {
   try {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!url || !key) {
-      return NextResponse.json({ error: "Config no disponible" }, { status: 500 });
-    }
+    const gate = await requireSuperAdmin(request);
+    if (!gate.ok) return gate.response;
 
-    const supabase = createClient(url, key, { ...supabaseServiceRoleClientOptions });
-
-    const { data, error } = await supabase
+    const { data, error } = await gate.supabase
       .from("empresas")
       .select("*")
       .order("created_at", { ascending: false });

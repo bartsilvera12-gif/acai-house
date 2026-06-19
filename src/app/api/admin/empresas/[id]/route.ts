@@ -1,25 +1,17 @@
-import { createClient } from "@supabase/supabase-js";
-import { supabaseServiceRoleClientOptions } from "@/lib/supabase/schema";
-import { getAuthUserForApiRoute } from "@/lib/auth/get-auth-user-for-api-route";
-import { resolveUsuarioErpFromAuthUser } from "@/lib/auth/resolve-usuario-erp";
-import { isBootstrapSuperAdminEmail } from "@/lib/auth/super-admin-bootstrap-email";
 import { NextResponse } from "next/server";
+import { requireSuperAdmin } from "@/lib/auth/require-super-admin";
 import { esRolAdminEmpresa } from "@/lib/modulos/resolve-effective-modules";
 import { ensureOmnicanalDashboardEmpresaModulos } from "@/lib/empresas/ensure-omnicanal-dashboard-empresa-modulos";
 
 export async function GET(
-  _req: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const gate = await requireSuperAdmin(request);
+    if (!gate.ok) return gate.response;
+    const supabase = gate.supabase;
     const { id } = await params;
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!url || !key) {
-      return NextResponse.json({ error: "Config no disponible" }, { status: 500 });
-    }
-
-    const supabase = createClient(url, key, { ...supabaseServiceRoleClientOptions });
 
     // 1. Empresa
     const { data: empresa, error: errEmpresa } = await supabase
@@ -146,17 +138,12 @@ export async function PATCH(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const gate = await requireSuperAdmin(req);
+    if (!gate.ok) return gate.response;
+    const supabase = gate.supabase;
     const { id } = await params;
     const body = await req.json();
     const { nombre_empresa, ruc, plan, estado, modulo_ids, dashboard_view_ids } = body;
-
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!url || !key) {
-      return NextResponse.json({ error: "Config no disponible" }, { status: 500 });
-    }
-
-    const supabase = createClient(url, key, { ...supabaseServiceRoleClientOptions });
 
     // 1. Actualizar empresa
     const updateEmpresa: Record<string, unknown> = {};
@@ -289,25 +276,10 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const gate = await requireSuperAdmin(request);
+    if (!gate.ok) return gate.response;
+    const supabase = gate.supabase;
     const { id } = await params;
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (!url || !key) {
-      return NextResponse.json({ error: "Config no disponible" }, { status: 500 });
-    }
-
-    const user = await getAuthUserForApiRoute(request);
-    if (!user?.id) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 });
-    }
-
-    const supabase = createClient(url, key, { ...supabaseServiceRoleClientOptions });
-    const usuario = await resolveUsuarioErpFromAuthUser(supabase, user);
-    const rolSuper = (usuario?.rol ?? "").trim() === "super_admin";
-    const bootstrapSuper = isBootstrapSuperAdminEmail(user.email);
-    if (!rolSuper && !bootstrapSuper) {
-      return NextResponse.json({ error: "No autorizado" }, { status: 403 });
-    }
 
     const { data: empresa, error: errEmpresa } = await supabase
       .from("empresas")
