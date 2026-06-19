@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
+import { getModuleAccessCached } from "@/lib/modulos/module-access-cache";
 import type { ChatQueueAdminRow } from "@/lib/chat/queue-admin-repo";
 import { apiCreateQueueDraft, apiListQueues } from "./queue-admin-api";
 
@@ -44,14 +44,13 @@ export default function ConfiguracionColasPage() {
   }, []);
 
   useEffect(() => {
-    fetchWithSupabaseSession("/api/empresas/module-access", { cache: "no-store" })
-      .then(async (res) => {
-        if (!res.ok) {
+    getModuleAccessCached()
+      .then(({ ok, data }) => {
+        if (!ok) {
           setAllowed(false);
           return;
         }
-        const body = (await res.json()) as { superAdmin?: boolean; slugs?: string[] };
-        setAllowed(hasOmnichannelFromModuleAccess(body));
+        setAllowed(hasOmnichannelFromModuleAccess(data));
       })
       .catch(() => setAllowed(false));
   }, []);

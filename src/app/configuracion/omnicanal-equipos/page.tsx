@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
+import { getModuleAccessCached } from "@/lib/modulos/module-access-cache";
 import {
   fetchSupervisionLinks,
   linkAgentToSupervisor,
@@ -63,14 +63,15 @@ export default function OmnicanalEquiposPage() {
   }, []);
 
   useEffect(() => {
-    fetchWithSupabaseSession("/api/empresas/module-access", { cache: "no-store" })
-      .then(async (res) => {
-        if (!res.ok) {
+    // Usar el cache compartido (60min, invalidación en signIn/signOut) en vez
+    // de pegarle a /api/empresas/module-access en cada montaje de la página.
+    getModuleAccessCached()
+      .then(({ ok, data }) => {
+        if (!ok) {
           setAllowed(false);
           return;
         }
-        const body = (await res.json()) as { superAdmin?: boolean; slugs?: string[] };
-        setAllowed(hasOmnichannelFromModuleAccess(body));
+        setAllowed(hasOmnichannelFromModuleAccess(data));
       })
       .catch(() => setAllowed(false));
   }, []);

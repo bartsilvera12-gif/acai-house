@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChannelBadge, channelTypeLabel } from "@/components/chat/ChannelBadge";
 import { OmnichannelChannelCard } from "@/components/chat/OmnichannelChannelCard";
-import { fetchWithSupabaseSession, isAbortError } from "@/lib/api/fetch-with-supabase-session";
+import { getModuleAccessCached } from "@/lib/modulos/module-access-cache";
 import { normalizeChannelType } from "@/lib/chat/channel-type-utils";
 import {
   fetchChatChannels,
@@ -74,32 +74,25 @@ export function CanalesHubInner() {
   }, []);
 
   useEffect(() => {
-    const ctrl = new AbortController();
-    fetchWithSupabaseSession("/api/empresas/module-access", {
-      cache: "no-store",
-      signal: ctrl.signal,
-    })
-      .then(async (res) => {
-        if (ctrl.signal.aborted) return;
-        if (!res.ok) {
+    let cancelled = false;
+    getModuleAccessCached()
+      .then(({ ok, data }) => {
+        if (cancelled) return;
+        if (!ok) {
           setAllowed(false);
           return;
         }
-        try {
-          const body = (await res.json()) as { superAdmin?: boolean; slugs?: unknown };
-          if (ctrl.signal.aborted) return;
-          const slugs = Array.isArray(body.slugs) ? body.slugs.filter((s): s is string => typeof s === "string") : [];
-          setAllowed(hasOmnichannelFromModuleAccess({ superAdmin: body.superAdmin, slugs }));
-        } catch {
-          if (ctrl.signal.aborted) return;
-          setAllowed(false);
-        }
+        const slugs = Array.isArray(data.slugs)
+          ? data.slugs.filter((s): s is string => typeof s === "string")
+          : [];
+        setAllowed(hasOmnichannelFromModuleAccess({ superAdmin: data.superAdmin, slugs }));
       })
-      .catch((e: unknown) => {
-        if (isAbortError(e)) return;
-        setAllowed(false);
+      .catch(() => {
+        if (!cancelled) setAllowed(false);
       });
-    return () => ctrl.abort();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
