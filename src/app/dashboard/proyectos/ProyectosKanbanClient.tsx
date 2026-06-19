@@ -16,6 +16,7 @@ import type { CSSProperties, ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import { readSaasBriefData } from "@/lib/proyectos/brief-data";
+import { useDragScroll } from "@/hooks/useDragScroll";
 import ProyectoDetalleModal from "./components/ProyectoDetalleModal";
 
 type EstadoRow = {
@@ -251,6 +252,9 @@ function fmtPedidoHora(s: string | null | undefined): string {
 }
 
 export default function ProyectosKanbanClient() {
+  // Drag-to-scroll del kanban: arrastrá con el mouse sobre el fondo del tablero
+  // para desplazarte entre columnas (las tarjetas tienen su propio drag de dnd-kit).
+  const kanbanScrollRef = useDragScroll<HTMLDivElement>();
   const [estados, setEstados] = useState<EstadoRow[]>([]);
   const [proyectos, setProyectos] = useState<ProyectoCard[]>([]);
   const [prioridadesConfig, setPrioridadesConfig] = useState<PrioridadConfig[]>([]);
@@ -533,7 +537,10 @@ export default function ProyectosKanbanClient() {
             Ahora: "overflow-auto" cubre X+Y, cada KanbanColumnView tiene
             min-w-[260px] fijo (no flex-1), el contenedor crece con el contenido
             y el usuario puede deslizar de izquierda a derecha. */}
-        <div className="max-h-[calc(100svh-300px)] min-h-[420px] overflow-auto rounded-xl pb-4 overscroll-x-contain sm:min-h-[520px] lg:max-h-[calc(100vh-260px)]">
+        <div
+          ref={kanbanScrollRef}
+          className="max-h-[calc(100svh-300px)] min-h-[420px] cursor-grab overflow-auto rounded-xl pb-4 overscroll-x-contain sm:min-h-[520px] lg:max-h-[calc(100vh-260px)]"
+        >
           <div className="flex min-h-full gap-2">
             {kanbanColumns.map((col) => {
               const items = byColumn.get(col.id) ?? [];
@@ -663,6 +670,7 @@ function ProjectCardView({
     <div
       ref={setNodeRef}
       style={style}
+      data-no-drag-scroll
       {...attributes}
       {...listeners}
       className={`touch-none rounded-xl border border-l-4 bg-white p-2.5 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md ${
