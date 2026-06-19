@@ -43,6 +43,7 @@
     "db:apply-stale-flow-session-pointers": "tsx scripts/apply-stale-flow-session-pointers-migration.ts",
     "verify:admin-catalog-nc": "tsx scripts/verify-admin-catalog-notas-credito.ts",
     "db:apply-sql-file": "node scripts/apply-migration-file-pg.cjs",
+    "db:audit-rls": "node scripts/audit-rls.cjs",
     "qa:sorteo-ticket": "tsx ./scripts/qa-sorteo-ticket-delivery.ts",
     "verify:sorteo-ticket-overlay": "tsx ./scripts/verify-sorteo-ticket-overlay-png.ts",
     "db:apply-chat-campaigns-migration": "tsx scripts/apply-chat-campaigns-migration.ts",
