@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, PackageX, Coins, Download, Rows3, Boxes, Tag } from "lucide-react";
+import { AlertTriangle, PackageX, Coins, Download, Rows3, Boxes, Tag, Search } from "lucide-react";
 import { getMovimientos, getProductos } from "@/lib/inventario/storage";
 import type { MovimientoInventario } from "@/lib/inventario/types";
 
@@ -50,6 +50,21 @@ function motivoDeReferencia(ref?: string): string {
   if (!ref) return "—";
   const m = ref.replace(/^P[ée]rdida\s*\/?\s*merma$/i, "").replace(/^P[ée]rdida:\s*/i, "").trim();
   return m || "—";
+}
+
+/** Clases de color del chip de motivo según su tipo. */
+function motivoChipCls(motivo: string): string {
+  const m = norm(motivo);
+  if (m.includes("robo") || m.includes("faltante")) return "bg-red-50 text-red-700 ring-red-100";
+  if (m.includes("vencid")) return "bg-amber-50 text-amber-700 ring-amber-100";
+  if (m.includes("danad") || m.includes("golpead") || m.includes("mal estado")) return "bg-orange-50 text-orange-700 ring-orange-100";
+  if (m.includes("derrame")) return "bg-sky-50 text-sky-700 ring-sky-100";
+  return "bg-slate-100 text-slate-600 ring-slate-200";
+}
+
+/** Primera letra (avatar) de un texto. */
+function inicial(s: string): string {
+  return s.trim().charAt(0).toUpperCase() || "?";
 }
 
 const inputFilterClass =
@@ -281,12 +296,12 @@ export default function PerdidasPage() {
         </div>
       </div>
 
-      <div className="bg-white rounded-xl shadow p-6">
+      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm ring-1 ring-amber-500/10 sm:p-6">
         {/* Header */}
         <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <h2 className="text-xl font-semibold">{vista === "producto" ? "Pérdidas por producto" : "Detalle de pérdidas"}</h2>
-            <span className="text-sm text-gray-400">
+          <div className="flex items-baseline gap-2">
+            <h2 className="text-lg font-semibold text-slate-900">{vista === "producto" ? "Pérdidas por producto" : "Detalle de pérdidas"}</h2>
+            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
               {vista === "producto"
                 ? `${agrupados.length} ${agrupados.length === 1 ? "producto" : "productos"}`
                 : `${filtrados.length} ${filtrados.length === 1 ? "registro" : "registros"}`}
@@ -327,13 +342,16 @@ export default function PerdidasPage() {
 
         {/* Filtros */}
         <div className="mb-5 flex flex-wrap gap-3 border-b border-gray-100 pb-5">
-          <input
-            type="text"
-            placeholder="Buscar por producto, SKU o motivo…"
-            value={busqueda}
-            onChange={(e) => setBusqueda(e.target.value)}
-            className={`${inputFilterClass} min-w-64`}
-          />
+          <div className="relative min-w-64 flex-1 sm:flex-none">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Buscar por producto, SKU o motivo…"
+              value={busqueda}
+              onChange={(e) => setBusqueda(e.target.value)}
+              className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm outline-none transition focus:border-amber-400 focus:ring-2 focus:ring-amber-500/20"
+            />
+          </div>
           <select value={filtroUnidad} onChange={(e) => setFiltroUnidad(e.target.value)} className={inputFilterClass}>
             <option value="">Todas las unidades</option>
             {unidadesDisponibles.map((u) => (
@@ -373,52 +391,81 @@ export default function PerdidasPage() {
         {/* Tabla */}
         {vista === "detalle" ? (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[820px] sm:min-w-0 text-left text-sm">
+          <table className="w-full min-w-[760px] sm:min-w-0 text-left text-sm">
             <thead>
-              <tr className="border-b text-gray-500">
-                <th className="py-3 pr-4 font-medium">Producto</th>
-                <th className="py-3 pr-4 font-medium hidden md:table-cell">SKU</th>
-                <th className="py-3 pr-4 font-medium text-right">Cantidad</th>
-                <th className="py-3 pr-4 font-medium hidden sm:table-cell">Unidad</th>
-                <th className="py-3 pr-4 font-medium text-right hidden lg:table-cell">Valor</th>
-                <th className="py-3 pr-4 font-medium hidden md:table-cell">Motivo</th>
-                <th className="py-3 pr-4 font-medium hidden lg:table-cell">Usuario</th>
-                <th className="py-3 font-medium">Fecha</th>
+              <tr className="border-b border-slate-200 text-[11px] uppercase tracking-wide text-slate-400">
+                <th className="py-3 pr-4 font-semibold">Producto</th>
+                <th className="py-3 pr-4 text-right font-semibold">Cantidad</th>
+                <th className="py-3 pr-4 text-right font-semibold hidden sm:table-cell">Valor</th>
+                <th className="py-3 pr-4 font-semibold hidden md:table-cell">Motivo</th>
+                <th className="py-3 pr-4 font-semibold hidden lg:table-cell">Usuario</th>
+                <th className="py-3 font-semibold">Fecha</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-slate-100">
               {cargando ? (
-                <tr>
-                  <td colSpan={8} className="py-12 text-center text-gray-400 animate-pulse">Cargando…</td>
-                </tr>
+                Array.from({ length: 5 }).map((_, i) => (
+                  <tr key={`sk-${i}`}>
+                    <td className="py-3.5 pr-4" colSpan={6}>
+                      <div className="h-9 w-full animate-pulse rounded-lg bg-slate-100" />
+                    </td>
+                  </tr>
+                ))
               ) : filtrados.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-gray-400">
-                    {movs.length === 0
-                      ? "Todavía no hay pérdidas registradas."
-                      : "Ninguna pérdida coincide con los filtros."}
+                  <td colSpan={6} className="py-16 text-center">
+                    <div className="mx-auto flex max-w-xs flex-col items-center gap-2 text-slate-400">
+                      <PackageX className="h-10 w-10 text-slate-300" />
+                      <p className="text-sm font-medium text-slate-500">
+                        {movs.length === 0 ? "Todavía no hay pérdidas registradas" : "Ninguna pérdida coincide con los filtros"}
+                      </p>
+                    </div>
                   </td>
                 </tr>
               ) : (
                 filtrados.map((m) => {
                   const unidad = unidadPorProducto[m.producto_id] || "UNIDAD";
                   const valor = Math.abs(m.cantidad) * m.costo_unitario;
+                  const motivo = motivoDeReferencia(m.referencia);
                   return (
-                    <tr key={m.id} className="border-b last:border-0 hover:bg-gray-50">
-                      <td className="py-4 pr-4 font-medium text-gray-800">{m.producto_nombre}</td>
-                      <td className="py-4 pr-4 font-mono text-gray-500 hidden md:table-cell">{m.producto_sku}</td>
-                      <td className="py-4 pr-4 text-right font-semibold tabular-nums text-amber-700">
-                        −{Math.abs(m.cantidad)}
+                    <tr key={m.id} className="transition-colors hover:bg-amber-50/40">
+                      <td className="py-3 pr-4">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-sm font-bold uppercase text-amber-700">
+                            {inicial(m.producto_nombre)}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="truncate font-medium text-slate-800">{m.producto_nombre}</p>
+                            <p className="font-mono text-xs text-slate-400">{m.producto_sku}</p>
+                          </div>
+                        </div>
                       </td>
-                      <td className="py-4 pr-4 text-gray-600 hidden sm:table-cell">{unidad}</td>
-                      <td className="py-4 pr-4 text-right tabular-nums text-gray-700 hidden lg:table-cell">
+                      <td className="py-3 pr-4 text-right">
+                        <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2.5 py-1 text-xs font-semibold tabular-nums text-red-600 ring-1 ring-red-100">
+                          −{Math.abs(m.cantidad)} <span className="font-normal opacity-70">{unidad}</span>
+                        </span>
+                      </td>
+                      <td className="py-3 pr-4 text-right font-semibold tabular-nums text-slate-800 hidden sm:table-cell">
                         {formatGs(valor)}
                       </td>
-                      <td className="py-4 pr-4 text-gray-600 hidden md:table-cell">{motivoDeReferencia(m.referencia)}</td>
-                      <td className="py-4 pr-4 text-xs text-gray-600 hidden lg:table-cell">
-                        {m.usuario_nombre ?? <span className="text-gray-300">—</span>}
+                      <td className="py-3 pr-4 hidden md:table-cell">
+                        <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ${motivoChipCls(motivo)}`}>
+                          {motivo}
+                        </span>
                       </td>
-                      <td className="py-4 text-xs tabular-nums text-gray-500">{formatFecha(m.fecha)}</td>
+                      <td className="py-3 pr-4 hidden lg:table-cell">
+                        {m.usuario_nombre ? (
+                          <div className="flex items-center gap-2">
+                            <div className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-[10px] font-bold uppercase text-slate-500">
+                              {inicial(m.usuario_nombre)}
+                            </div>
+                            <span className="text-xs text-slate-600">{m.usuario_nombre}</span>
+                          </div>
+                        ) : (
+                          <span className="text-slate-300">—</span>
+                        )}
+                      </td>
+                      <td className="py-3 text-xs tabular-nums text-slate-500">{formatFecha(m.fecha)}</td>
                     </tr>
                   );
                 })
@@ -428,39 +475,58 @@ export default function PerdidasPage() {
         </div>
         ) : (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] sm:min-w-0 text-left text-sm">
+          <table className="w-full min-w-[680px] sm:min-w-0 text-left text-sm">
             <thead>
-              <tr className="border-b text-gray-500">
-                <th className="py-3 pr-4 font-medium">Producto</th>
-                <th className="py-3 pr-4 font-medium hidden md:table-cell">SKU</th>
-                <th className="py-3 pr-4 font-medium text-right">Cantidad perdida</th>
-                <th className="py-3 pr-4 font-medium hidden sm:table-cell">Unidad</th>
-                <th className="py-3 pr-4 font-medium text-right">Valor</th>
-                <th className="py-3 pr-4 font-medium text-right hidden lg:table-cell">Registros</th>
-                <th className="py-3 font-medium hidden lg:table-cell">Última pérdida</th>
+              <tr className="border-b border-slate-200 text-[11px] uppercase tracking-wide text-slate-400">
+                <th className="py-3 pr-4 font-semibold">Producto</th>
+                <th className="py-3 pr-4 text-right font-semibold">Cantidad perdida</th>
+                <th className="py-3 pr-4 text-right font-semibold">Valor</th>
+                <th className="py-3 pr-4 text-right font-semibold hidden lg:table-cell">Registros</th>
+                <th className="py-3 font-semibold hidden lg:table-cell">Última pérdida</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-slate-100">
               {cargando ? (
-                <tr>
-                  <td colSpan={7} className="py-12 text-center text-gray-400 animate-pulse">Cargando…</td>
-                </tr>
+                Array.from({ length: 5 }).map((_, i) => (
+                  <tr key={`skg-${i}`}>
+                    <td className="py-3.5 pr-4" colSpan={5}>
+                      <div className="h-9 w-full animate-pulse rounded-lg bg-slate-100" />
+                    </td>
+                  </tr>
+                ))
               ) : agrupados.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-gray-400">
-                    {movs.length === 0 ? "Todavía no hay pérdidas registradas." : "Ninguna pérdida coincide con los filtros."}
+                  <td colSpan={5} className="py-16 text-center">
+                    <div className="mx-auto flex max-w-xs flex-col items-center gap-2 text-slate-400">
+                      <PackageX className="h-10 w-10 text-slate-300" />
+                      <p className="text-sm font-medium text-slate-500">
+                        {movs.length === 0 ? "Todavía no hay pérdidas registradas" : "Ninguna pérdida coincide con los filtros"}
+                      </p>
+                    </div>
                   </td>
                 </tr>
               ) : (
                 agrupados.map((g) => (
-                  <tr key={g.producto_id} className="border-b last:border-0 hover:bg-gray-50">
-                    <td className="py-4 pr-4 font-medium text-gray-800">{g.nombre}</td>
-                    <td className="py-4 pr-4 font-mono text-gray-500 hidden md:table-cell">{g.sku}</td>
-                    <td className="py-4 pr-4 text-right font-semibold tabular-nums text-amber-700">−{g.cantidad}</td>
-                    <td className="py-4 pr-4 text-gray-600 hidden sm:table-cell">{g.unidad}</td>
-                    <td className="py-4 pr-4 text-right font-semibold tabular-nums text-gray-800">{formatGs(g.valor)}</td>
-                    <td className="py-4 pr-4 text-right tabular-nums text-gray-600 hidden lg:table-cell">{g.registros}</td>
-                    <td className="py-4 text-xs tabular-nums text-gray-500 hidden lg:table-cell">{formatFecha(g.ultima)}</td>
+                  <tr key={g.producto_id} className="transition-colors hover:bg-amber-50/40">
+                    <td className="py-3 pr-4">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-sm font-bold uppercase text-amber-700">
+                          {inicial(g.nombre)}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="truncate font-medium text-slate-800">{g.nombre}</p>
+                          <p className="font-mono text-xs text-slate-400">{g.sku}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="py-3 pr-4 text-right">
+                      <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2.5 py-1 text-xs font-semibold tabular-nums text-red-600 ring-1 ring-red-100">
+                        −{g.cantidad} <span className="font-normal opacity-70">{g.unidad}</span>
+                      </span>
+                    </td>
+                    <td className="py-3 pr-4 text-right font-semibold tabular-nums text-slate-800">{formatGs(g.valor)}</td>
+                    <td className="py-3 pr-4 text-right tabular-nums text-slate-500 hidden lg:table-cell">{g.registros}</td>
+                    <td className="py-3 text-xs tabular-nums text-slate-500 hidden lg:table-cell">{formatFecha(g.ultima)}</td>
                   </tr>
                 ))
               )}
