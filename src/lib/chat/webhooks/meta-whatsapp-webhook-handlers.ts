@@ -73,12 +73,23 @@ export async function handleWhatsAppWebhookGet(request: NextRequest): Promise<Ne
 export async function handleWhatsAppWebhookPost(request: NextRequest): Promise<NextResponse> {
   try {
     const rawBody = await request.text();
-    const appSecret = process.env.WHATSAPP_APP_SECRET;
-    if (appSecret) {
-      const sig = request.headers.get("x-hub-signature-256");
-      if (!verifyMetaSignature(rawBody, sig, appSecret)) {
-        return NextResponse.json({ ok: false, error: "Firma inválida" }, { status: 401 });
-      }
+    const appSecret = process.env.WHATSAPP_APP_SECRET?.trim();
+    // Fail-closed: sin WHATSAPP_APP_SECRET no podemos verificar nada → rechazar
+    // antes de tocar el body. El comportamiento anterior procesaba el evento
+    // sin validar firma cuando faltaba la env, lo que en deploys mal
+    // configurados permitía que cualquiera publicara mensajes.
+    if (!appSecret) {
+      console.error("[meta-webhook] WHATSAPP_APP_SECRET no configurado; webhook bloqueado.");
+      return NextResponse.json({ ok: false, error: "Webhook no configurado" }, { status: 503 });
+    }
+    // Validar firma ANTES de cualquier parsing — minimiza superficie y carga
+    // de trabajo ante requests no autenticados.
+    const sig = request.headers.get("x-hub-signature-256");
+    if (!sig) {
+      return NextResponse.json({ ok: false, error: "Falta x-hub-signature-256" }, { status: 401 });
+    }
+    if (!verifyMetaSignature(rawBody, sig, appSecret)) {
+      return NextResponse.json({ ok: false, error: "Firma inválida" }, { status: 401 });
     }
 
     let body: unknown;

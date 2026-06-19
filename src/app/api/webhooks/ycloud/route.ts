@@ -55,6 +55,15 @@ export async function POST(request: NextRequest) {
     request.headers.get("YCloud-Signature") ??
     request.headers.get("x-ycloud-signature");
 
+  // Defensa temprana: sin header de firma, rechazar antes del JSON.parse.
+  // La verificación HMAC contra el secreto del canal se hace más abajo en
+  // resolveYCloudChannelForWebhook (necesita resolver canal primero), pero
+  // descartar acá ahorra ciclos y bloquea probing/scraping.
+  if (!sigHeader || sigHeader.trim().length === 0) {
+    console.warn(LOG, LOG_IN, "falta header de firma");
+    return new Response("Unauthorized", { status: 401 });
+  }
+
   let body: unknown;
   try {
     body = JSON.parse(rawBody);
