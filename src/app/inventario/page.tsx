@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { getProductos } from "@/lib/inventario/storage";
+import { getProductos, getUbicaciones, type UbicacionMin } from "@/lib/inventario/storage";
 import type { Producto, MetodoValuacion } from "@/lib/inventario/types";
 import ExportExcelButton from "@/components/ui/ExportExcelButton";
 import ImportExcelButton from "@/components/ui/ImportExcelButton";
@@ -44,8 +44,6 @@ function margenColor(margen: number): string {
   return "text-red-600";
 }
 
-interface UbicacionMin { id: string; nombre: string; tipo: string }
-
 export default function InventarioPage() {
   const { isAdmin } = useIsAdmin();
   const [todos, setTodos] = useState<Producto[]>([]);
@@ -74,12 +72,10 @@ export default function InventarioPage() {
       .finally(() => {
         if (!cancelled) setCargandoLista(false);
       });
-    // Ubicaciones para el filtro
-    fetch("/api/inventario/ubicaciones", { credentials: "include", cache: "no-store" })
-      .then((r) => r.json())
-      .then((j) => {
-        if (cancelled || !j?.success) return;
-        setUbicaciones((j.data?.ubicaciones ?? []) as UbicacionMin[]);
+    // Ubicaciones para el filtro (catálogo estable, cacheado SWR 5min).
+    getUbicaciones()
+      .then((rows) => {
+        if (!cancelled) setUbicaciones(rows);
       })
       .catch(() => undefined);
     return () => { cancelled = true; };

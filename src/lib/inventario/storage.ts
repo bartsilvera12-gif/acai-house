@@ -12,7 +12,35 @@ import type {
 // productos o registrar movimientos sin esperar al TTL.
 const SWR_PRODUCTOS = "/api/productos";
 const SWR_MOVIMIENTOS = "/api/inventario/movimientos";
+const SWR_UBICACIONES = "/api/inventario/ubicaciones";
 const swrProducto = (id: string) => `/api/productos/${id}`;
+
+/** Mínimo necesario para selectores y filtros (no es el row admin completo). */
+export interface UbicacionMin {
+  id: string;
+  nombre: string;
+  tipo: string;
+}
+
+/** Lista ubicaciones (catálogo estable). Cacheado con SWR 5min. Invalidá la
+ * cache desde la pantalla de admin de ubicaciones con `invalidateUbicaciones()`. */
+export async function getUbicaciones(): Promise<UbicacionMin[]> {
+  return swrFetch<UbicacionMin[]>(SWR_UBICACIONES, async () => {
+    try {
+      const r = await fetch("/api/inventario/ubicaciones", { credentials: "include" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j?.success) return [];
+      return ((j.data?.ubicaciones ?? []) as UbicacionMin[]);
+    } catch {
+      return [];
+    }
+  }, 5 * 60_000);
+}
+
+/** Llamar tras crear/editar/eliminar ubicación. */
+export function invalidateUbicaciones(): void {
+  invalidateSwr(SWR_UBICACIONES);
+}
 
 // ─── Tipos de fila Supabase ───────────────────────────────────────────────────
 

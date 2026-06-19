@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import ExportExcelButton from "@/components/ui/ExportExcelButton";
 import ImportExcelButton from "@/components/ui/ImportExcelButton";
 import { useIsAdmin } from "@/lib/auth/use-is-admin";
+import { invalidateUbicaciones } from "@/lib/inventario/storage";
 
 interface Ubicacion {
   id: string;
@@ -67,6 +68,7 @@ export default function UbicacionesPage() {
         setError(j?.error ?? "No se pudo crear.");
       } else {
         setNombre(""); setCodigo(""); setTipo("deposito"); setParentId("");
+        invalidateUbicaciones();
         await load();
       }
     } catch (e) {
@@ -84,8 +86,12 @@ export default function UbicacionesPage() {
       body: JSON.stringify({ activo: !u.activo }),
     });
     const j = await r.json();
-    if (r.ok && j?.success) load();
-    else setError(j?.error ?? "No se pudo actualizar.");
+    if (r.ok && j?.success) {
+      invalidateUbicaciones();
+      load();
+    } else {
+      setError(j?.error ?? "No se pudo actualizar.");
+    }
   }
 
   return (
