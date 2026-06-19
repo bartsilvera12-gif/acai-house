@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getTenantSupabaseFromAuth } from "@/lib/supabase/tenant-api";
 import { successResponse, errorResponse } from "@/lib/api/response";
 import { API_ERRORS } from "@/lib/api/errors";
+import { validateUploadMime } from "@/lib/security/file-magic-bytes";
 import {
   ALLOWED_IMAGE_MIME,
   MAX_IMAGE_BYTES,
@@ -95,6 +96,16 @@ export async function POST(
       );
     }
 
+    // Validar magic bytes (cliente puede declarar MIME falso).
+    const buf = Buffer.from(await file.arrayBuffer());
+    const realMime = validateUploadMime(buf, ALLOWED_IMAGE_MIME, file.type);
+    if (!realMime) {
+      return NextResponse.json(
+        errorResponse("El contenido de la imagen no coincide con el tipo declarado."),
+        { status: 400 }
+      );
+    }
+
     // 3) Bucket idempotente
     try {
       await ensureProductosImagenesBucket(supabase);
@@ -108,12 +119,11 @@ export async function POST(
       await supabase.storage.from(PRODUCTOS_IMAGENES_BUCKET).remove([prod.imagen_path]);
     }
 
-    // 5) Upload nuevo
-    const path = buildProductoImagenPath(empresaId, productoId, file.type);
-    const buf = Buffer.from(await file.arrayBuffer());
+    // 5) Upload nuevo — usar MIME real detectado, no el declarado.
+    const path = buildProductoImagenPath(empresaId, productoId, realMime);
     const up = await supabase.storage
       .from(PRODUCTOS_IMAGENES_BUCKET)
-      .upload(path, buf, { contentType: file.type, upsert: true });
+      .upload(path, buf, { contentType: realMime, upsert: true });
     if (up.error) {
       console.error("[/api/productos/[id]/imagen POST] upload", { empresaId, productoId, message: up.error.message });
       return NextResponse.json(

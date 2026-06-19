@@ -3,6 +3,7 @@ import { randomUUID } from "crypto";
 import { getTenantSupabaseFromAuth } from "@/lib/supabase/tenant-api";
 import { successResponse, errorResponse } from "@/lib/api/response";
 import { API_ERRORS } from "@/lib/api/errors";
+import { validateUploadMime } from "@/lib/security/file-magic-bytes";
 import {
   ALLOWED_COMPROBANTE_MIME,
   COMPRAS_FACTURAS_BUCKET,
@@ -40,6 +41,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(errorResponse(`Archivo demasiado grande (máx. ${mb} MB).`), { status: 413 });
     }
 
+    // Validar magic bytes: detectar el tipo real del archivo. Cualquiera puede
+    // mandar `file.type: "image/png"` con un .exe dentro — esto lo detecta.
+    const buf = Buffer.from(await file.arrayBuffer());
+    const realMime = validateUploadMime(buf, ALLOWED_COMPROBANTE_MIME, file.type);
+    if (!realMime) {
+      return NextResponse.json(
+        errorResponse("El contenido del archivo no coincide con el tipo declarado."),
+        { status: 400 }
+      );
+    }
+
     try {
       await ensureComprasFacturasBucket(supabase);
     } catch (bucketErr) {
@@ -47,11 +59,11 @@ export async function POST(request: NextRequest) {
       // Continuar: si el bucket ya existe pero el ensure falla por permisos, el upload puede andar igual.
     }
 
-    const path = buildComprobantePath(empresaId, randomUUID(), file.type);
-    const buf = Buffer.from(await file.arrayBuffer());
+    // Usar el MIME real (no el declarado) en el path y al subir.
+    const path = buildComprobantePath(empresaId, randomUUID(), realMime);
     const up = await supabase.storage
       .from(COMPRAS_FACTURAS_BUCKET)
-      .upload(path, buf, { contentType: file.type, upsert: false });
+      .upload(path, buf, { contentType: realMime, upsert: false });
     if (up.error) {
       console.error("[compras/comprobante/upload] upload", { empresaId, message: up.error.message });
       return NextResponse.json(errorResponse(`No se pudo subir el comprobante: ${up.error.message}`), { status: 500 });
@@ -60,7 +72,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(successResponse({
       comprobante_storage_path: path,
       comprobante_nombre: (file.name || "comprobante").slice(0, 200),
-      comprobante_mime_type: file.type,
+      comprobante_mime_type: realMime,
     }));
   } catch (err) {
     console.error("[compras/comprobante/upload] outer", err instanceof Error ? err.message : err);
