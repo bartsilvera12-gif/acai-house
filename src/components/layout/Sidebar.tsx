@@ -4,7 +4,8 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+// framer-motion removido: las animaciones del sidebar pasaron a CSS puro para
+// no cargar la lib (~30KB) en el bundle del shell de cada navegación.
 import {
   LayoutDashboard,
   ShoppingCart,
@@ -285,14 +286,17 @@ function NavItemBase({
             </>
           )}
         </div>
-        <AnimatePresence>
-          {expanded && !collapsed && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: "auto", opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              className="overflow-hidden pl-4 space-y-0.5"
-            >
+        {/* Expand/collapse de submenú con grid trick (CSS puro): el wrapper
+            anima `grid-template-rows: 0fr ↔ 1fr` lo que permite height auto
+            animable sin JS. motion-safe respeta prefers-reduced-motion. */}
+        {!collapsed && (
+          <div
+            aria-hidden={!expanded}
+            className={`grid overflow-hidden motion-safe:transition-[grid-template-rows,opacity] motion-safe:duration-200 ${
+              expanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
+            }`}
+          >
+            <div className="min-h-0 pl-4 space-y-0.5">
               {item.children.map((c) => (
                 <Link
                   key={c.href}
@@ -304,13 +308,14 @@ function NavItemBase({
                       ? "bg-[color:var(--zentra-sidebar-active)] text-white font-medium shadow-[inset_3px_0_0_var(--zentra-sidebar-accent)]"
                       : "text-slate-300 hover:bg-[color:var(--zentra-sidebar-hover)]"
                   }`}
+                  tabIndex={expanded ? 0 : -1}
                 >
                   {c.label}
                 </Link>
               ))}
-            </motion.div>
-          )}
-        </AnimatePresence>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -706,12 +711,11 @@ export default function Sidebar() {
         />
       ) : null}
 
-      <motion.aside
+      <aside
         id="neura-sidebar"
-        initial={false}
-        animate={{ width: collapsed ? 80 : 260 }}
-        transition={{ duration: 0.2 }}
-        className={`zentra-sidebar-bg flex h-svh min-h-0 shrink-0 flex-col border-r border-[color:var(--zentra-sidebar-border)] lg:relative lg:z-auto lg:translate-x-0 lg:shadow-none ${
+        // Ancho animado por CSS (motion-safe respeta prefers-reduced-motion).
+        style={{ width: collapsed ? 80 : 260 }}
+        className={`zentra-sidebar-bg flex h-svh min-h-0 shrink-0 flex-col border-r border-[color:var(--zentra-sidebar-border)] motion-safe:transition-[width] motion-safe:duration-200 lg:relative lg:z-auto lg:translate-x-0 lg:shadow-none ${
           mobileSidebarOpen
             ? "fixed inset-y-0 left-0 z-50 translate-x-0 shadow-2xl transition-transform duration-200"
             : "fixed inset-y-0 left-0 z-50 -translate-x-full lg:translate-x-0 transition-transform duration-200"
@@ -901,15 +905,17 @@ export default function Sidebar() {
 
         {scrollIndicator.visible ? (
           <div className="pointer-events-none absolute inset-y-2.5 right-1.5 w-1 rounded-full bg-white/[0.035]">
-            <motion.span
-              className="absolute left-0 top-0 block w-full rounded-full bg-[#4FAEB2]/55 shadow-[0_0_10px_rgba(79,174,178,0.32)]"
-              animate={{ height: scrollIndicator.thumbHeight, y: scrollIndicator.thumbTop }}
-              transition={{ type: "spring", stiffness: 420, damping: 38, mass: 0.35 }}
+            <span
+              className="absolute left-0 top-0 block w-full rounded-full bg-[#4FAEB2]/55 shadow-[0_0_10px_rgba(79,174,178,0.32)] motion-safe:transition-[height,transform] motion-safe:duration-150 motion-safe:ease-out"
+              style={{
+                height: scrollIndicator.thumbHeight,
+                transform: `translateY(${scrollIndicator.thumbTop}px)`,
+              }}
             />
           </div>
         ) : null}
       </div>
-      </motion.aside>
+      </aside>
     </>
   );
 }
