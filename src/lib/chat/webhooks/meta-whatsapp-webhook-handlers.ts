@@ -3,6 +3,7 @@ import { supabaseServiceRoleClientOptions, type AppSupabaseClient } from "@/lib/
 import { NextRequest, NextResponse } from "next/server";
 import type { WebhookProvisionEnv } from "@/lib/chat/channel-provision";
 import { verifyMetaSignature } from "@/lib/chat/meta-signature";
+import { checkRateLimit, getClientIp } from "@/lib/security/rate-limit";
 import { processWhatsAppWebhookBody } from "@/lib/chat/whatsapp-webhook-service";
 
 export function getSupabaseAdminForWebhooks(): AppSupabaseClient {
@@ -72,6 +73,11 @@ export async function handleWhatsAppWebhookGet(request: NextRequest): Promise<Ne
  */
 export async function handleWhatsAppWebhookPost(request: NextRequest): Promise<NextResponse> {
   try {
+    // Rate limit por IP (igual que YCloud): 120 webhooks/min.
+    const ip = getClientIp(request);
+    if (!checkRateLimit(`wh:meta:${ip}`, 120, 60_000)) {
+      return NextResponse.json({ ok: false, error: "Too Many Requests" }, { status: 429 });
+    }
     const rawBody = await request.text();
     const appSecret = process.env.WHATSAPP_APP_SECRET?.trim();
     // Fail-closed: sin WHATSAPP_APP_SECRET no podemos verificar nada → rechazar

@@ -40,6 +40,7 @@ import {
 } from "@/lib/campaigns/ycloud-outbound-campaign-status";
 import type { SupabaseAdmin } from "@/lib/chat/types";
 import { createServiceRoleClientForEmpresa } from "@/lib/supabase/empresa-data-schema";
+import { checkRateLimit, getClientIp } from "@/lib/security/rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -49,6 +50,12 @@ const LOG_IN = "[ycloud-incoming]";
 type PersistMode = "inbound" | "smb_echo";
 
 export async function POST(request: NextRequest) {
+  // Rate limit por IP — 120 webhooks/min son holgadísimos para uso real, pero
+  // cortan bots que martillean el endpoint. Si la IP excede, 429.
+  const ip = getClientIp(request);
+  if (!checkRateLimit(`wh:ycloud:${ip}`, 120, 60_000)) {
+    return new Response("Too Many Requests", { status: 429 });
+  }
   const rawBody = await request.text();
   const sigHeader =
     request.headers.get("ycloud-signature") ??
