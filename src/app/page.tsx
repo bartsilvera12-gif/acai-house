@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 // MobileDashboard se renderiza solo en mobile (md:hidden). El dashboard desktop
 // que vive en este mismo archivo queda intacto.
 import MobileDashboard from "@/app/_components/MobileDashboard";
+import ZentraLoader from "@/components/ZentraLoader";
 import CobranzasResumenCards from "@/components/cobros/CobranzasResumenCards";
 import { getConfig } from "@/lib/config/storage";
 import { getUsuarios } from "@/lib/usuarios/storage";
@@ -1965,6 +1966,9 @@ export default function DashboardPage() {
   const [ventas,         setVentas]         = useState<VentaRaw[]>([]);
   const [compras,        setCompras]        = useState<CompraRaw[]>([]);
   const [gastos,         setGastos]         = useState<GastoRaw[]>([]);
+  // Bloquea el render del dashboard hasta que getDashboardData() resuelve.
+  // Sin esto se ve un flash con todas las KPI en 0 antes de que llegue la data.
+  const [dataLoaded, setDataLoaded] = useState(false);
   // Sincronizar tab con URL al cargar (popstate / refresh)
   useEffect(() => {
     const syncFromUrl = () => {
@@ -2059,6 +2063,9 @@ export default function DashboardPage() {
         setVentas([]);
         setCompras([]);
         setGastos([]);
+      })
+      .finally(() => {
+        setDataLoaded(true);
       });
   }, []);
 
@@ -2094,15 +2101,8 @@ export default function DashboardPage() {
     ventas: { label: "Ventas", icon: "🛒" },
   };
 
-  if (!config) {
-    return (
-      <div
-        className="zentra-dashboard-shell flex min-h-[40vh] items-center justify-center rounded-2xl py-24 text-sm"
-        style={{ color: Z.muted }}
-      >
-        Cargando…
-      </div>
-    );
+  if (!config || !dataLoaded) {
+    return <ZentraLoader fullscreen={false} />;
   }
 
   // Control de acceso
