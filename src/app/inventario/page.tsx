@@ -175,6 +175,33 @@ export default function InventarioPage() {
     tab,
   ]);
 
+  // ── Paginación (50 por página) ─────────────────────────────────────────────
+  // Render de 500-5000 productos en DOM era el lag más visible al filtrar.
+  // Mostramos 50 por página y al cambiar filtros/tab volvemos a la página 1.
+  const PAGINA_TAMANO = 50;
+  const [pagina, setPagina] = useState(1);
+  useEffect(() => {
+    setPagina(1);
+  }, [
+    filtroPorNombre,
+    filtroPorSku,
+    filtroPorCosto,
+    filtroPorPrecio,
+    filtroValuacion,
+    filtroUbicacion,
+    soloStockBajo,
+    filtroTipo,
+    tab,
+  ]);
+  const totalPaginas = Math.max(1, Math.ceil(productos.length / PAGINA_TAMANO));
+  const paginaActual = Math.min(pagina, totalPaginas);
+  const desde = productos.length === 0 ? 0 : (paginaActual - 1) * PAGINA_TAMANO + 1;
+  const hasta = Math.min(paginaActual * PAGINA_TAMANO, productos.length);
+  const productosPagina = useMemo(
+    () => productos.slice((paginaActual - 1) * PAGINA_TAMANO, paginaActual * PAGINA_TAMANO),
+    [productos, paginaActual],
+  );
+
   // Resumen del listado visible (por pestaña). Solo productos que controlan stock
   // entran en valorizado / bajo / disponibles; el resto (Menú sin control) se cuenta
   // únicamente en "Total productos".
@@ -484,7 +511,7 @@ export default function InventarioPage() {
                   </td>
                 </tr>
               ) : (
-                productos.map((p) => {
+                productosPagina.map((p) => {
                   const stockBajo = p.stock_actual <= p.stock_minimo;
                   const margen = calcularMargenVenta(p.costo_promedio, p.precio_venta);
                   // "Sin control" SOLO para Menú (vendible sin stock). Los insumos
@@ -586,6 +613,41 @@ export default function InventarioPage() {
 
           </table>
         </EdgeScrollArea>
+
+        {/* Paginador (50 por página). Solo se muestra si hay más de una página. */}
+        {productos.length > PAGINA_TAMANO && (
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4 text-sm">
+            <p className="text-slate-500">
+              Mostrando <span className="font-semibold text-slate-700 tabular-nums">{desde}</span>–
+              <span className="font-semibold text-slate-700 tabular-nums">{hasta}</span> de{" "}
+              <span className="font-semibold text-slate-700 tabular-nums">{productos.length}</span>
+            </p>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setPagina((p) => Math.max(1, p - 1))}
+                disabled={paginaActual <= 1}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:border-[#4FAEB2]/50 hover:bg-[#4FAEB2]/5 hover:text-[#3F8E91] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white disabled:hover:text-slate-600"
+                aria-label="Página anterior"
+              >
+                ‹ Anterior
+              </button>
+              <span className="px-3 text-xs tabular-nums text-slate-500">
+                Página <span className="font-semibold text-slate-700">{paginaActual}</span> de{" "}
+                <span className="font-semibold text-slate-700">{totalPaginas}</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setPagina((p) => Math.min(totalPaginas, p + 1))}
+                disabled={paginaActual >= totalPaginas}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:border-[#4FAEB2]/50 hover:bg-[#4FAEB2]/5 hover:text-[#3F8E91] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white disabled:hover:text-slate-600"
+                aria-label="Página siguiente"
+              >
+                Siguiente ›
+              </button>
+            </div>
+          </div>
+        )}
 
       </div>
 
