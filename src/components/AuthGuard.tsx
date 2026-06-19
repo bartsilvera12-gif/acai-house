@@ -41,7 +41,7 @@ function AuthGuardInner({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [access, setAccess] = useState<ModuleAccess | null>(null);
   const [blockedSlug, setBlockedSlug] = useState<string | null>(null);
-  const { sidebarReady } = useBoot();
+  const { sidebarReady, dashboardReady } = useBoot();
 
   const isPublic = useMemo(
     () => !!(pathname && PUBLIC_ROUTES.includes(pathname)),
@@ -143,7 +143,11 @@ function AuthGuardInner({ children }: { children: React.ReactNode }) {
   // Overlay de carga: el loader queda encima MIENTRAS children se montan en background.
   // Así el sidebar/dashboard ya están fetcheando sus datos al desaparecer el loader.
   // Esperamos a que termine la auth Y a que el Sidebar reporte que cargó sus módulos.
-  const showLoader = !isPublic && (loading || !sidebarReady);
+  // Además, en la ruta del dashboard ("/"), esperamos a que la página reporte
+  // que terminó su fetch inicial — si no, se ve un flash de KPIs en 0.
+  const isDashboardRoute = pathname === "/";
+  const showLoader =
+    !isPublic && (loading || !sidebarReady || (isDashboardRoute && !dashboardReady));
 
   if (blockedSlug && access) {
     const fallback = firstAccessibleHref(access.slugs, {

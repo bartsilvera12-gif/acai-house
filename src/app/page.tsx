@@ -6,7 +6,7 @@ import { motion } from "framer-motion";
 // MobileDashboard se renderiza solo en mobile (md:hidden). El dashboard desktop
 // que vive en este mismo archivo queda intacto.
 import MobileDashboard from "@/app/_components/MobileDashboard";
-import ZentraLoader from "@/components/ZentraLoader";
+import { useBoot } from "@/components/BootContext";
 import CobranzasResumenCards from "@/components/cobros/CobranzasResumenCards";
 import { getConfig } from "@/lib/config/storage";
 import { getUsuarios } from "@/lib/usuarios/storage";
@@ -1966,9 +1966,10 @@ export default function DashboardPage() {
   const [ventas,         setVentas]         = useState<VentaRaw[]>([]);
   const [compras,        setCompras]        = useState<CompraRaw[]>([]);
   const [gastos,         setGastos]         = useState<GastoRaw[]>([]);
-  // Bloquea el render del dashboard hasta que getDashboardData() resuelve.
-  // Sin esto se ve un flash con todas las KPI en 0 antes de que llegue la data.
-  const [dataLoaded, setDataLoaded] = useState(false);
+  // Mantiene el ZentraLoader de AuthGuard hasta que termina getDashboardData().
+  // Sin esto, el loader desaparecía con sidebarReady y se veía el dashboard
+  // con KPIs en 0 durante el fetch.
+  const { setDashboardReady } = useBoot();
   // Sincronizar tab con URL al cargar (popstate / refresh)
   useEffect(() => {
     const syncFromUrl = () => {
@@ -2065,9 +2066,13 @@ export default function DashboardPage() {
         setGastos([]);
       })
       .finally(() => {
-        setDataLoaded(true);
+        setDashboardReady(true);
       });
-  }, []);
+    return () => {
+      // Al salir del dashboard, liberar el flag para no bloquear futuros mounts.
+      setDashboardReady(true);
+    };
+  }, [setDashboardReady]);
 
   function handleUsuarioChange(id: number) {
     setUsuarioId(id);
@@ -2101,8 +2106,10 @@ export default function DashboardPage() {
     ventas: { label: "Ventas", icon: "🛒" },
   };
 
-  if (!config || !dataLoaded) {
-    return <ZentraLoader fullscreen={false} />;
+  if (!config) {
+    // El ZentraLoader de AuthGuard sigue arriba (dashboardReady=false), así que
+    // este return solo cubre el primer frame antes de que monte el overlay.
+    return null;
   }
 
   // Control de acceso
