@@ -3,7 +3,7 @@ import { serializeUnknownError } from "@/lib/errors/serialize-unknown-error";
 import { clearBrowserEmpresaDataSchemaCache } from "@/lib/supabase/browser-data-client";
 import { usuarioEmailLookupVariants } from "@/lib/auth/usuario-email-variants";
 import { clearModuleAccessCache } from "@/lib/modulos/module-access-cache";
-import { clearSwrCache } from "@/lib/client-cache/swr-fetch";
+import { clearSwrCache, swrFetch } from "@/lib/client-cache/swr-fetch";
 import { supabase } from "./supabase";
 
 /** Fila mínima de zentra_erp.usuarios usada en el cliente. */
@@ -63,35 +63,42 @@ export async function createUser(email: string, password: string) {
   return json.user;
 }
 
+/**
+ * Cacheado con SWR (60s) + dedupe en vuelo: AuthGuard, Sidebar y otros
+ * pueden llamarlo en paralelo durante el boot sin disparar 3 queries a
+ * Supabase. signIn/signOut limpian la cache (ver más abajo).
+ */
 export async function getCurrentUser(): Promise<CurrentUsuario | null> {
-  const { data: { user } } = await supabase.auth.getUser();
+  return swrFetch<CurrentUsuario | null>("auth:currentUser", async () => {
+    const { data: { user } } = await supabase.auth.getUser();
 
-  if (!user) return null;
+    if (!user) return null;
 
-  if (user.id) {
-    const { data: byAuth, error: errAuth } = await supabase
-      .from("usuarios")
-      .select("*")
-      .eq("auth_user_id", user.id)
-      .limit(1);
-    if (errAuth) throw new Error(serializeUnknownError(errAuth));
-    const rowAuth = byAuth?.[0] as CurrentUsuario | undefined;
-    if (rowAuth) return rowAuth;
-  }
+    if (user.id) {
+      const { data: byAuth, error: errAuth } = await supabase
+        .from("usuarios")
+        .select("*")
+        .eq("auth_user_id", user.id)
+        .limit(1);
+      if (errAuth) throw new Error(serializeUnknownError(errAuth));
+      const rowAuth = byAuth?.[0] as CurrentUsuario | undefined;
+      if (rowAuth) return rowAuth;
+    }
 
-  const email = user.email?.trim();
-  if (!email) return null;
+    const email = user.email?.trim();
+    if (!email) return null;
 
-  for (const em of usuarioEmailLookupVariants(email)) {
-    const { data: rows, error } = await supabase
-      .from("usuarios")
-      .select("*")
-      .ilike("email", em)
-      .limit(1);
-    if (error) throw new Error(serializeUnknownError(error));
-    const row = rows?.[0] as CurrentUsuario | undefined;
-    if (row) return row;
-  }
+    for (const em of usuarioEmailLookupVariants(email)) {
+      const { data: rows, error } = await supabase
+        .from("usuarios")
+        .select("*")
+        .ilike("email", em)
+        .limit(1);
+      if (error) throw new Error(serializeUnknownError(error));
+      const row = rows?.[0] as CurrentUsuario | undefined;
+      if (row) return row;
+    }
 
-  return null;
+    return null;
+  });
 }
