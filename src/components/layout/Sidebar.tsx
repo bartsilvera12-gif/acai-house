@@ -3,7 +3,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   LayoutDashboard,
@@ -215,7 +215,7 @@ function modulosSyntheticFromMenu(): ModuloEmpresa[] {
   }));
 }
 
-function NavItem({
+function NavItemBase({
   item,
   itemId,
   isActive,
@@ -234,7 +234,8 @@ function NavItem({
   hasAccess: boolean;
   collapsed: boolean;
   expanded: boolean;
-  onToggleExpand: () => void;
+  /** Recibe `item.key` para que el caller pueda pasar un callback estable. */
+  onToggleExpand: (key: string) => void;
 }) {
   const Icon = item.icon;
   const p = usePathname() ?? "";
@@ -274,7 +275,7 @@ function NavItem({
               </button>
               <button
                 type="button"
-                onClick={() => onToggleExpand()}
+                onClick={() => onToggleExpand(item.key)}
                 className="shrink-0 rounded p-1 text-current hover:opacity-90"
                 aria-expanded={expanded}
                 aria-label={expanded ? "Contraer submenú" : "Expandir submenú"}
@@ -344,6 +345,14 @@ function NavItem({
   );
 }
 
+/**
+ * NavItem memoizado: la búsqueda del menú y los toggles re-renderizan el
+ * Sidebar entero en cada keystroke. Sin memo, los ~30 items se reconcilian
+ * cada vez. Con props estables (callbacks vía useCallback en el padre),
+ * memo evita el trabajo cuando nada del item cambió.
+ */
+const NavItem = memo(NavItemBase);
+
 export default function Sidebar() {
   const pathname = usePathname();
   const navScrollRef = useRef<HTMLElement | null>(null);
@@ -387,6 +396,21 @@ export default function Sidebar() {
   const [esSuperAdmin, setEsSuperAdmin] = useState<boolean>(!!cachedAccess?.superAdmin);
   /** Filtro visual del menú (no altera permisos ni rutas). */
   const [menuSearchQuery, setMenuSearchQuery] = useState("");
+  // Versión debounced de la búsqueda: el input se actualiza al instante (UX),
+  // pero los memos de filtrado y la expansión automática de padres usan este
+  // valor con 150ms de retraso → evita renormalizar acentos y recomputar
+  // todo el árbol en cada keystroke.
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  useEffect(() => {
+    if (menuSearchQuery === debouncedSearch) return;
+    // Borrar inmediato cuando se vacía (que el listado vuelva sin demora).
+    if (menuSearchQuery === "") {
+      setDebouncedSearch("");
+      return;
+    }
+    const t = setTimeout(() => setDebouncedSearch(menuSearchQuery), 150);
+    return () => clearTimeout(t);
+  }, [menuSearchQuery, debouncedSearch]);
   const { setSidebarReady, mobileSidebarOpen, setMobileSidebarOpen } = useBoot();
 
   const updateScrollIndicator = useCallback(() => {
@@ -551,9 +575,11 @@ export default function Sidebar() {
     };
   }, []);
 
-  const handleToggleFavorito = (id: string) => {
+  // Estable entre renders → permite que React.memo(NavItem) detenga renders
+  // innecesarios al tipear en el buscador del menú o togglear familias.
+  const handleToggleFavorito = useCallback((id: string) => {
     setFavoritos(toggleFavorito(id));
-  };
+  }, []);
 
   const modulosSlugs = new Set(modulos.map((m) => m.slug));
   const inactiveSlugsSet = useMemo(() => new Set(inactiveSlugsList), [inactiveSlugsList]);
@@ -568,9 +594,9 @@ export default function Sidebar() {
     return p === href || p.startsWith(href + "/");
   };
 
-  const toggleExpand = (menuKey: string) => {
+  const toggleExpand = useCallback((menuKey: string) => {
     setExpandedItems((prev) => ({ ...prev, [menuKey]: !prev[menuKey] }));
-  };
+  }, []);
 
   const slugToId = (slug: string) => modulos.find((m) => m.slug === slug)?.id ?? slug;
 
@@ -583,9 +609,9 @@ export default function Sidebar() {
       (item) =>
         favoritos.includes(idForSlug(item.slug)) &&
         access(item.slug) &&
-        menuItemMatchesQuery(item, menuSearchQuery)
+        menuItemMatchesQuery(item, debouncedSearch)
     );
-  }, [favoritos, menuSearchQuery, modulos, esSuperAdmin, inactiveSlugsSet, strictAllowlist]);
+  }, [favoritos, debouncedSearch, modulos, esSuperAdmin, inactiveSlugsSet, strictAllowlist]);
 
   const mainItemsFiltered = useMemo(() => {
     const slugs = new Set(modulos.map((m) => m.slug));
@@ -596,9 +622,9 @@ export default function Sidebar() {
       (item) =>
         !favoritos.includes(idForSlug(item.slug)) &&
         access(item.slug) &&
-        menuItemMatchesQuery(item, menuSearchQuery)
+        menuItemMatchesQuery(item, debouncedSearch)
     );
-  }, [favoritos, menuSearchQuery, modulos, esSuperAdmin, inactiveSlugsSet, strictAllowlist]);
+  }, [favoritos, debouncedSearch, modulos, esSuperAdmin, inactiveSlugsSet, strictAllowlist]);
 
   // Agrupar los ítems visibles del menú principal por familias (solo visual).
   const seccionesMenu = useMemo(() => {
@@ -622,18 +648,18 @@ export default function Sidebar() {
   const familiaExpandida = (id: string) => expandedFamilies[id] ?? (id === "inicio");
   const toggleFamilia = (id: string) =>
     setExpandedFamilies((prev) => ({ ...prev, [id]: !(prev[id] ?? true) }));
-  const forzarExpandirFamilias = normalizeMenuSearch(menuSearchQuery).length > 0;
+  const forzarExpandirFamilias = normalizeMenuSearch(debouncedSearch).length > 0;
 
   const anyMenuVisible =
     favoritosItemsFiltered.length > 0 ||
     mainItemsFiltered.length > 0 ||
-    (esSuperAdmin && adminEmpresasMatchesQuery(menuSearchQuery));
+    (esSuperAdmin && adminEmpresasMatchesQuery(debouncedSearch));
 
   const showMenuNoResults =
-    !cargando && normalizeMenuSearch(menuSearchQuery).length > 0 && !anyMenuVisible;
+    !cargando && normalizeMenuSearch(debouncedSearch).length > 0 && !anyMenuVisible;
 
   useEffect(() => {
-    const q = menuSearchQuery.trim();
+    const q = debouncedSearch.trim();
     if (!q) return;
     const n = normalizeMenuSearch(q);
     setExpandedItems((prev) => {
@@ -645,7 +671,7 @@ export default function Sidebar() {
       }
       return next;
     });
-  }, [menuSearchQuery]);
+  }, [debouncedSearch]);
 
   useEffect(() => {
     const el = navScrollRef.current;
@@ -773,7 +799,7 @@ export default function Sidebar() {
                   hasAccess={hasAccess(item.slug)}
                   collapsed={collapsed}
                   expanded={expandedItems[item.key] ?? false}
-                  onToggleExpand={() => toggleExpand(item.key)}
+                  onToggleExpand={toggleExpand}
                 />
               ))}
             </div>
@@ -797,7 +823,7 @@ export default function Sidebar() {
                 hasAccess={hasAccess(item.slug)}
                 collapsed={collapsed}
                 expanded={expandedItems[item.key] ?? false}
-                onToggleExpand={() => toggleExpand(item.key)}
+                onToggleExpand={toggleExpand}
               />
             ))}
           </div>
@@ -841,7 +867,7 @@ export default function Sidebar() {
                         hasAccess={hasAccess(item.slug)}
                         collapsed={collapsed}
                         expanded={expandedItems[item.key] ?? false}
-                        onToggleExpand={() => toggleExpand(item.key)}
+                        onToggleExpand={toggleExpand}
                       />
                     ))}
                   </div>
@@ -852,7 +878,7 @@ export default function Sidebar() {
         )}
 
         {/* Admin */}
-        {esSuperAdmin && adminEmpresasMatchesQuery(menuSearchQuery) && (
+        {esSuperAdmin && adminEmpresasMatchesQuery(debouncedSearch) && (
           <div className="mt-6 pt-4 border-t border-[color:var(--zentra-sidebar-border)]">
             {!collapsed && (
               <p className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Admin</p>
