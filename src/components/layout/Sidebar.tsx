@@ -203,7 +203,7 @@ const MENU_FAMILIES: { id: string; titulo: string; keys: string[] }[] = [
   { id: "finanzas", titulo: "Finanzas", keys: ["pagos", "gastos", "notas_credito", "reportes"] },
   { id: "operaciones", titulo: "Operaciones", keys: ["inventario", "compras", "recetas", "proyectos"] },
   { id: "omnicanal", titulo: "Omnicanal", keys: ["conversaciones", "conversaciones-finalizadas", "historial-omnicanal", "monitoreo", "campanas"] },
-  { id: "marketing", titulo: "Marketing y Automatización", keys: ["marketing", "marketing_ops", "sorteos"] },
+  { id: "marketing", titulo: "Marketing", keys: ["marketing", "marketing_ops", "sorteos"] },
   { id: "administracion", titulo: "Administración", keys: ["usuarios", "configuracion"] },
 ];
 
@@ -802,17 +802,31 @@ export default function Sidebar() {
             ))}
           </div>
         ) : (
-          seccionesMenu.map((seccion) => {
+          seccionesMenu.map((seccion, idx) => {
             const abierta = familiaExpandida(seccion.id) || forzarExpandirFamilias;
             return (
-              <div key={seccion.id} className="mb-3">
+              <div
+                key={seccion.id}
+                className={`pb-2 ${idx > 0 ? "mt-3 border-t border-[color:var(--zentra-sidebar-border)]/40 pt-3" : ""}`}
+              >
                 <button
                   type="button"
                   onClick={() => toggleFamilia(seccion.id)}
-                  className="mb-1.5 flex w-full items-center justify-between rounded px-3 py-1.5 text-sm font-bold uppercase tracking-wide text-slate-100 transition-colors hover:text-white"
+                  className="group mb-1 flex w-full items-center justify-between rounded px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-400 transition-colors hover:text-slate-100"
                 >
-                  <span>{seccion.titulo}</span>
-                  {abierta ? <ChevronDown className="h-4 w-4 text-slate-300" /> : <ChevronRight className="h-4 w-4 text-slate-300" />}
+                  <span className="flex items-center gap-2 whitespace-nowrap">
+                    <span
+                      aria-hidden="true"
+                      className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-[#4FAEB2] transition-shadow"
+                      style={{ boxShadow: "0 0 0 3px rgba(79, 174, 178, 0.15)" }}
+                    />
+                    {seccion.titulo}
+                  </span>
+                  {abierta ? (
+                    <ChevronDown className="h-3.5 w-3.5 text-slate-500 transition-colors group-hover:text-slate-300" />
+                  ) : (
+                    <ChevronRight className="h-3.5 w-3.5 text-slate-500 transition-colors group-hover:text-slate-300" />
+                  )}
                 </button>
                 {abierta && (
                   <div className="space-y-0.5">
