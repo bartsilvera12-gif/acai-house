@@ -376,7 +376,8 @@ export default function Sidebar() {
     sorteos: true,
     compras: true,
   });
-  // Familias del menú colapsables (agrupamiento visual). Abiertas por defecto.
+  // Familias del menú colapsables (agrupamiento visual). Solo "Inicio" abierta
+  // por defecto (ver familiaExpandida); el resto arranca colapsado en cada carga.
   const [expandedFamilies, setExpandedFamilies] = useState<Record<string, boolean>>({});
   // cargando arranca en false si ya hidratamos desde cache; el spinner solo
   // aparece en el primer login real, no al volver a la pestaña.
@@ -616,7 +617,9 @@ export default function Sidebar() {
     return secciones;
   }, [mainItemsFiltered]);
 
-  const familiaExpandida = (id: string) => expandedFamilies[id] ?? true; // abiertas por defecto
+  // Por defecto solo "Inicio" abierta; el resto colapsado. Como expandedFamilies
+  // se reinicia en cada carga, el sidebar arranca así cada vez que se entra.
+  const familiaExpandida = (id: string) => expandedFamilies[id] ?? (id === "inicio");
   const toggleFamilia = (id: string) =>
     setExpandedFamilies((prev) => ({ ...prev, [id]: !(prev[id] ?? true) }));
   const forzarExpandirFamilias = normalizeMenuSearch(menuSearchQuery).length > 0;
