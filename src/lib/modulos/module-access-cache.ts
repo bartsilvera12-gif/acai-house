@@ -13,7 +13,8 @@
  * sincrónico, el Sidebar se hidrata sin flash de loader.
  *
  * Solución:
- *   - localStorage con TTL de 10 minutos.
+ *   - localStorage con TTL de 60 minutos (los módulos de la empresa
+ *     cambian muy rara vez; signIn/signOut invalidan explícitamente).
  *   - peekModuleAccessCache(): lectura síncrona para hidratar useState inicial.
  *   - Invalidación: signOut() llama clearModuleAccessCache(); SIGNED_IN
  *     llama getModuleAccessCached({ forceRefresh: true }) por si cambió user.
@@ -21,7 +22,7 @@
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 
 const CACHE_KEY = "neura.moduleAccess.v1";
-const TTL_MS = 10 * 60 * 1000; // 10 minutos
+const TTL_MS = 60 * 60 * 1000; // 60 minutos — invalidación explícita en signIn/signOut
 
 export type ModuleAccessResponse = {
   superAdmin?: boolean;
