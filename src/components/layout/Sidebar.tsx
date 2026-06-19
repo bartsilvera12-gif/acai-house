@@ -17,6 +17,7 @@ import {
   ChevronDown,
   ChevronRight,
   ChevronLeft,
+  TrendingUp,
   Star,
   Sparkles,
   Search,
@@ -87,6 +88,7 @@ function adminEmpresasMatchesQuery(queryRaw: string): boolean {
 
 const MENU_STRUCTURE: MenuItem[] = [
   { key: "dashboard", slug: "dashboard", label: "Dashboard", href: "/", icon: LayoutDashboard },
+  { key: "gerencia", slug: "gerencia", label: "Gerencia", href: "/dashboard/gerencia", icon: TrendingUp },
   {
     key: "conversaciones",
     slug: "conversaciones",
@@ -196,7 +198,7 @@ const MENU_STRUCTURE: MenuItem[] = [
  * `MenuItem.key`. Los ítems sin familia caen en "Otros" (no se ocultan).
  */
 const MENU_FAMILIES: { id: string; titulo: string; keys: string[] }[] = [
-  { id: "inicio", titulo: "Inicio", keys: ["dashboard"] },
+  { id: "inicio", titulo: "Inicio", keys: ["dashboard", "gerencia"] },
   { id: "comercial", titulo: "Comercial", keys: ["clientes", "crm", "gestion-clientes", "ventas", "presupuestos", "comisiones", "planes"] },
   { id: "finanzas", titulo: "Finanzas", keys: ["pagos", "gastos", "notas_credito", "reportes"] },
   { id: "operaciones", titulo: "Operaciones", keys: ["inventario", "compras", "recetas", "proyectos"] },
