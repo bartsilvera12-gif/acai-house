@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { ClipboardList, Hash, Landmark, Percent, Users } from "lucide-react";
-import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
+import { getEmpresaContext } from "@/lib/auth/empresa-context";
 import { apiGetGestionTributariaClientes, apiPatchGestionTributariaClientes } from "@/lib/api/client";
 import {
   ConfigFormCard,
@@ -45,20 +45,10 @@ export default function ConfiguracionFacturacionPage() {
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetchWithSupabaseSession("/api/auth/empresa-context", { cache: "no-store" });
-        const json = (await res.json()) as { success?: boolean; data?: { es_admin?: boolean } };
-        if (cancelled) return;
-        if (res.ok && json.success && json.data?.es_admin != null) {
-          setEsAdmin(Boolean(json.data.es_admin));
-          return;
-        }
-      } catch {
-        /* ignore */
-      }
-      if (!cancelled) setEsAdmin(false);
-    })();
+    getEmpresaContext().then((ctx) => {
+      if (cancelled) return;
+      setEsAdmin(Boolean(ctx?.es_admin));
+    });
     return () => {
       cancelled = true;
     };

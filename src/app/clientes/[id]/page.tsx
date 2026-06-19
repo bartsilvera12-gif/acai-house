@@ -28,7 +28,7 @@ import {
 import { getFacturas, getSuscripciones } from "@/lib/facturacion/storage";
 import { getMarketingTasks, createMarketingTask, updateTaskStatus } from "@/lib/marketing/storage";
 import { getUsuariosActivosEmpresa, type UsuarioEmpresa } from "@/lib/usuarios/empresa";
-import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
+import { getEmpresaContext } from "@/lib/auth/empresa-context";
 import { SifenEstadoBadge } from "@/components/sifen/SifenEstadoBadge";
 import { useFacturaSifenEstados } from "@/hooks/useFacturaSifenEstados";
 import MontoInput from "@/components/ui/MontoInput";
@@ -424,21 +424,10 @@ export default function ClienteDetailPage() {
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      try {
-        const res = await fetchWithSupabaseSession("/api/auth/empresa-context", { cache: "no-store" });
-        const json = (await res.json()) as { success?: boolean; data?: { es_admin?: boolean } };
-        if (cancelled) return;
-        if (res.ok && json.success && json.data?.es_admin != null) {
-          setEsAdmin(Boolean(json.data.es_admin));
-          return;
-        }
-      } catch {
-        /* fallback abajo */
-      }
+    getEmpresaContext().then((ctx) => {
       if (cancelled) return;
-      setEsAdmin(false);
-    })();
+      setEsAdmin(Boolean(ctx?.es_admin));
+    });
     return () => {
       cancelled = true;
     };

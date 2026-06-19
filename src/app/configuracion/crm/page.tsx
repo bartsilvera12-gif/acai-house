@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ConfigFormCard, ConfigSectionTitle } from "@/components/config/global-config-primitives";
 import { GlobalConfigSubpageShell } from "@/components/config/GlobalConfigSubpageShell";
 import { apiFetch } from "@/lib/api/fetch-with-supabase-session";
+import { getEmpresaContext } from "@/lib/auth/empresa-context";
 import {
   createEtapa,
   deleteEtapa,
@@ -52,27 +53,20 @@ export default function ConfiguracionCrmPipelinePage() {
 
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      try {
-        const res = await apiFetch("/api/auth/empresa-context", { cache: "no-store" });
-        const j = (await res.json()) as {
-          success?: boolean;
-          data?: { es_admin?: boolean; rol?: string | null; empresa_id?: string | null };
-        };
+    getEmpresaContext()
+      .then((ctx) => {
         if (cancelled) return;
-        if (res.ok && j.success && j.data) {
-          setPuedeConfig(Boolean(j.data.es_admin));
-          setRolDetectado(j.data.rol != null && j.data.rol !== "" ? String(j.data.rol) : null);
-          setEmpresaIdCtx(j.data.empresa_id != null && j.data.empresa_id !== "" ? String(j.data.empresa_id) : null);
+        if (ctx) {
+          setPuedeConfig(Boolean(ctx.es_admin));
+          setRolDetectado(ctx.rol);
+          setEmpresaIdCtx(ctx.empresa_id);
         } else {
           setPuedeConfig(false);
         }
-      } catch {
-        if (!cancelled) setPuedeConfig(false);
-      } finally {
+      })
+      .finally(() => {
         if (!cancelled) setRolCargado(true);
-      }
-    })();
+      });
     return () => {
       cancelled = true;
     };
