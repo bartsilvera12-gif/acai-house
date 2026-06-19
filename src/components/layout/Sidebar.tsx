@@ -216,6 +216,34 @@ function modulosSyntheticFromMenu(): ModuloEmpresa[] {
   }));
 }
 
+// ── Persistencia ligera del estado del sidebar en localStorage ───────────────
+// El usuario espera que al recargar la página el sidebar conserve qué
+// familias e items tenía abiertos (ej. "Operaciones"). Helpers guardados
+// abajo para no contaminar el render con try/catch.
+const STORAGE_EXPANDED_FAMILIES = "neura.sidebar.expandedFamilies.v1";
+const STORAGE_EXPANDED_ITEMS = "neura.sidebar.expandedItems.v1";
+
+function readSidebarPersist<T extends Record<string, boolean>>(key: string, fallback: T): T {
+  if (typeof window === "undefined") return fallback;
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? (parsed as T) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeSidebarPersist(key: string, value: Record<string, boolean>): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    /* quota / SSR / disabled storage: best-effort */
+  }
+}
+
 function NavItemBase({
   item,
   itemId,
@@ -258,6 +286,12 @@ function NavItemBase({
             href={item.href}
             prefetch={false}
             onMouseEnter={() => router.prefetch(item.href)}
+            // Un solo click: navega y, si el submenú está cerrado, lo abre.
+            // Cerrar el submenú queda solo en el chevron (no destruye el click
+            // navegacional). Más amigable que requerir dos clics distintos.
+            onClick={() => {
+              if (!collapsed && !expanded) onToggleExpand(item.key);
+            }}
             className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2.5"
             title={item.label}
           >
@@ -385,14 +419,21 @@ export default function Sidebar() {
   );
   const [favoritos, setFavoritos] = useState<string[]>([]);
   const [collapsed, setCollapsed] = useState(false);
-  const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({
-    inventario: true,
-    sorteos: true,
-    compras: true,
-  });
-  // Familias del menú colapsables (agrupamiento visual). Solo "Inicio" abierta
-  // por defecto (ver familiaExpandida); el resto arranca colapsado en cada carga.
-  const [expandedFamilies, setExpandedFamilies] = useState<Record<string, boolean>>({});
+  // Persistencia de las familias/items abiertos en localStorage: si dejé
+  // "Operaciones" abierta y recargo la página, sigue abierta. Si no hay
+  // estado guardado (primera vez), usamos los defaults históricos.
+  const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>(() =>
+    readSidebarPersist(STORAGE_EXPANDED_ITEMS, { inventario: true, sorteos: true, compras: true }),
+  );
+  const [expandedFamilies, setExpandedFamilies] = useState<Record<string, boolean>>(() =>
+    readSidebarPersist(STORAGE_EXPANDED_FAMILIES, {}),
+  );
+  useEffect(() => {
+    writeSidebarPersist(STORAGE_EXPANDED_ITEMS, expandedItems);
+  }, [expandedItems]);
+  useEffect(() => {
+    writeSidebarPersist(STORAGE_EXPANDED_FAMILIES, expandedFamilies);
+  }, [expandedFamilies]);
   // cargando arranca en false si ya hidratamos desde cache; el spinner solo
   // aparece en el primer login real, no al volver a la pestaña.
   const [cargando, setCargando] = useState<boolean>(
