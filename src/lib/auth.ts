@@ -3,6 +3,7 @@ import { serializeUnknownError } from "@/lib/errors/serialize-unknown-error";
 import { clearBrowserEmpresaDataSchemaCache } from "@/lib/supabase/browser-data-client";
 import { usuarioEmailLookupVariants } from "@/lib/auth/usuario-email-variants";
 import { clearModuleAccessCache } from "@/lib/modulos/module-access-cache";
+import { clearSwrCache } from "@/lib/client-cache/swr-fetch";
 import { supabase } from "./supabase";
 
 /** Fila mínima de zentra_erp.usuarios usada en el cliente. */
@@ -25,12 +26,15 @@ export async function signIn(email: string, password: string) {
   // evita que el Sidebar muestre brevemente los módulos del usuario previo
   // antes de que el SIGNED_IN haga refresh.
   clearModuleAccessCache();
+  // Cache SWR en memoria (perfil, productos, etc.): pertenece al usuario previo.
+  clearSwrCache();
   return supabase.auth.signInWithPassword({ email, password });
 }
 
 export async function signOut() {
   clearBrowserEmpresaDataSchemaCache();
   clearModuleAccessCache();
+  clearSwrCache();
   return supabase.auth.signOut();
 }
 

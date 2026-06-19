@@ -5,6 +5,7 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { Bell, ChevronDown, LogOut, Menu } from "lucide-react";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
+import { swrFetch } from "@/lib/client-cache/swr-fetch";
 import { signOut } from "@/lib/auth";
 import { useBoot } from "@/components/BootContext";
 
@@ -59,17 +60,25 @@ export default function Header() {
 
   useEffect(() => {
     let alive = true;
-    async function loadUsuario() {
-      try {
-        const res = await fetchWithSupabaseSession("/api/usuarios/me", { cache: "no-store" });
-        if (!res.ok) throw new Error(`Error ${res.status}`);
-        const json = (await res.json()) as { usuario?: HeaderUsuario };
-        if (alive) setUsuario(json.usuario ?? null);
-      } catch {
-        if (alive) setUsuario(null);
-      }
-    }
-    void loadUsuario();
+    // El perfil del usuario cambia rara vez durante la sesión: cache 5min SWR.
+    // El Header se monta en cada navegación, así que evitar el fetch repetido
+    // es lo que más se nota al hacer click rápido entre módulos.
+    swrFetch<HeaderUsuario | null>(
+      "/api/usuarios/me",
+      async () => {
+        try {
+          const res = await fetchWithSupabaseSession("/api/usuarios/me");
+          if (!res.ok) return null;
+          const json = (await res.json()) as { usuario?: HeaderUsuario };
+          return json.usuario ?? null;
+        } catch {
+          return null;
+        }
+      },
+      5 * 60_000,
+    ).then((u) => {
+      if (alive) setUsuario(u);
+    });
     return () => {
       alive = false;
     };

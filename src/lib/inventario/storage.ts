@@ -1,11 +1,18 @@
 import { getCurrentUser } from "@/lib/auth";
 import { getBrowserSupabaseForEmpresaData } from "@/lib/supabase/browser-data-client";
+import { swrFetch, invalidateSwr } from "@/lib/client-cache/swr-fetch";
 import type {
   Producto,
   MovimientoInventario,
   MetodoValuacion,
   TipoMovimiento,
 } from "./types";
+
+// Claves de cache SWR. Las exporto para poder invalidar tras crear/editar
+// productos o registrar movimientos sin esperar al TTL.
+const SWR_PRODUCTOS = "/api/productos";
+const SWR_MOVIMIENTOS = "/api/inventario/movimientos";
+const swrProducto = (id: string) => `/api/productos/${id}`;
 
 // ─── Tipos de fila Supabase ───────────────────────────────────────────────────
 
@@ -118,41 +125,43 @@ function rowToMovimiento(row: MovimientoRow): MovimientoInventario {
 
 // ─── Productos ─────────────────────────────────────────────────────────────────
 
-/** Lista productos via API server-side (PG directo, soporta tenants erp_* no expuestos). */
+/** Lista productos via API server-side. Cacheado con SWR (60s) — invalidar
+ * tras crear/editar/eliminar para reflejar cambios al instante. */
 export async function getProductos(): Promise<Producto[]> {
-  try {
-    const r = await fetch("/api/productos", { credentials: "include", cache: "no-store" });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok || !j?.success) {
-      console.error("[inventario] getProductos:", (j as { error?: string })?.error ?? r.status);
+  return swrFetch<Producto[]>(SWR_PRODUCTOS, async () => {
+    try {
+      const r = await fetch("/api/productos", { credentials: "include" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j?.success) {
+        console.error("[inventario] getProductos:", (j as { error?: string })?.error ?? r.status);
+        return [];
+      }
+      const list = ((j.data as { productos?: ProductoRow[] }).productos ?? []) as ProductoRow[];
+      return list.map(rowToProducto);
+    } catch (err) {
+      console.error("[inventario] getProductos:", err instanceof Error ? err.message : err);
       return [];
     }
-    const list = ((j.data as { productos?: ProductoRow[] }).productos ?? []) as ProductoRow[];
-    return list.map(rowToProducto);
-  } catch (err) {
-    console.error("[inventario] getProductos:", err instanceof Error ? err.message : err);
-    return [];
-  }
+  });
 }
 
-/** Obtiene un producto por ID via API server-side. */
+/** Obtiene un producto por ID. Cacheado con SWR (60s) por id. */
 export async function getProducto(id: string): Promise<Producto | null> {
-  try {
-    const r = await fetch(`/api/productos/${encodeURIComponent(id)}`, {
-      credentials: "include",
-      cache: "no-store",
-    });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok || !j?.success) {
-      console.error("[inventario] getProducto:", (j as { error?: string })?.error ?? r.status);
+  return swrFetch<Producto | null>(swrProducto(id), async () => {
+    try {
+      const r = await fetch(`/api/productos/${encodeURIComponent(id)}`, { credentials: "include" });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j?.success) {
+        console.error("[inventario] getProducto:", (j as { error?: string })?.error ?? r.status);
+        return null;
+      }
+      const row = (j.data as { producto?: ProductoRow }).producto;
+      return row ? rowToProducto(row) : null;
+    } catch (err) {
+      console.error("[inventario] getProducto:", err instanceof Error ? err.message : err);
       return null;
     }
-    const row = (j.data as { producto?: ProductoRow }).producto;
-    return row ? rowToProducto(row) : null;
-  } catch (err) {
-    console.error("[inventario] getProducto:", err instanceof Error ? err.message : err);
-    return null;
-  }
+  });
 }
 
 /**
@@ -243,6 +252,8 @@ export async function saveProducto(
 
   const data = (json.data as { producto?: ProductoRow } | undefined)?.producto;
   if (!data) return null;
+  // Invalidar la lista cacheada para que el nuevo producto aparezca enseguida.
+  invalidateSwr(SWR_PRODUCTOS);
   return rowToProducto(data);
 }
 
@@ -307,15 +318,19 @@ export async function updateProducto(
 
   const data = (json.data as { producto?: ProductoRow } | undefined)?.producto;
   if (!data) return null;
+  // Invalidar lista y la entrada individual del producto editado.
+  invalidateSwr(SWR_PRODUCTOS);
+  invalidateSwr(swrProducto(id));
   return rowToProducto(data);
 }
 
 // ─── Movimientos ─────────────────────────────────────────────────────────────
 
-/** Lista movimientos via API server-side (PG directo). */
+/** Lista movimientos via API server-side. Cacheado con SWR (30s). */
 export async function getMovimientos(): Promise<MovimientoInventario[]> {
+  return swrFetch<MovimientoInventario[]>(SWR_MOVIMIENTOS, async () => {
   try {
-    const r = await fetch("/api/inventario/movimientos", { credentials: "include", cache: "no-store" });
+    const r = await fetch("/api/inventario/movimientos", { credentials: "include" });
     const j = await r.json().catch(() => ({}));
     if (!r.ok || !j?.success) {
       console.error("[inventario] getMovimientos:", (j as { error?: string })?.error ?? r.status);
@@ -327,6 +342,7 @@ export async function getMovimientos(): Promise<MovimientoInventario[]> {
     console.error("[inventario] getMovimientos:", err instanceof Error ? err.message : err);
     return [];
   }
+  });
 }
 
 function calcularDelta(tipo: TipoMovimiento, cantidad: number): number {
@@ -399,6 +415,10 @@ export async function saveMovimiento(
     }
   }
 
+  // Stock del producto cambió + hay un movimiento nuevo: invalidar ambos caches.
+  invalidateSwr(SWR_MOVIMIENTOS);
+  invalidateSwr(SWR_PRODUCTOS);
+  invalidateSwr(swrProducto(mov.producto_id));
   return rowToMovimiento(movData as MovimientoRow);
 }
 
