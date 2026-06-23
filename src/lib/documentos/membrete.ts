@@ -10,8 +10,8 @@
 export const EMPRESA_DOC = {
   nombre: "Açaí House",
   actividad: [
-    "Comercio al por menor de otros productos en comercios no especializados",
-    "Venta de plantas, bancos, jardinería, otros",
+    "Venta de açaí y postres helados",
+    "Bowls, smoothies y acompañamientos",
   ],
   telefono: "(0971) 861 676",
   direccion: ["200 mts. en Sur Club Costa Ñu", "Ruta Pyca - Caacupé", "Cordillera - Paraguay"],
