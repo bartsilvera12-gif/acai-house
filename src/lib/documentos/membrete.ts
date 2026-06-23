@@ -42,8 +42,6 @@ export function membreteA4(origin = ""): string {
     <div style="flex:1;min-width:0;text-align:right;font-size:11px;color:#374151;line-height:1.55;">
       <div style="font-size:14px;font-weight:800;color:#1f2937;">${esc(e.nombre)}</div>
       ${e.actividad.map((a) => `<div style="color:#6b7280;">${esc(a)}</div>`).join("")}
-      <div style="margin-top:4px;"><strong>Tel:</strong> ${esc(e.telefono)}</div>
-      <div>${e.direccion.map(esc).join(" · ")}</div>
     </div>
   </div>`;
 }
