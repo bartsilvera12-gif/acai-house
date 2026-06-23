@@ -58,8 +58,5 @@ export function membreteTicket(origin = ""): string {
   <div style="text-align:center;padding-bottom:6px;margin-bottom:6px;border-bottom:1px dashed #000;">
     <img src="${esc(logo)}" alt="${esc(e.nombre)}" style="max-width:150px;max-height:72px;width:auto;height:auto;object-fit:contain;display:inline-block;margin:0 auto 4px;" />
     <div style="font-weight:700;font-size:12px;">${esc(e.nombre)}</div>
-    <div style="font-size:10px;">Tel: ${esc(e.telefono)}</div>
-    <div style="font-size:10px;">${esc(e.direccion[0])}</div>
-    <div style="font-size:10px;">${esc(e.direccion.slice(1).join(" · "))}</div>
   </div>`;
 }
