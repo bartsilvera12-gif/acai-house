@@ -13,7 +13,7 @@ export const EMPRESA_DOC = {
     "Venta de açaí y postres helados",
     "Bowls, smoothies y acompañamientos",
   ],
-  telefono: "(0971) 861 676",
+  telefono: "0971 929 651",
   direccion: ["200 mts. en Sur Club Costa Ñu", "Ruta Pyca - Caacupé", "Cordillera - Paraguay"],
   /** Logo del cliente (alta calidad, sin fondo). Servido desde /public. */
   logoUrl: "/brand/acaihouse-logo.png",
@@ -42,6 +42,7 @@ export function membreteA4(origin = ""): string {
     <div style="flex:1;min-width:0;text-align:right;font-size:11px;color:#374151;line-height:1.55;">
       <div style="font-size:14px;font-weight:800;color:#1f2937;">${esc(e.nombre)}</div>
       ${e.actividad.map((a) => `<div style="color:#6b7280;">${esc(a)}</div>`).join("")}
+      <div style="margin-top:4px;"><strong>Tel:</strong> ${esc(e.telefono)}</div>
     </div>
   </div>`;
 }
@@ -56,5 +57,6 @@ export function membreteTicket(origin = ""): string {
   <div style="text-align:center;padding-bottom:6px;margin-bottom:6px;border-bottom:1px dashed #000;">
     <img src="${esc(logo)}" alt="${esc(e.nombre)}" style="max-width:150px;max-height:72px;width:auto;height:auto;object-fit:contain;display:inline-block;margin:0 auto 4px;" />
     <div style="font-weight:700;font-size:12px;">${esc(e.nombre)}</div>
+    <div style="font-size:10px;">Tel: ${esc(e.telefono)}</div>
   </div>`;
 }
