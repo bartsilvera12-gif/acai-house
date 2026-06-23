@@ -16,7 +16,7 @@ export const EMPRESA_DOC = {
   telefono: "(0971) 861 676",
   direccion: ["200 mts. en Sur Club Costa Ñu", "Ruta Pyca - Caacupé", "Cordillera - Paraguay"],
   /** Logo del cliente (alta calidad, sin fondo). Servido desde /public. */
-  logoUrl: "/brand/reservacaacupe-doc-logo.png",
+  logoUrl: "/brand/acaihouse-logo.png",
 };
 
 function esc(v: unknown): string {
