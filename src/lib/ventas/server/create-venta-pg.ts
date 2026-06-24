@@ -70,6 +70,10 @@ export interface CreateVentaPgParams {
   permitirSinStock?: boolean;
   /** Si true y hay cliente, la venta emite nota de remisión (documento NO fiscal) con número NR-XXXXXX. */
   generaNotaRemision?: boolean;
+  /** UUID auth.users.id del operador que crea la venta (audit en movimientos.created_by). */
+  createdBy?: string | null;
+  /** Nombre legible del operador (cache para mostrar en movimientos sin join). */
+  usuarioNombre?: string | null;
 }
 
 function recalcTotals(items: CreateVentaItemInput[]) {
@@ -472,6 +476,8 @@ export async function createVentaTransaccionalPg(
         referencia: numeroControl,
         fecha: fechaIso,
         venta_id: ventaId,
+        created_by: params.createdBy ?? null,
+        usuario_nombre: params.usuarioNombre ?? null,
       });
       if (mov.error) throw new Error(mov.error.message);
     }
@@ -504,6 +510,8 @@ export async function createVentaTransaccionalPg(
         referencia: numeroControl,
         fecha: fechaIso,
         venta_id: ventaId,
+        created_by: params.createdBy ?? null,
+        usuario_nombre: params.usuarioNombre ?? null,
       });
       if (mov.error) throw new Error(mov.error.message);
     }

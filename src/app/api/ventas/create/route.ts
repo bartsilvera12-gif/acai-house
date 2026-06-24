@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getUserAndEmpresa } from "@/lib/middleware/auth";
+import { getAuthWithRol } from "@/lib/middleware/auth";
 import { fetchDataSchemaForEmpresaId } from "@/lib/supabase/empresa-data-schema";
 import { createVentaTransaccionalPg, StockInsuficienteError } from "@/lib/ventas/server/create-venta-pg";
 import type { CreateVentaItemInput } from "@/lib/ventas/server/create-venta-pg";
@@ -103,7 +103,7 @@ function toVentaResponse(
  */
 export async function POST(request: NextRequest) {
   try {
-    const auth = await getUserAndEmpresa(request);
+    const auth = await getAuthWithRol(request);
     if (!auth) {
       return NextResponse.json(errorResponse(API_ERRORS.UNAUTHORIZED), { status: 401 });
     }
@@ -234,6 +234,8 @@ export async function POST(request: NextRequest) {
       pedidoCocina,
       permitirSinStock,
       generaNotaRemision: o.genera_nota_remision === true,
+      createdBy: auth.user.id,
+      usuarioNombre: auth.nombre ?? auth.user.email ?? null,
     });
 
     // Vincular el pedido facturado con la venta creada (Caja). Trazabilidad:
