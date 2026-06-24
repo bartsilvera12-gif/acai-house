@@ -25,6 +25,24 @@ export default function ExcelImportWizard({
   const [preview, setPreview] = useState<PreviewResponse | null>(null);
   const [commit, setCommit] = useState<CommitResponse | null>(null);
   const [crearFaltantes, setCrearFaltantes] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+
+  const stepIndex = step === "upload" ? 0 : step === "preview" ? 1 : 2;
+
+  function acceptFile(f: File | null | undefined) {
+    if (!f) return;
+    const okExt = /\.(xlsx|xls|csv)$/i.test(f.name);
+    if (!okExt) { setError("Formato no válido. Subí un archivo .xlsx, .xls o .csv"); return; }
+    if (f.size > 5 * 1024 * 1024) { setError("El archivo supera 5 MB"); return; }
+    setError(null);
+    setFile(f);
+  }
+
+  function formatSize(bytes: number) {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+  }
 
   async function handleUpload() {
     if (!file) return;
@@ -62,12 +80,33 @@ export default function ExcelImportWizard({
   return (
     <div className="fixed inset-0 z-[120] flex items-start justify-center bg-slate-900/60 backdrop-blur-sm pt-16 px-4" onClick={onClose}>
       <div className="w-full max-w-5xl bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col max-h-[85vh]" onClick={(e) => e.stopPropagation()}>
-        <div className="p-5 border-b flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-semibold text-slate-800">Importar {entidad} desde Excel</h2>
-            <p className="text-xs text-slate-400">Paso {step === "upload" ? "1 de 3" : step === "preview" ? "2 de 3" : "3 de 3"}</p>
+        <div className="p-5 border-b">
+          <div className="flex items-start justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-slate-800">Importar {entidad} desde Excel</h2>
+              <p className="text-xs text-slate-500 mt-0.5">Subí tu archivo, revisá la previsualización y confirmá la importación.</p>
+            </div>
+            <button onClick={onClose} aria-label="Cerrar" className="text-slate-400 hover:text-slate-700 text-xl leading-none">×</button>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-slate-700 text-xl">×</button>
+          <ol className="mt-4 flex items-center gap-2 text-xs">
+            {["Subir archivo", "Revisar", "Resultado"].map((label, i) => {
+              const active = i === stepIndex;
+              const done = i < stepIndex;
+              return (
+                <li key={label} className="flex items-center gap-2 flex-1">
+                  <span className={`flex-shrink-0 inline-flex items-center justify-center w-6 h-6 rounded-full text-[11px] font-semibold ${
+                    done ? "bg-emerald-500 text-white" :
+                    active ? "bg-sky-500 text-white" :
+                    "bg-slate-200 text-slate-500"
+                  }`}>
+                    {done ? "✓" : i + 1}
+                  </span>
+                  <span className={`${active ? "text-slate-800 font-medium" : done ? "text-slate-600" : "text-slate-400"}`}>{label}</span>
+                  {i < 2 && <span className="flex-1 h-px bg-slate-200" />}
+                </li>
+              );
+            })}
+          </ol>
         </div>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
@@ -75,23 +114,69 @@ export default function ExcelImportWizard({
 
           {step === "upload" && (
             <div className="space-y-4">
-              <div className="text-sm text-slate-600">
-                Subí un archivo Excel (.xlsx) o CSV. Máx. 5 MB / 5.000 filas.
-                <a href={templateUrl} className="ml-2 inline-flex items-center gap-1 text-sky-700 hover:text-sky-900 underline">
-                  Descargar plantilla
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <p className="text-sm text-slate-600">
+                  ¿Primera vez? Empezá por la plantilla para no tener errores de formato.
+                </p>
+                <a href={templateUrl}
+                  className="inline-flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg border border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100">
+                  <span aria-hidden>↓</span> Descargar plantilla
                 </a>
               </div>
-              <input
-                type="file"
-                accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                className="block w-full text-sm"
-              />
+
+              <label
+                htmlFor="excel-import-input"
+                onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setDragOver(false);
+                  acceptFile(e.dataTransfer.files?.[0]);
+                }}
+                className={`block cursor-pointer rounded-xl border-2 border-dashed transition-colors px-6 py-10 text-center ${
+                  dragOver ? "border-sky-400 bg-sky-50" :
+                  file ? "border-emerald-300 bg-emerald-50/50" :
+                  "border-slate-300 bg-slate-50 hover:border-sky-300 hover:bg-sky-50/50"
+                }`}
+              >
+                {file ? (
+                  <div className="flex items-center justify-center gap-3">
+                    <div className="w-10 h-10 rounded-lg bg-emerald-100 text-emerald-700 flex items-center justify-center text-lg font-bold">✓</div>
+                    <div className="text-left">
+                      <p className="text-sm font-medium text-slate-800 break-all">{file.name}</p>
+                      <p className="text-xs text-slate-500">{formatSize(file.size)} · Listo para analizar</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.preventDefault(); setFile(null); }}
+                      className="ml-2 text-xs text-slate-500 hover:text-red-600 underline"
+                    >
+                      Quitar
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="mx-auto w-12 h-12 rounded-full bg-white border border-slate-200 flex items-center justify-center text-2xl text-slate-400">⬆</div>
+                    <p className="text-sm font-medium text-slate-700">
+                      Arrastrá tu archivo acá o <span className="text-sky-600 underline">elegilo desde tu equipo</span>
+                    </p>
+                    <p className="text-xs text-slate-500">.xlsx, .xls o .csv · Máx. 5 MB · Hasta 5.000 filas</p>
+                  </div>
+                )}
+                <input
+                  id="excel-import-input"
+                  type="file"
+                  accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                  onChange={(e) => acceptFile(e.target.files?.[0])}
+                  className="sr-only"
+                />
+              </label>
+
               <div className="flex justify-end gap-2 pt-2">
-                <button onClick={onClose} className="px-4 py-2 text-sm border rounded-lg">Cancelar</button>
+                <button onClick={onClose} className="px-4 py-2 text-sm border border-slate-300 rounded-lg hover:bg-slate-50">Cancelar</button>
                 <button onClick={handleUpload} disabled={!file || busy}
-                  className="px-4 py-2 text-sm rounded-lg bg-[#0EA5E9] text-white disabled:opacity-50">
-                  {busy ? "Analizando..." : "Analizar (preview)"}
+                  className="px-4 py-2 text-sm font-medium rounded-lg bg-[#0EA5E9] hover:bg-sky-600 text-white disabled:opacity-50 disabled:cursor-not-allowed">
+                  {busy ? "Analizando..." : "Analizar archivo →"}
                 </button>
               </div>
             </div>
