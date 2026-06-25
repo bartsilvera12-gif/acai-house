@@ -380,14 +380,20 @@ export default function NuevaCompraPage() {
               </div>
               <div>
                 <label className={labelClass}>Proveedor <span className="text-red-500">*</span></label>
-                <select value={cab.proveedor_id}
-                  onChange={(e) => { setCab((p) => ({ ...p, proveedor_id: e.target.value })); setProveedorCreado(null); }}
-                  className={inputClass} required>
-                  <option value="">Seleccionar proveedor...</option>
-                  {proveedores.map((p) => (
-                    <option key={p.id} value={p.id}>{p.nombre} — RUC {p.ruc}</option>
-                  ))}
-                </select>
+                <SearchableSelect
+                  value={cab.proveedor_id}
+                  onChange={(id) => {
+                    setCab((p) => ({ ...p, proveedor_id: id }));
+                    setProveedorCreado(null);
+                  }}
+                  placeholder="Seleccionar proveedor..."
+                  searchPlaceholder="Buscar por nombre o RUC…"
+                  options={proveedores.map((p) => ({
+                    value: String(p.id),
+                    label: p.nombre,
+                    hint: `RUC ${p.ruc}`,
+                  }))}
+                />
               </div>
               <div className="sm:col-span-2">
                 <label className={labelClass}>Comprobante / factura <span className="text-gray-400 font-normal">(opcional)</span></label>
