@@ -121,13 +121,14 @@ const MENU_STRUCTURE: MenuItem[] = [
   { key: "ventas", slug: "ventas", label: "Caja", href: "/ventas", icon: ShoppingCart },
   // "Presupuestos" oculto a pedido del usuario.
   // { key: "presupuestos", slug: "presupuestos", label: "Presupuestos", href: "/presupuestos", icon: FileText },
-  {
-    key: "proyectos",
-    slug: "proyectos",
-    label: "Pedidos",
-    href: "/dashboard/proyectos",
-    icon: Utensils,
-  },
+  // "Pedidos" oculto a pedido del usuario.
+  // {
+  //   key: "proyectos",
+  //   slug: "proyectos",
+  //   label: "Pedidos",
+  //   href: "/dashboard/proyectos",
+  //   icon: Utensils,
+  // },
   { key: "recetas", slug: "recetas", label: "Recetas", href: "/dashboard/recetas", icon: ChefHat },
   { key: "inventario", slug: "inventario", label: "Inventario", href: "/inventario", icon: Package, children: [
     { label: "Productos", href: "/inventario" },
@@ -136,8 +137,9 @@ const MENU_STRUCTURE: MenuItem[] = [
     { label: "Categorías", href: "/inventario/categorias" },
     // "Depósitos / Ubicaciones" oculto en instancia En lo de Mari (no aplica para gastronomía).
   ]},
-  { key: "clientes", slug: "clientes", label: "Clientes", href: "/clientes", icon: Users },
-  { key: "pagos", slug: "pagos", label: "Pagos", href: "/pagos", icon: Banknote },
+  // "Clientes" y "Pagos" ocultos a pedido del usuario.
+  // { key: "clientes", slug: "clientes", label: "Clientes", href: "/clientes", icon: Users },
+  // { key: "pagos", slug: "pagos", label: "Pagos", href: "/pagos", icon: Banknote },
   {
     key: "compras",
     slug: "compras",
