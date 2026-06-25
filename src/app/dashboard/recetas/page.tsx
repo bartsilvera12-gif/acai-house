@@ -5,6 +5,7 @@ import Link from "next/link";
 import { fetchWithSupabaseSession } from "@/lib/api/fetch-with-supabase-session";
 import { ChefHat, Plus, Loader2 } from "lucide-react";
 import { formatUnidad } from "@/lib/unidades/format";
+import DragScroll from "@/components/ui/DragScroll";
 
 type RecetaRow = {
   id: string;
@@ -97,7 +98,7 @@ export default function RecetasListPage() {
       {!loading && recetas.length > 0 && (
         /* overflow-x-auto + min-w para que el link "Editar" no se corte en mobile.
            "Actualizado" se oculta en mobile (data secundaria). */
-        <div className="overflow-x-auto rounded-md border border-gray-200 bg-white">
+        <DragScroll className="rounded-md border border-gray-200 bg-white">
           <table className="w-full min-w-[680px] sm:min-w-0 text-sm">
             <thead className="bg-gray-50 text-left text-xs uppercase text-gray-500">
               <tr>
@@ -145,7 +146,7 @@ export default function RecetasListPage() {
               ))}
             </tbody>
           </table>
-        </div>
+        </DragScroll>
       )}
     </div>
   );

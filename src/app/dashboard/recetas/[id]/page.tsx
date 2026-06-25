@@ -8,6 +8,7 @@ import { ChefHat, ArrowLeft, Plus, Trash2, Save, Loader2, Factory, X } from "luc
 import { NEURA_CLIENT_SCHEMA } from "@/lib/supabase/schema";
 import { formatUnidad } from "@/lib/unidades/format";
 import { unidadesCompatibles, familiaUnidad } from "@/lib/unidades/convert";
+import DragScroll from "@/components/ui/DragScroll";
 
 /** Reserva monocliente: receta pertenece al producto; nombre interno oculto (autogenera). */
 const RECETA_SIMPLE = ["reservacaacupe", "acaihouse"].includes(NEURA_CLIENT_SCHEMA);
@@ -546,7 +547,7 @@ export default function EditarRecetaPage() {
           /* Wrapper overflow-x-auto + min-w-[840px] activa scroll horizontal
               real en mobile. Columnas secundarias (Merma, Costo unit., Stock,
               Unid. posibles) se ocultan progresivamente para no aplastar todo. */
-          <div className="overflow-x-auto -mx-px sm:mx-0">
+          <DragScroll className="-mx-px sm:mx-0">
           <table className="w-full min-w-[840px] sm:min-w-0 text-sm mb-4">
             <thead className="text-left text-xs text-gray-500 uppercase">
               <tr>
@@ -591,7 +592,7 @@ export default function EditarRecetaPage() {
               ))}
             </tbody>
           </table>
-          </div>
+          </DragScroll>
         )}
 
         {/* Add item */}
@@ -771,7 +772,7 @@ export default function EditarRecetaPage() {
                     </div>
                   </div>
 
-                  <div className="overflow-x-auto">
+                  <DragScroll>
                     <table className="w-full text-sm">
                       <thead className="text-left text-xs text-gray-500 uppercase">
                         <tr>
@@ -802,7 +803,7 @@ export default function EditarRecetaPage() {
                         ))}
                       </tbody>
                     </table>
-                  </div>
+                  </DragScroll>
 
                   {fabPreview.insumos_incompatibles.length > 0 && (
                     <div className="rounded-md bg-amber-50 border border-amber-200 p-3 text-xs text-amber-800">
