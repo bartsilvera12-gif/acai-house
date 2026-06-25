@@ -182,8 +182,16 @@ export default function ProductPickerModal({
   const enCarritoSel = sel ? excludeIds.filter((id) => id === sel.id).length : 0;
   const dispSel = sel ? sel.stock_actual - enCarritoSel : 0;
   const precioGsEquiv = moneda === "USD" ? (parseFloat(precio) || 0) * (tipoCambio || 0) : (parseFloat(precio) || 0);
-  const subtotal = (parseInt(cantidad, 10) || 0) * precioGsEquiv;
-  const ivaMonto = iva === "10%" ? subtotal * 0.10 : iva === "5%" ? subtotal * 0.05 : 0;
+  // IVA INCLUIDO: el precio ya contiene el IVA. Total de línea = precio × cantidad
+  // y el IVA se desglosa desde adentro (no se suma encima). Debe coincidir con
+  // la lógica de ventas/nueva (calcIva) para que el preview no engañe al cajero.
+  const totalLinea = (parseInt(cantidad, 10) || 0) * precioGsEquiv;
+  const ivaMonto = iva === "10%"
+    ? totalLinea - totalLinea / 1.10
+    : iva === "5%"
+      ? totalLinea - totalLinea / 1.05
+      : 0;
+  const subtotal = totalLinea - ivaMonto;
 
   // Mobile: pt-3 (gana viewport vertical valioso, evita el modal "cortado")
   // y pt-12 en sm+ donde si hay espacio para el aire decorativo.
@@ -426,8 +434,8 @@ export default function ProductPickerModal({
 
                   <div className="text-xs text-slate-500 space-y-0.5 pt-1">
                     <div className="flex justify-between"><span>Subtotal</span><span className="tabular-nums">{formatGs(subtotal)}</span></div>
-                    <div className="flex justify-between"><span>IVA</span><span className="tabular-nums">{ivaMonto > 0 ? formatGs(ivaMonto) : "—"}</span></div>
-                    <div className="flex justify-between font-bold text-slate-800 pt-1 border-t border-slate-200"><span>Total línea</span><span className="tabular-nums">{formatGs(subtotal + ivaMonto)}</span></div>
+                    <div className="flex justify-between"><span>IVA incluido</span><span className="tabular-nums">{ivaMonto > 0 ? formatGs(ivaMonto) : "—"}</span></div>
+                    <div className="flex justify-between font-bold text-slate-800 pt-1 border-t border-slate-200"><span>Total línea</span><span className="tabular-nums">{formatGs(totalLinea)}</span></div>
                   </div>
                 </div>
                 </div>
