@@ -567,6 +567,20 @@ export default function NuevaVentaPage() {
     isSubmittingRef.current = true;
     setGuardando(true);
     try {
+      // Si la venta NO factura un pedido existente, generamos automáticamente
+      // una tarjeta "Nuevo" en el tablero de cocina (modalidad por defecto
+      // "local"; el operador puede recategorizar arrastrando la tarjeta).
+      const pedidoCocinaAuto = pedidoId
+        ? undefined
+        : {
+            modalidad: "local" as const,
+            mesa: null,
+            cliente_nombre: clienteSel?.label ?? null,
+            cliente_telefono: null,
+            direccion_entrega: null,
+            observacion: null,
+          };
+
       const resultado = await saveVenta(
         {
           items,
@@ -581,7 +595,7 @@ export default function NuevaVentaPage() {
           cliente_id:   clienteId || null,
           genera_nota_remision: !!clienteId && generaNotaRemision,
         },
-        undefined,
+        pedidoCocinaAuto,
         {
           entidad_bancaria_id: pagoEntidadId || null,
           entidad_nombre_snapshot: entidades.find((e) => e.id === pagoEntidadId)?.nombre ?? null,
