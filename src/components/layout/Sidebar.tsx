@@ -119,7 +119,8 @@ const MENU_STRUCTURE: MenuItem[] = [
     icon: Activity,
   },
   { key: "ventas", slug: "ventas", label: "Caja", href: "/ventas", icon: ShoppingCart },
-  { key: "presupuestos", slug: "presupuestos", label: "Presupuestos", href: "/presupuestos", icon: FileText },
+  // "Presupuestos" oculto a pedido del usuario.
+  // { key: "presupuestos", slug: "presupuestos", label: "Presupuestos", href: "/presupuestos", icon: FileText },
   {
     key: "proyectos",
     slug: "proyectos",
@@ -172,7 +173,8 @@ const MENU_STRUCTURE: MenuItem[] = [
     ],
   },
   { key: "planes", slug: "planes", label: "Planes", href: "/planes", icon: FileText },
-  { key: "gestion-clientes", slug: "gestion-clientes", label: "Gestión Clientes", href: "/gestion-clientes", icon: Users },
+  // "Gestión Clientes" oculto a pedido del usuario.
+  // { key: "gestion-clientes", slug: "gestion-clientes", label: "Gestión Clientes", href: "/gestion-clientes", icon: Users },
   { key: "crm", slug: "crm", label: "CRM Funnel", href: "/crm", icon: Sparkles },
   { key: "marketing", slug: "marketing", label: "Marketing Legacy", href: "/marketing", icon: Megaphone },
   { key: "marketing_ops", slug: "marketing_ops", label: "Marketing Ops", href: "/dashboard/marketing-ops", icon: Megaphone },
