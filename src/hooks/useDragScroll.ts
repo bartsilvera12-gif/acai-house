@@ -68,11 +68,28 @@ export function useDragScroll<T extends HTMLElement>() {
       }
     };
 
+    // Wheel vertical → scroll horizontal. En kanbans anchos (más columnas que
+    // pantalla) la rueda del mouse "natural" no ayuda a moverse de izquierda
+    // a derecha; este handler convierte deltaY → scrollLeft cuando hay overflow
+    // horizontal y la rueda viene mayormente en eje vertical (mouse normal o
+    // touchpad gestureando arriba/abajo). Si el usuario ya viene scrolleando
+    // en eje X (touchpad horizontal), respeta el delta nativo.
+    const onWheel = (e: WheelEvent) => {
+      if (el.scrollWidth <= el.clientWidth) return;
+      const absX = Math.abs(e.deltaX);
+      const absY = Math.abs(e.deltaY);
+      if (absY > absX) {
+        e.preventDefault();
+        el.scrollLeft += e.deltaY;
+      }
+    };
+
     el.addEventListener("mousedown", onMouseDown);
     window.addEventListener("mousemove", onMouseMove);
     window.addEventListener("mouseup", end);
     window.addEventListener("mouseleave", end);
     el.addEventListener("click", onClickCapture, true);
+    el.addEventListener("wheel", onWheel, { passive: false });
 
     return () => {
       el.removeEventListener("mousedown", onMouseDown);
@@ -80,6 +97,7 @@ export function useDragScroll<T extends HTMLElement>() {
       window.removeEventListener("mouseup", end);
       window.removeEventListener("mouseleave", end);
       el.removeEventListener("click", onClickCapture, true);
+      el.removeEventListener("wheel", onWheel);
     };
   }, []);
 
