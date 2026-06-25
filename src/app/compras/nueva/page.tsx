@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import MontoInput from "@/components/ui/MontoInput";
+import SearchableSelect from "@/components/ui/SearchableSelect";
 import { saveCompraMulti, uploadComprobante, type CompraItemPayload } from "@/lib/compras/storage";
 import { getProveedores, proveedorExiste, createProveedor } from "@/lib/proveedores/storage";
 import { getProductos, productoExiste, saveProducto } from "@/lib/inventario/storage";
@@ -218,20 +219,6 @@ export default function NuevaCompraPage() {
 
   function handleQuitarLinea(idx: number) {
     setLineas((prev) => prev.filter((_, i) => i !== idx));
-  }
-
-  function handleProductoSelectChange(e: React.ChangeEvent<HTMLSelectElement>) {
-    const id = e.target.value;
-    const p = productos.find((x) => x.id === id);
-    setProductoCreado(null);
-    const insumoNoVendible = !!p && p.es_insumo === true && p.es_vendible !== true;
-    setNl((prev) => ({
-      ...prev,
-      producto_id: id,
-      costo_unitario_input: p ? String(p.costo_promedio) : "",
-      // Insumo no vendible: dejamos el precio vacío (es opcional).
-      precio_venta: !p || insumoNoVendible ? "" : String(p.precio_venta),
-    }));
   }
 
   // ── Submit ──────────────────────────────────────────────────────────────────
@@ -553,12 +540,27 @@ export default function NuevaCompraPage() {
 
               <div>
                 <label className={labelSmClass}>Producto <span className="text-red-500">*</span></label>
-                <select value={nl.producto_id} onChange={handleProductoSelectChange} className={inputSmClass}>
-                  <option value="">Seleccionar producto...</option>
-                  {productos.map((p) => (
-                    <option key={p.id} value={p.id}>{p.nombre} — {p.sku} (stock: {p.stock_actual})</option>
-                  ))}
-                </select>
+                <SearchableSelect
+                  value={nl.producto_id}
+                  onChange={(id) => {
+                    const p = productos.find((x) => x.id === id);
+                    setProductoCreado(null);
+                    const insumoNoVendible = !!p && p.es_insumo === true && p.es_vendible !== true;
+                    setNl((prev) => ({
+                      ...prev,
+                      producto_id: id,
+                      costo_unitario_input: p ? String(p.costo_promedio) : "",
+                      precio_venta: !p || insumoNoVendible ? "" : String(p.precio_venta),
+                    }));
+                  }}
+                  placeholder="Seleccionar producto..."
+                  searchPlaceholder="Buscar por nombre o SKU…"
+                  options={productos.map((p) => ({
+                    value: p.id,
+                    label: `${p.nombre} — ${p.sku}`,
+                    hint: `stock: ${p.stock_actual}`,
+                  }))}
+                />
                 {productoSel && !productoCreado && (
                   <p className="mt-1.5 text-xs text-gray-400">
                     Costo promedio actual: {formatGs(productoSel.costo_promedio)} · Precio venta actual: {formatGs(productoSel.precio_venta)}
