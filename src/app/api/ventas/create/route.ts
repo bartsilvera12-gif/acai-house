@@ -9,6 +9,7 @@ import { API_ERRORS } from "@/lib/api/errors";
 import type { Venta, LineaVenta } from "@/lib/ventas/types";
 import { createServiceRoleClientWithDbSchema } from "@/lib/supabase/empresa-data-schema";
 import { estaFacturado, marcarFacturado } from "@/lib/caja/facturacion";
+import { getCajaAbiertaPg } from "@/lib/caja/server/caja-pg";
 
 /** Error tipado: el pedido que se intenta facturar ya tiene venta. */
 class PedidoYaFacturadoError extends Error {
@@ -198,6 +199,10 @@ export async function POST(request: NextRequest) {
 
     const schema = await fetchDataSchemaForEmpresaId(auth.empresa_id);
 
+    // Vincular la venta a la caja abierta del turno (si hay). Sin caja abierta
+    // la venta se crea igual, pero no contará en el arqueo de ninguna caja.
+    const cajaAbierta = await getCajaAbiertaPg(schema, auth.empresa_id);
+
     // Anti doble facturación: si se factura un pedido, verificar que aún no tenga venta.
     // (Se valida ANTES de crear la venta para no descontar stock por un pedido ya facturado.)
     const sbPedido = pedidoId ? createServiceRoleClientWithDbSchema(schema) : null;
@@ -236,6 +241,7 @@ export async function POST(request: NextRequest) {
       generaNotaRemision: o.genera_nota_remision === true,
       createdBy: auth.user.id,
       usuarioNombre: auth.nombre ?? auth.user.email ?? null,
+      cajaId: cajaAbierta?.id ?? null,
     });
 
     // Vincular el pedido facturado con la venta creada (Caja). Trazabilidad:

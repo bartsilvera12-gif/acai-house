@@ -74,6 +74,8 @@ export interface CreateVentaPgParams {
   createdBy?: string | null;
   /** Nombre legible del operador (cache para mostrar en movimientos sin join). */
   usuarioNombre?: string | null;
+  /** UUID de la caja abierta a la que pertenece esta venta (arqueo). Null si no hay caja. */
+  cajaId?: string | null;
 }
 
 function recalcTotals(items: CreateVentaItemInput[]) {
@@ -405,6 +407,7 @@ export async function createVentaTransaccionalPg(
       nota_remision_numero: notaRemisionNumero,
       fecha: fechaIso,
       observaciones: observacionesFinal,
+      caja_id: params.cajaId ?? null,
     })
     .select("id")
     .single();
