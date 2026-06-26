@@ -14,7 +14,7 @@ export const EMPRESA_DOC = {
     "Bowls, smoothies y acompañamientos",
   ],
   telefono: "0971 929 651",
-  direccion: ["200 mts. en Sur Club Costa Ñu", "Ruta Pyca - Caacupé", "Cordillera - Paraguay"],
+  direccion: ["CDE-PARAGUAY"],
   /** Logo del cliente (alta calidad, sin fondo). Servido desde /public. */
   logoUrl: "/brand/acaihouse-logo.png",
 };
