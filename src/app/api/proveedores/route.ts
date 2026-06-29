@@ -34,7 +34,7 @@ function mapProveedorRow(r: ProveedorRow): Proveedor {
         ? r.condicion_pago
         : null,
     plazo_pago_dias: r.plazo_pago_dias != null ? Number(r.plazo_pago_dias) : null,
-    moneda_preferida: r.moneda_preferida === "USD" ? "USD" : r.moneda_preferida === "GS" ? "GS" : null,
+    moneda_preferida: ["GS", "USD", "BRL"].includes(r.moneda_preferida as string) ? (r.moneda_preferida as "GS" | "USD" | "BRL") : null,
     observaciones: r.observaciones ?? null,
     created_at: r.created_at,
     updated_at: r.updated_at,
@@ -135,8 +135,8 @@ export async function POST(request: NextRequest) {
       body.plazo_pago_dias != null && String(body.plazo_pago_dias).trim() !== ""
         ? parseInt(String(body.plazo_pago_dias), 10) || null
         : null;
-    const moneda_preferida = body.moneda_preferida === "USD" || body.moneda_preferida === "GS"
-      ? (body.moneda_preferida as "USD" | "GS")
+    const moneda_preferida = ["GS", "USD", "BRL"].includes(body.moneda_preferida as string)
+      ? (body.moneda_preferida as "GS" | "USD" | "BRL")
       : null;
 
     const categoriaIds = Array.isArray(body.categoria_ids)

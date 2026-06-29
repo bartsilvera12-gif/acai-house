@@ -154,7 +154,7 @@ export interface InsertProveedorInput {
   estado?: "activo" | "inactivo";
   condicion_pago?: "contado" | "credito" | "mixto" | null;
   plazo_pago_dias?: number | null;
-  moneda_preferida?: "GS" | "USD" | null;
+  moneda_preferida?: "GS" | "USD" | "BRL" | null;
   observaciones?: string | null;
 }
 

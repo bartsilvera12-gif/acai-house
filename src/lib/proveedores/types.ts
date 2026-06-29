@@ -28,7 +28,7 @@ export interface Proveedor {
   estado: EstadoProveedor;
   condicion_pago: CondicionPagoProveedor | null;
   plazo_pago_dias: number | null;
-  moneda_preferida: "GS" | "USD" | null;
+  moneda_preferida: "GS" | "USD" | "BRL" | null;
   observaciones: string | null;
   created_at: string;
   updated_at: string;
@@ -49,7 +49,7 @@ export type NuevoProveedorInput = {
   estado?: EstadoProveedor;
   condicion_pago?: CondicionPagoProveedor | null;
   plazo_pago_dias?: number | null;
-  moneda_preferida?: "GS" | "USD" | null;
+  moneda_preferida?: "GS" | "USD" | "BRL" | null;
   observaciones?: string | null;
   categoria_ids?: string[];
 };

@@ -22,7 +22,7 @@ export interface ProveedorFormValues {
   estado: EstadoProveedor;
   condicion_pago: CondicionPagoProveedor | "";
   plazo_pago_dias: string;
-  moneda_preferida: "" | "GS" | "USD";
+  moneda_preferida: "" | "GS" | "USD" | "BRL";
   observaciones: string;
   categoria_ids: string[];
 }
@@ -182,6 +182,7 @@ export default function ProveedorForm({
             <option value="">—</option>
             <option value="GS">Guaraníes (GS)</option>
             <option value="USD">Dólares (USD)</option>
+            <option value="BRL">Reales (BRL)</option>
           </select>
         </div>
         <div className="sm:col-span-2">
