@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
     const header: CompraHeaderInput = {
       proveedor_id: String(body.proveedor_id),
       proveedor_nombre: String(body.proveedor_nombre ?? ""),
-      moneda: body.moneda === "USD" ? "USD" : "PYG",
+      moneda: ["USD", "BRL"].includes(body.moneda as string) ? (body.moneda as string) : "PYG",
       tipo_cambio: Number(body.tipo_cambio) || 1,
       tipo_pago: body.tipo_pago === "credito" ? "credito" : "contado",
       plazo_dias: body.plazo_dias != null && String(body.plazo_dias).trim() !== ""

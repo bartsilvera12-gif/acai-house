@@ -153,7 +153,7 @@ export default function NuevaCompraPage() {
   useEffect(() => { recargarProveedores(); recargarProductos(); }, []);
 
   // ── Cálculos de la línea en curso ──────────────────────────────────────────
-  const tipoCambioNum = cab.moneda === "USD" ? parseFloat(cab.tipo_cambio) || 0 : 1;
+  const tipoCambioNum = cab.moneda !== "PYG" ? parseFloat(cab.tipo_cambio) || 0 : 1;
   const nlCant = parseFloat(nl.cantidad) || 0;
   const nlCostoInput = parseFloat(nl.costo_unitario_input) || 0;
   const nlCostoPYG = nlCostoInput * tipoCambioNum;
@@ -189,8 +189,8 @@ export default function NuevaCompraPage() {
     if (nlCostoPYG <= 0) return setErrorLinea("El costo unitario debe ser mayor a 0.");
     if (requierePrecioVenta && nlPrecio <= 0)
       return setErrorLinea("El precio de venta debe ser mayor a 0.");
-    if (cab.moneda === "USD" && tipoCambioNum <= 0)
-      return setErrorLinea("Cargá el tipo de cambio (USD → Gs.) en la cabecera.");
+    if (cab.moneda !== "PYG" && tipoCambioNum <= 0)
+      return setErrorLinea(`Cargá el tipo de cambio (${cab.moneda} → Gs.) en la cabecera.`);
     const prod = productos.find((p) => p.id === nl.producto_id);
     if (!prod) return setErrorLinea("Producto no encontrado. Recargá e intentá de nuevo.");
 
@@ -228,8 +228,8 @@ export default function NuevaCompraPage() {
     if (!cab.proveedor_id) return setErrorSubmit("Seleccioná o agregá un proveedor.");
     if (!cab.nro_timbrado.trim()) return setErrorSubmit("Ingresá el N° de timbrado.");
     if (lineas.length === 0) return setErrorSubmit("Agregá al menos un producto a la compra.");
-    if (cab.moneda === "USD" && tipoCambioNum <= 0)
-      return setErrorSubmit("Cargá el tipo de cambio (USD → Gs.).");
+    if (cab.moneda !== "PYG" && tipoCambioNum <= 0)
+      return setErrorSubmit(`Cargá el tipo de cambio (${cab.moneda} → Gs.).`);
 
     const proveedor = proveedores.find((p) => String(p.id) === cab.proveedor_id);
     if (!proveedor) return setErrorSubmit("Proveedor no encontrado. Recargá e intentá de nuevo.");
@@ -467,7 +467,7 @@ export default function NuevaCompraPage() {
               <div>
                 <label className={labelClass}>Moneda</label>
                 <SegmentedControl<Moneda> value={cab.moneda}
-                  options={[{ value: "PYG", label: "Guaraníes (₲)" }, { value: "USD", label: "Dólares (USD)" }]}
+                  options={[{ value: "PYG", label: "Guaraníes (₲)" }, { value: "USD", label: "Dólares (USD)" }, { value: "BRL", label: "Reales (BRL)" }]}
                   onChange={(v) => setCab((p) => ({ ...p, moneda: v, tipo_cambio: "" }))} />
               </div>
               {cab.tipo_pago === "credito" && (
@@ -477,11 +477,11 @@ export default function NuevaCompraPage() {
                     placeholder="Ej: 30" className={inputClass} min={1} />
                 </div>
               )}
-              {cab.moneda === "USD" && (
+              {cab.moneda !== "PYG" && (
                 <div>
-                  <label className={labelClass}>Tipo de cambio (USD → Gs.) <span className="text-red-500">*</span></label>
+                  <label className={labelClass}>Tipo de cambio ({cab.moneda} → Gs.) <span className="text-red-500">*</span></label>
                   <MontoInput value={cab.tipo_cambio} onChange={(n) => setCab((p) => ({ ...p, tipo_cambio: String(n) }))}
-                    placeholder="Ej: 7500" className={inputClass} decimals={false} />
+                    placeholder={cab.moneda === "BRL" ? "Ej: 1350" : "Ej: 7500"} className={inputClass} decimals={false} />
                 </div>
               )}
             </div>
@@ -650,11 +650,11 @@ export default function NuevaCompraPage() {
                     placeholder="Ej: 50" className={inputSmClass} min={0} step="any" />
                 </div>
                 <div>
-                  <label className={labelSmClass}>Costo unit. ({cab.moneda === "USD" ? "USD" : "Gs."}) <span className="text-red-500">*</span></label>
+                  <label className={labelSmClass}>Costo unit. ({cab.moneda === "PYG" ? "Gs." : cab.moneda}) <span className="text-red-500">*</span></label>
                   <MontoInput value={nl.costo_unitario_input}
                     onChange={(n) => setNl((p) => ({ ...p, costo_unitario_input: String(n) }))}
-                    placeholder={cab.moneda === "USD" ? "Ej: 12" : "Ej: 18000"} className={inputSmClass}
-                    decimals={cab.moneda === "USD"} />
+                    placeholder={cab.moneda === "PYG" ? "Ej: 18000" : "Ej: 12"} className={inputSmClass}
+                    decimals={cab.moneda !== "PYG"} />
                 </div>
                 <div>
                   <label className={labelSmClass}>IVA</label>
@@ -684,7 +684,7 @@ export default function NuevaCompraPage() {
 
               {(nlSubtotal > 0 || nlMargen !== null) && (
                 <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-xs text-gray-500">
-                  {cab.moneda === "USD" && nlCostoPYG > 0 && <span>≈ {formatGs(nlCostoPYG)}/u</span>}
+                  {cab.moneda !== "PYG" && nlCostoPYG > 0 && <span>≈ {formatGs(nlCostoPYG)}/u</span>}
                   {nlSubtotal > 0 && <span>Subtotal: <strong className="text-gray-700">{formatGs(nlSubtotal)}</strong></span>}
                   {nlSubtotal > 0 && <span>Total línea: <strong className="text-gray-700">{formatGs(nlTotal)}</strong></span>}
                   {nlMargen !== null && <span className={margenColor(nlMargen)}>Margen: {nlMargen.toFixed(1)}%</span>}

@@ -23,7 +23,7 @@ function mapRow(r: CompraApiRow): Compra {
     producto_id: r.producto_id,
     producto_nombre: r.producto_nombre,
     cantidad: Number(r.cantidad),
-    moneda: (r.moneda === "USD" ? "USD" : "PYG") as Compra["moneda"],
+    moneda: (["USD", "BRL"].includes(r.moneda as string) ? r.moneda : "PYG") as Compra["moneda"],
     tipo_cambio: Number(r.tipo_cambio),
     costo_unitario_original: Number(r.costo_unitario_original),
     costo_unitario: Number(r.costo_unitario),
@@ -87,7 +87,7 @@ export interface CompraItemPayload {
 export interface CompraHeaderPayload {
   proveedor_id: string;
   proveedor_nombre: string;
-  moneda: "PYG" | "USD";
+  moneda: "PYG" | "USD" | "BRL";
   tipo_cambio: number;
   tipo_pago: "contado" | "credito";
   plazo_dias?: number;

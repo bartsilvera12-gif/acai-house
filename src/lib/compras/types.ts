@@ -1,6 +1,6 @@
 export type TipoPago = "contado" | "credito";
 export type TipoIva = "exenta" | "5" | "10";
-export type Moneda = "PYG" | "USD";
+export type Moneda = "PYG" | "USD" | "BRL";
 
 export interface Compra {
   id: string;
