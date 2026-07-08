@@ -44,6 +44,7 @@ function asItems(body: unknown): CreateVentaItemInput[] | null {
       subtotal: Number(r.subtotal),
       monto_iva: Number(r.monto_iva),
       total_linea: Number(r.total_linea),
+      nota: typeof r.nota === "string" && r.nota.trim() ? r.nota.trim().slice(0, 300) : null,
     });
   }
   if (out.some((i) => !i.producto_id || !(i.cantidad > 0))) return null;
@@ -80,6 +81,7 @@ function toVentaResponse(
     subtotal: i.subtotal,
     monto_iva: i.monto_iva,
     total_linea: i.total_linea,
+    nota: i.nota ?? null,
   }));
   return {
     id: meta.id,

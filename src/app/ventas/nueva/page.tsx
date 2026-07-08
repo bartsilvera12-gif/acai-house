@@ -558,6 +558,11 @@ export default function NuevaVentaPage() {
     setItems((prev) => prev.filter((_, i) => i !== index));
   }
 
+  /** Variación/nota del ítem para la cocina (ej: "sin leche condensada"). */
+  function handleCambiarNota(index: number, nota: string) {
+    setItems((prev) => prev.map((it, i) => (i === index ? { ...it, nota } : it)));
+  }
+
   /** Envía la venta. Con `permitirSinStock=true` autoriza vender aunque falte stock. */
   async function enviarVenta(permitirSinStock: boolean) {
     // Guard duro contra doble submit: si ya hay una confirmación en vuelo, cortar
@@ -831,6 +836,14 @@ export default function NuevaVentaPage() {
                           }`}>
                             {tipoPrecioLabel[item.tipo_precio ?? "minorista"]}
                           </span>
+                          <input
+                            type="text"
+                            value={item.nota ?? ""}
+                            onChange={(e) => handleCambiarNota(idx, e.target.value)}
+                            placeholder="Variación para cocina (ej: sin leche condensada)"
+                            maxLength={300}
+                            className="mt-1.5 w-full max-w-xs rounded-md border border-slate-200 px-2 py-1 text-xs text-gray-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#3F8E91]"
+                          />
                         </td>
                         <td className="hidden py-3 pr-3 font-mono text-xs text-gray-500 lg:table-cell">
                           {item.sku}

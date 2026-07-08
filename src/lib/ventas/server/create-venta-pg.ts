@@ -38,6 +38,8 @@ export interface CreateVentaItemInput {
   subtotal: number;
   monto_iva: number;
   total_linea: number;
+  /** Variación/nota para la cocina (ej: "sin leche condensada"). Opcional. */
+  nota?: string | null;
 }
 
 export interface CreateVentaPedidoCocinaInput {
@@ -446,6 +448,7 @@ export async function createVentaTransaccionalPg(
       subtotal: line.subtotal,
       monto_iva: line.monto_iva,
       total_linea: line.total_linea,
+      nota: line.nota ?? null,
     }));
     const insItems = await sb.from("ventas_items").insert(itemsRows);
     if (insItems.error) throw new Error(insItems.error.message);
@@ -552,6 +555,7 @@ export async function createVentaTransaccionalPg(
         cantidad: it.cantidad,
         precio_venta: it.precio_venta,
         total_linea: it.total_linea,
+        nota: it.nota ?? null,
       }));
       const briefData = {
         modalidad: params.pedidoCocina.modalidad,

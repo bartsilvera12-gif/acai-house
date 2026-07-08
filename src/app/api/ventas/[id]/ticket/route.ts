@@ -144,6 +144,7 @@ interface ItemRow {
   cantidad: number | string;
   precio_venta: number | string;
   total_linea: number | string;
+  nota?: string | null;
 }
 
 type EnrichedItem = ItemRow & { sector: Sector };
@@ -160,7 +161,7 @@ interface PedidoBrief {
 // ── Render de cada copia ───────────────────────────────────────────────────
 
 function renderCopia(opts: {
-  tipo: "cliente" | "pizzeria" | "plancha";
+  tipo: "cliente" | "pizzeria" | "plancha" | "cocina";
   venta: VentaRow;
   items: EnrichedItem[];
   brief: PedidoBrief | null;
@@ -170,7 +171,7 @@ function renderCopia(opts: {
 }): string {
   const { tipo, venta, items, brief, fontPx, isLast } = opts;
   const showPrices = tipo === "cliente";
-  const sectorBadge = tipo === "pizzeria" ? "COMANDA PIZZERÍA" : tipo === "plancha" ? "COMANDA PLANCHA" : "";
+  const sectorBadge = tipo === "pizzeria" ? "COMANDA PIZZERÍA" : tipo === "plancha" ? "COMANDA PLANCHA" : tipo === "cocina" ? "COMANDA COCINA" : "";
   const modalidad = modalidadLabel(brief?.modalidad);
 
   // Filas de ítems: en cliente todas; en cocina todas también, pero las del propio sector destacadas.
@@ -181,8 +182,15 @@ function renderCopia(opts: {
       const sub = Number(it.total_linea);
       const matchesSector =
         (tipo === "pizzeria" && it.sector === "pizzeria") ||
-        (tipo === "plancha" && it.sector === "plancha");
+        (tipo === "plancha" && it.sector === "plancha") ||
+        tipo === "cocina";
       const cls = matchesSector ? "match" : tipo === "cliente" ? "" : "muted";
+      // Variación/nota para la cocina (ej: "sin leche condensada"). Solo en copias de cocina.
+      const notaTxt = (it.nota ?? "").toString().trim();
+      const notaRow =
+        !showPrices && notaTxt
+          ? `<tr><td></td><td colspan="2" style="font-weight:800;text-transform:uppercase;color:#000;padding-top:0;">→ ${escapeHtml(notaTxt)}</td></tr>`
+          : "";
       const main = showPrices
         ? `<tr class="${cls}">
              <td class="qty"><strong>${cant}×</strong></td>
@@ -193,7 +201,7 @@ function renderCopia(opts: {
         : `<tr class="${cls}">
              <td class="qty"><strong>${cant}×</strong></td>
              <td class="name" colspan="2"><strong>${escapeHtml(it.producto_nombre)}</strong></td>
-           </tr>`;
+           </tr>${notaRow}`;
       return main;
     })
     .join("");
@@ -377,7 +385,7 @@ export async function GET(request: NextRequest, ctxParams: { params: Promise<{ i
   // Items
   const iQ = await ctx.supabase
     .from("ventas_items")
-    .select("producto_id, producto_nombre, sku, cantidad, precio_venta, total_linea")
+    .select("producto_id, producto_nombre, sku, cantidad, precio_venta, total_linea, nota")
     .eq("venta_id", id)
     .eq("empresa_id", empresaId);
   if (iQ.error) return new NextResponse(`Error items: ${iQ.error.message}`, { status: 500 });
@@ -496,8 +504,11 @@ export async function GET(request: NextRequest, ctxParams: { params: Promise<{ i
   const hayPizzeria = items.some((i) => i.sector === "pizzeria");
   const hayPlancha = items.some((i) => i.sector === "plancha");
 
-  const copias: Array<"cliente" | "pizzeria" | "plancha"> = ["cliente"];
+  const copias: Array<"cliente" | "pizzeria" | "plancha" | "cocina"> = ["cliente"];
   if (modeComandas) {
+    // Comanda única de cocina (Açaí House): lista todos los ítems con sus variaciones,
+    // sin precios. Se mantienen las copias por sector para instancias que las usen.
+    copias.push("cocina");
     if (hayPizzeria) copias.push("pizzeria");
     if (hayPlancha) copias.push("plancha");
   }

@@ -20,6 +20,8 @@ export interface LineaVenta {
   subtotal:              number;  // precio_venta × cantidad
   monto_iva:             number;
   total_linea:           number;  // subtotal + monto_iva
+  /** Variación/nota del ítem para la cocina (ej: "sin leche condensada"). Opcional. */
+  nota?:                 string | null;
 }
 
 /** Cabecera de venta: condiciones comerciales + totales consolidados. */
