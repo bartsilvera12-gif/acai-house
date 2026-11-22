@@ -15,7 +15,7 @@ const PRODUCTO_COLS =
   "codigo_barras, codigo_barras_interno, imagen_path, imagen_url, " +
   "categoria_principal_id, ubicacion_principal_id, proveedor_principal_id, " +
   "es_vendible, es_insumo, controla_stock, valorizado, unidad_compra, unidad_receta, " +
-  "factor_compra_receta, tiempo_prep_minutos, descripcion, precio_mayorista, cantidad_minima_mayorista, precio_distribuidor, modo_receta";
+  "factor_compra_receta, peso_variable, tiempo_prep_minutos, descripcion, precio_mayorista, cantidad_minima_mayorista, precio_distribuidor, modo_receta";
 
 function toNumber(v: unknown): unknown {
   return typeof v === "string" ? Number(v) : v;
@@ -129,6 +129,7 @@ export async function POST(request: NextRequest) {
       typeof body.factor_compra_receta === "number" && body.factor_compra_receta > 0
         ? body.factor_compra_receta
         : undefined;
+    const pesoVariable = typeof body.peso_variable === "boolean" ? body.peso_variable : undefined;
     const tiempoPrepMinutos =
       typeof body.tiempo_prep_minutos === "number" && body.tiempo_prep_minutos >= 0
         ? Math.floor(body.tiempo_prep_minutos)
@@ -169,6 +170,7 @@ export async function POST(request: NextRequest) {
     if (unidadCompra !== undefined) insertPayload.unidad_compra = unidadCompra;
     if (unidadReceta !== undefined) insertPayload.unidad_receta = unidadReceta;
     if (factorCompraReceta !== undefined) insertPayload.factor_compra_receta = factorCompraReceta;
+    if (pesoVariable !== undefined) insertPayload.peso_variable = pesoVariable;
     if (tiempoPrepMinutos !== undefined) insertPayload.tiempo_prep_minutos = tiempoPrepMinutos;
     const descripcion = typeof body.descripcion === "string" ? body.descripcion.trim() || null : (body.descripcion === null ? null : undefined);
     if (descripcion !== undefined) insertPayload.descripcion = descripcion;

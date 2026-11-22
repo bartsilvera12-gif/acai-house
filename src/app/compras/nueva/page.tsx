@@ -50,6 +50,11 @@ type LineaCompra = {
   monto_iva: number;
   total: number;
   margen_venta: number | null;
+  // Fase 2.1 — opcionales, derivados del empaque del producto cuando aplica.
+  cantidad_compra: number | null;
+  unidad_compra_snapshot: string | null;
+  factor_aplicado: number | null;
+  peso_real_recibido: number | null;
 };
 
 // ── SegmentedControl ───────────────────────────────────────────────────────────
@@ -105,6 +110,8 @@ export default function NuevaCompraPage() {
     costo_unitario_input: "",
     iva_tipo: "10" as TipoIva,
     precio_venta: "",
+    cantidad_compra: "",      // Fase 2.1 — cuántos empaques
+    peso_real_recibido: "",   // Fase 2.1 — solo si peso_variable
   });
 
   // Inline crear proveedor / producto
@@ -154,7 +161,31 @@ export default function NuevaCompraPage() {
 
   // ── Cálculos de la línea en curso ──────────────────────────────────────────
   const tipoCambioNum = cab.moneda !== "PYG" ? parseFloat(cab.tipo_cambio) || 0 : 1;
-  const nlCant = parseFloat(nl.cantidad) || 0;
+  const productoSel = productos.find((p) => p.id === nl.producto_id);
+
+  // Fase 2.1 — si el producto tiene empaque configurado, derivar cantidad desde
+  // cantidad_compra * factor (o desde peso_real_recibido si es peso variable).
+  const pSelPesoVar = productoSel?.peso_variable === true;
+  const pSelFactor = productoSel?.factor_compra_receta && productoSel.factor_compra_receta > 1
+    ? Number(productoSel.factor_compra_receta)
+    : null;
+  const pSelUnidadCompra = productoSel?.unidad_compra ?? null;
+  const usarEmpaque = !!productoSel && (pSelPesoVar || (pSelUnidadCompra !== null && pSelFactor !== null));
+  const nlCantCompra = parseFloat(nl.cantidad_compra) || 0;
+  const nlPesoReal = parseFloat(nl.peso_real_recibido) || 0;
+  const nlCantManual = parseFloat(nl.cantidad) || 0;
+
+  // cantidad en unidad_medida del producto:
+  //   - peso variable  → peso_real_recibido
+  //   - peso fijo      → cantidad_compra * factor_compra_receta
+  //   - sin empaque    → el valor manual escrito en "Cantidad"
+  const nlCant = usarEmpaque
+    ? (pSelPesoVar ? nlPesoReal : (nlCantCompra > 0 && pSelFactor ? nlCantCompra * pSelFactor : 0))
+    : nlCantManual;
+  const factorAplicadoLinea = usarEmpaque
+    ? (pSelPesoVar ? (nlCantCompra > 0 ? nlPesoReal / nlCantCompra : 0) : (pSelFactor ?? 0))
+    : null;
+
   const nlCostoInput = parseFloat(nl.costo_unitario_input) || 0;
   const nlCostoPYG = nlCostoInput * tipoCambioNum;
   const nlPrecio = parseFloat(nl.precio_venta) || 0;
@@ -162,7 +193,6 @@ export default function NuevaCompraPage() {
   const nlIva = ivaMonto(nlSubtotal, nl.iva_tipo);
   const nlTotal = nlSubtotal + nlIva;
   const nlMargen = nlPrecio > 0 && nlCostoPYG > 0 ? ((nlPrecio - nlCostoPYG) / nlPrecio) * 100 : null;
-  const productoSel = productos.find((p) => p.id === nl.producto_id);
   // Materia prima / insumo NO vendible: no exigimos precio de venta (se compra para recetas).
   const esInsumoNoVendible = !!productoSel && productoSel.es_insumo === true && productoSel.es_vendible !== true;
   const requierePrecioVenta = !esInsumoNoVendible;
@@ -211,9 +241,14 @@ export default function NuevaCompraPage() {
         monto_iva: nlIva,
         total: nlTotal,
         margen_venta: nlMargen,
+        // Fase 2.1
+        cantidad_compra: usarEmpaque ? nlCantCompra : null,
+        unidad_compra_snapshot: usarEmpaque ? (pSelUnidadCompra ?? "Empaque") : null,
+        factor_aplicado: usarEmpaque && factorAplicadoLinea != null && factorAplicadoLinea > 0 ? factorAplicadoLinea : null,
+        peso_real_recibido: pSelPesoVar ? nlPesoReal : null,
       },
     ]);
-    setNl({ producto_id: "", cantidad: "", costo_unitario_input: "", iva_tipo: "10", precio_venta: "" });
+    setNl({ producto_id: "", cantidad: "", costo_unitario_input: "", iva_tipo: "10", precio_venta: "", cantidad_compra: "", peso_real_recibido: "" });
     setProductoCreado(null);
   }
 
@@ -246,6 +281,10 @@ export default function NuevaCompraPage() {
       total: l.total,
       precio_venta: l.precio_venta,
       margen_venta: l.margen_venta ?? 0,
+      cantidad_compra: l.cantidad_compra,
+      unidad_compra_snapshot: l.unidad_compra_snapshot,
+      factor_aplicado: l.factor_aplicado,
+      peso_real_recibido: l.peso_real_recibido,
     }));
 
     setSubmitting(true);
@@ -643,11 +682,64 @@ export default function NuevaCompraPage() {
                 )}
               </div>
 
+              {usarEmpaque && (
+                <div className="rounded-lg border border-sky-200 bg-sky-50/60 px-3 py-2 text-xs text-slate-700 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span>
+                      <strong>Empaque de compra:</strong>{" "}
+                      {pSelPesoVar
+                        ? `Peso variable — cargá cantidad de empaques y peso real recibido.`
+                        : `${pSelUnidadCompra ?? "Empaque"} · 1 empaque = ${pSelFactor} ${productoSel?.unidad_receta ?? productoSel?.unidad_medida ?? ""}`}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className={labelSmClass}>Cant. empaques</label>
+                      <input
+                        type="number"
+                        value={nl.cantidad_compra}
+                        onChange={(e) => setNl((p) => ({ ...p, cantidad_compra: e.target.value }))}
+                        placeholder="Ej: 2"
+                        className={inputSmClass}
+                        min={0}
+                        step="any"
+                      />
+                    </div>
+                    {pSelPesoVar ? (
+                      <div>
+                        <label className={labelSmClass}>Peso real recibido ({productoSel?.unidad_medida ?? "g"})</label>
+                        <input
+                          type="number"
+                          value={nl.peso_real_recibido}
+                          onChange={(e) => setNl((p) => ({ ...p, peso_real_recibido: e.target.value }))}
+                          placeholder="Ej: 13500"
+                          className={inputSmClass}
+                          min={0}
+                          step="any"
+                        />
+                      </div>
+                    ) : (
+                      <div className="flex items-end text-xs text-slate-600">
+                        Ingresa al inventario: <strong className="ml-1">{nlCant > 0 ? nlCant.toLocaleString("es-PY") : "—"} {productoSel?.unidad_medida ?? ""}</strong>
+                      </div>
+                    )}
+                  </div>
+                  {pSelPesoVar && nlCantCompra > 0 && nlPesoReal > 0 && (
+                    <div className="text-xs text-slate-600">
+                      Factor de esta compra: <strong>{(nlPesoReal / nlCantCompra).toFixed(2)}</strong> {productoSel?.unidad_medida ?? "g"}/empaque · Ingresa al inventario: <strong>{nlPesoReal.toLocaleString("es-PY")} {productoSel?.unidad_medida ?? "g"}</strong>
+                    </div>
+                  )}
+                </div>
+              )}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div>
-                  <label className={labelSmClass}>Cantidad <span className="text-red-500">*</span></label>
-                  <input type="number" value={nl.cantidad} onChange={(e) => setNl((p) => ({ ...p, cantidad: e.target.value }))}
-                    placeholder="Ej: 50" className={inputSmClass} min={0} step="any" />
+                  <label className={labelSmClass}>
+                    Cantidad {!usarEmpaque && <span className="text-red-500">*</span>}
+                    {usarEmpaque && <span className="font-normal text-slate-400"> (calculada)</span>}
+                  </label>
+                  <input type="number" value={usarEmpaque ? String(nlCant || "") : nl.cantidad}
+                    onChange={(e) => setNl((p) => ({ ...p, cantidad: e.target.value }))}
+                    placeholder="Ej: 50" className={inputSmClass} min={0} step="any" readOnly={usarEmpaque} />
                 </div>
                 <div>
                   <label className={labelSmClass}>Costo unit. ({cab.moneda === "PYG" ? "Gs." : cab.moneda}) <span className="text-red-500">*</span></label>

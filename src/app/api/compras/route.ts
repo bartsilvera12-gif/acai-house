@@ -96,6 +96,11 @@ export async function POST(request: NextRequest) {
         total: Number(it.total) || 0,
         precio_venta: Number(it.precio_venta) || 0,
         margen_venta: it.margen_venta != null ? Number(it.margen_venta) : null,
+        // Fase 2.1 — opcionales; el servidor valida coherencia contra producto.peso_variable.
+        cantidad_compra: it.cantidad_compra != null && Number(it.cantidad_compra) > 0 ? Number(it.cantidad_compra) : null,
+        unidad_compra_snapshot: it.unidad_compra_snapshot != null && String(it.unidad_compra_snapshot).trim() !== "" ? String(it.unidad_compra_snapshot).trim() : null,
+        factor_aplicado: it.factor_aplicado != null && Number(it.factor_aplicado) > 0 ? Number(it.factor_aplicado) : null,
+        peso_real_recibido: it.peso_real_recibido != null && Number(it.peso_real_recibido) > 0 ? Number(it.peso_real_recibido) : null,
       });
     }
 
