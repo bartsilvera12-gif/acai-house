@@ -45,6 +45,9 @@ export interface Producto {
   unidad_receta?: string | null;
   /** Factor para 1 unidad_compra → unidades_receta (ej. 25000). */
   factor_compra_receta?: number;
+  /** Fase 2.1: true si el empaque pesa distinto cada vez (ej: caja de banana).
+   *  Al comprar se pide peso real recibido. Ignora factor_compra_receta. */
+  peso_variable?: boolean;
   /** Tiempo estimado de preparación en minutos (para Kanban cocina). */
   tiempo_prep_minutos?: number;
   /** Descripción detallada (visible en Menú y edición). */

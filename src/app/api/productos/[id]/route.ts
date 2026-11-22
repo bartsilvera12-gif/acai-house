@@ -11,7 +11,7 @@ const PRODUCTO_COLS =
   "codigo_barras, codigo_barras_interno, imagen_path, imagen_url, " +
   "categoria_principal_id, ubicacion_principal_id, proveedor_principal_id, " +
   "es_vendible, es_insumo, controla_stock, valorizado, unidad_compra, unidad_receta, " +
-  "factor_compra_receta, tiempo_prep_minutos, descripcion, precio_mayorista, cantidad_minima_mayorista, precio_distribuidor, modo_receta";
+  "factor_compra_receta, peso_variable, tiempo_prep_minutos, descripcion, precio_mayorista, cantidad_minima_mayorista, precio_distribuidor, modo_receta";
 
 function toNumber(v: unknown): unknown {
   return typeof v === "string" ? Number(v) : v;
@@ -150,6 +150,7 @@ export async function PATCH(
       patch.unidad_receta = body.unidad_receta == null ? null : String(body.unidad_receta).trim() || null;
     if (typeof body.factor_compra_receta === "number" && body.factor_compra_receta > 0)
       patch.factor_compra_receta = body.factor_compra_receta;
+    if (typeof body.peso_variable === "boolean") patch.peso_variable = body.peso_variable;
     if (typeof body.tiempo_prep_minutos === "number" && body.tiempo_prep_minutos >= 0)
       patch.tiempo_prep_minutos = Math.floor(body.tiempo_prep_minutos);
     if (body.descripcion !== undefined)

@@ -83,6 +83,11 @@ export interface CompraItemPayload {
   total: number;
   precio_venta: number;
   margen_venta: number | null;
+  // Fase 2.1 — opcionales, derivados del empaque del producto.
+  cantidad_compra?: number | null;
+  unidad_compra_snapshot?: string | null;
+  factor_aplicado?: number | null;
+  peso_real_recibido?: number | null;
 }
 export interface CompraHeaderPayload {
   proveedor_id: string;

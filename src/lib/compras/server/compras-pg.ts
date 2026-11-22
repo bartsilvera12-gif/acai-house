@@ -9,6 +9,7 @@
  */
 import { getChatPostgresPool, quoteSchemaTable } from "@/lib/supabase/chat-pg-pool";
 import { assertAllowedChatDataSchema } from "@/lib/supabase/chat-data-schema";
+import { calcularNuevoCostoPromedio } from "@/lib/inventario/cpp";
 
 function pool() {
   const p = getChatPostgresPool();
@@ -190,6 +191,11 @@ export interface CompraItemInput {
   total: number;
   precio_venta: number;
   margen_venta: number | null;
+  // Fase 2.1 — todos opcionales, backward-compatible con compras legacy.
+  cantidad_compra?: number | null;
+  unidad_compra_snapshot?: string | null;
+  factor_aplicado?: number | null;
+  peso_real_recibido?: number | null;
 }
 
 export interface ComprasMultiResult {
@@ -229,6 +235,55 @@ export async function insertComprasConImpacto(
     const numero = await nextNumeroControl(client, schema, empresaId);
 
     for (const it of items) {
+      // Fase 2.1 — validación servidor: coherencia de empaque vs producto.
+      // Carga el producto para conocer peso_variable + factor_compra_receta.
+      const { rows: prodRows } = await client.query<{
+        stock_actual: string | number;
+        costo_promedio: string | number;
+        peso_variable: boolean;
+        factor_compra_receta: string | number;
+      }>(
+        `SELECT stock_actual, costo_promedio, peso_variable, factor_compra_receta
+           FROM ${tP} WHERE id = $1::uuid AND empresa_id = $2::uuid`,
+        [it.producto_id, empresaId]
+      );
+      if (prodRows.length === 0) throw new Error(`Producto ${it.producto_id} no existe o no pertenece a la empresa.`);
+      const stockPrev = Number(prodRows[0].stock_actual) || 0;
+      const costoPrev = Number(prodRows[0].costo_promedio) || 0;
+      const esPesoVar = prodRows[0].peso_variable === true;
+      const factorProd = Number(prodRows[0].factor_compra_receta) || 1;
+
+      // Normalizar los campos de empaque y validar coherencia.
+      const cantidadCompra = it.cantidad_compra != null && it.cantidad_compra > 0 ? Number(it.cantidad_compra) : null;
+      const unidadCompraSnap = it.unidad_compra_snapshot != null && String(it.unidad_compra_snapshot).trim() !== ""
+        ? String(it.unidad_compra_snapshot).trim() : null;
+      let factorAplicado = it.factor_aplicado != null && it.factor_aplicado > 0 ? Number(it.factor_aplicado) : null;
+      let pesoRealRecibido = it.peso_real_recibido != null && it.peso_real_recibido > 0 ? Number(it.peso_real_recibido) : null;
+
+      if (esPesoVar) {
+        // Peso variable: EXIGE peso_real_recibido y cantidad_compra. factor_aplicado se deriva.
+        if (cantidadCompra == null || pesoRealRecibido == null) {
+          throw new Error(`"${it.producto_nombre}" es un insumo de peso variable: cargá cantidad de empaques y peso real recibido.`);
+        }
+        factorAplicado = pesoRealRecibido / cantidadCompra;
+        // Coherencia: cantidad guardada en inventario debe ser el peso real total.
+        if (Math.abs(Number(it.cantidad) - pesoRealRecibido) > 0.01) {
+          throw new Error(`"${it.producto_nombre}": la cantidad de inventario (${it.cantidad}) debe coincidir con el peso real recibido (${pesoRealRecibido}).`);
+        }
+      } else if (cantidadCompra != null) {
+        // Peso fijo con empaque declarado: factor_aplicado debe matchear producto.factor_compra_receta.
+        // Si viene null lo derivamos del producto.
+        if (factorAplicado == null) factorAplicado = factorProd;
+        const cantidadEsperada = cantidadCompra * factorAplicado;
+        if (Math.abs(Number(it.cantidad) - cantidadEsperada) > 0.01) {
+          throw new Error(`"${it.producto_nombre}": la cantidad de inventario (${it.cantidad}) no coincide con ${cantidadCompra} × ${factorAplicado} = ${cantidadEsperada}.`);
+        }
+        pesoRealRecibido = null; // no aplica
+      } else {
+        // Compra legacy / simple: sin empaque declarado. Se guarda cantidad directa y el resto queda NULL.
+        pesoRealRecibido = null;
+      }
+
       const { rows: compraRows } = await client.query<CompraRow>(
         `INSERT INTO ${tC} (
            empresa_id, proveedor_id, proveedor_nombre, producto_id, producto_nombre,
@@ -236,14 +291,16 @@ export async function insertComprasConImpacto(
            iva_tipo, subtotal, monto_iva, total, precio_venta, margen_venta,
            tipo_pago, plazo_dias, nro_timbrado, numero_control, estado, fecha,
            comprobante_url, comprobante_storage_path, comprobante_nombre, comprobante_mime_type,
-           created_by, usuario_nombre
+           created_by, usuario_nombre,
+           cantidad_compra, unidad_compra_snapshot, factor_aplicado, peso_real_recibido
          ) VALUES (
            $1::uuid, $2::uuid, $3, $4::uuid, $5,
            $6::numeric, $7, $8::numeric, $9::numeric, $10::numeric,
            $11, $12::numeric, $13::numeric, $14::numeric, $15::numeric, $16::numeric,
            $17, $18::integer, $19, $20, 'registrada', now(),
            $21, $22, $23, $24,
-           $25::uuid, $26
+           $25::uuid, $26,
+           $27::numeric, $28, $29::numeric, $30::numeric
          )
          RETURNING ${COLS}`,
         [
@@ -256,6 +313,7 @@ export async function insertComprasConImpacto(
           header.comprobante_url, header.comprobante_storage_path,
           header.comprobante_nombre, header.comprobante_mime_type,
           header.created_by, header.usuario_nombre,
+          cantidadCompra, unidadCompraSnap, factorAplicado, pesoRealRecibido,
         ]
       );
       insertedRows.push(compraRows[0]);
@@ -283,10 +341,12 @@ export async function insertComprasConImpacto(
         warnings.push(it.producto_nombre);
       }
 
-      // Actualizar producto: stock + costo_promedio siempre.
+      // Actualizar producto: stock += cantidad. costo_promedio por CPP ponderado
+      // sobre stock anterior (fix Fase 2.1 — antes se sobrescribía con el último).
       // precio_venta SOLO se actualiza si la compra trae un precio > 0 (productos
       // vendibles). Para materia prima / insumos sin precio (0 o vacío) mantenemos
       // el precio actual: nunca lo pisamos con 0 ni con un valor inventado.
+      const nuevoCPP = calcularNuevoCostoPromedio(stockPrev, costoPrev, Number(it.cantidad), Number(it.costo_unitario));
       await client.query(
         `UPDATE ${tP}
             SET stock_actual = stock_actual + $1::numeric,
@@ -294,7 +354,7 @@ export async function insertComprasConImpacto(
                 precio_venta = CASE WHEN $3::numeric > 0 THEN $3::numeric ELSE precio_venta END,
                 updated_at = now()
           WHERE id = $4::uuid AND empresa_id = $5::uuid`,
-        [it.cantidad, it.costo_unitario, it.precio_venta, it.producto_id, empresaId]
+        [it.cantidad, nuevoCPP, it.precio_venta, it.producto_id, empresaId]
       );
 
       // Mantener relación producto↔proveedor (costo_habitual). No pisa marca.
@@ -417,8 +477,15 @@ export async function insertCompraConImpacto(
         "La compra se guardó pero no se pudo registrar el movimiento de entrada en inventario.";
     }
 
-    // Actualizar producto: stock + costo_promedio siempre; precio_venta solo si > 0
-    // (no pisamos el precio de insumos / materia prima con 0).
+    // Actualizar producto: stock += cantidad, costo_promedio por CPP ponderado
+    // (fix Fase 2.1), precio_venta solo si > 0.
+    const { rows: prodRows } = await client.query<{ stock_actual: string | number; costo_promedio: string | number }>(
+      `SELECT stock_actual, costo_promedio FROM ${tP} WHERE id = $1::uuid AND empresa_id = $2::uuid`,
+      [d.producto_id, empresaId]
+    );
+    const stockPrev = Number(prodRows[0]?.stock_actual) || 0;
+    const costoPrev = Number(prodRows[0]?.costo_promedio) || 0;
+    const nuevoCPP = calcularNuevoCostoPromedio(stockPrev, costoPrev, Number(d.cantidad), Number(d.costo_unitario));
     await client.query(
       `UPDATE ${tP}
           SET stock_actual = stock_actual + $1::numeric,
@@ -426,7 +493,7 @@ export async function insertCompraConImpacto(
               precio_venta = CASE WHEN $3::numeric > 0 THEN $3::numeric ELSE precio_venta END,
               updated_at = now()
         WHERE id = $4::uuid AND empresa_id = $5::uuid`,
-      [d.cantidad, d.costo_unitario, d.precio_venta, d.producto_id, empresaId]
+      [d.cantidad, nuevoCPP, d.precio_venta, d.producto_id, empresaId]
     );
 
     // Mantener relación producto↔proveedor (costo_habitual). No pisa marca.

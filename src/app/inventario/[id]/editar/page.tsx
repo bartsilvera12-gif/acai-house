@@ -13,6 +13,7 @@ import MarcarPerdidaCard from "@/components/inventario/MarcarPerdidaCard";
 import { ShoppingBag, Boxes, ClipboardList, type LucideIcon } from "lucide-react";
 import PresentacionesEditor, { type PresentacionBorrador } from "@/components/inventario/PresentacionesEditor";
 import AdicionalesPermitidosEditor from "@/components/inventario/AdicionalesPermitidosEditor";
+import { EmpaqueConfigurator } from "@/components/inventario/EmpaqueConfigurator";
 
 // Opciones estándar de unidad de medida (UX simplificada gastro)
 const UNIDADES_OPCIONES = [
@@ -118,6 +119,7 @@ export default function EditarProductoPage() {
   const [unidadCompra, setUnidadCompra] = useState("");
   const [unidadReceta, setUnidadReceta] = useState("");
   const [factorCompraReceta, setFactorCompraReceta] = useState("1");
+  const [pesoVariable, setPesoVariable] = useState(false);
   const [tiempoPrepMinutos, setTiempoPrepMinutos] = useState("0");
 
   useEffect(() => {
@@ -241,6 +243,7 @@ export default function EditarProductoPage() {
       setUnidadCompra(p.unidad_compra ?? "");
       setUnidadReceta(p.unidad_receta ?? "");
       setFactorCompraReceta(String(p.factor_compra_receta ?? 1));
+      setPesoVariable(p.peso_variable === true);
       setTiempoPrepMinutos(String(p.tiempo_prep_minutos ?? 0));
       // Inferir tipo gastro a partir de los flags
       if (esIns) setTipoGastro("materia");
@@ -448,6 +451,7 @@ export default function EditarProductoPage() {
         unidad_compra: unidadCompra.trim() || null,
         unidad_receta: unidadReceta.trim() || null,
         factor_compra_receta: Math.max(parseFloat(factorCompraReceta) || 1, 0.0001),
+        peso_variable: pesoVariable,
         tiempo_prep_minutos: Math.max(parseInt(tiempoPrepMinutos) || 0, 0),
         descripcion: descripcion.trim() || null,
         // Modo de receta solo aplica a Menú con receta; en otros tipos se mantiene el default.
@@ -926,35 +930,22 @@ export default function EditarProductoPage() {
                   />
                   Valorizado
                 </label>
-                <div>
-                  <label className={labelClass}>Unidad de compra</label>
-                  <input
-                    type="text"
-                    value={unidadCompra}
-                    onChange={(e) => setUnidadCompra(e.target.value)}
-                    placeholder='Ej: "Bolsa 25kg"'
-                    className={inputClass}
-                  />
-                </div>
-                <div>
-                  <label className={labelClass}>Unidad de receta</label>
-                  <input
-                    type="text"
-                    value={unidadReceta}
-                    onChange={(e) => setUnidadReceta(e.target.value)}
-                    placeholder='Ej: "g"'
-                    className={inputClass}
-                  />
-                </div>
-                <div>
-                  <label className={labelClass}>Factor compra → receta</label>
-                  <input
-                    type="number"
-                    step="0.0001"
-                    min="0.0001"
-                    value={factorCompraReceta}
-                    onChange={(e) => setFactorCompraReceta(e.target.value)}
-                    className={inputClass}
+                <div className="col-span-full">
+                  <EmpaqueConfigurator
+                    value={{
+                      unidad_compra: unidadCompra || null,
+                      unidad_receta: unidadReceta || null,
+                      factor_compra_receta: parseFloat(factorCompraReceta) || 1,
+                      peso_variable: pesoVariable,
+                    }}
+                    onChange={(v) => {
+                      setUnidadCompra(v.unidad_compra ?? "");
+                      setUnidadReceta(v.unidad_receta ?? "");
+                      setFactorCompraReceta(String(v.factor_compra_receta));
+                      setPesoVariable(v.peso_variable);
+                    }}
+                    labelClass={labelClass}
+                    inputClass={inputClass}
                   />
                 </div>
                 <div>

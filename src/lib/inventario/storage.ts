@@ -75,6 +75,7 @@ interface ProductoRow {
   unidad_compra?: string | null;
   unidad_receta?: string | null;
   factor_compra_receta?: string | number | null;
+  peso_variable?: boolean | null;
   tiempo_prep_minutos?: number | null;
   descripcion?: string | null;
   modo_receta?: string | null;
@@ -128,6 +129,7 @@ function rowToProducto(row: ProductoRow): Producto {
     unidad_compra: row.unidad_compra ?? null,
     unidad_receta: row.unidad_receta ?? null,
     factor_compra_receta: row.factor_compra_receta != null ? Number(row.factor_compra_receta) : 1,
+    peso_variable: row.peso_variable ?? false,
     tiempo_prep_minutos: row.tiempo_prep_minutos != null ? Number(row.tiempo_prep_minutos) : 0,
     descripcion: row.descripcion ?? null,
     modo_receta: row.modo_receta ?? "preparado_al_vender",
@@ -257,6 +259,7 @@ export async function saveProducto(
       typeof datos.factor_compra_receta === "number" && datos.factor_compra_receta > 0
         ? datos.factor_compra_receta
         : 1,
+    peso_variable: datos.peso_variable === true,
     tiempo_prep_minutos:
       typeof datos.tiempo_prep_minutos === "number" && datos.tiempo_prep_minutos >= 0
         ? datos.tiempo_prep_minutos
@@ -326,6 +329,7 @@ export async function updateProducto(
   if (datos.unidad_receta !== undefined) body.unidad_receta = datos.unidad_receta ?? null;
   if (typeof datos.factor_compra_receta === "number" && datos.factor_compra_receta > 0)
     body.factor_compra_receta = datos.factor_compra_receta;
+  if (typeof datos.peso_variable === "boolean") body.peso_variable = datos.peso_variable;
   if (typeof datos.tiempo_prep_minutos === "number" && datos.tiempo_prep_minutos >= 0)
     body.tiempo_prep_minutos = datos.tiempo_prep_minutos;
   if (datos.descripcion !== undefined) body.descripcion = datos.descripcion;
