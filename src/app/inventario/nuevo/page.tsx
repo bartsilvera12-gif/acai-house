@@ -8,6 +8,7 @@ import SelectFromList from "@/components/inventario/SelectFromList";
 import { productoExiste, saveProducto } from "@/lib/inventario/storage";
 import type { MetodoValuacion } from "@/lib/inventario/types";
 import { ShoppingBag, Boxes, ClipboardList, type LucideIcon } from "lucide-react";
+import PresentacionesEditor, { type PresentacionBorrador } from "@/components/inventario/PresentacionesEditor";
 
 // Opciones estándar de unidad de medida para gastro
 const UNIDADES_OPCIONES = [
@@ -58,6 +59,9 @@ export default function NuevoProductoPage() {
   // Clasificación gastronómica
   const [esVendible, setEsVendible] = useState(true);
   const [esInsumo, setEsInsumo] = useState(false);
+
+  // Presentaciones (tamaños con precio propio). Solo aplica a productos vendibles.
+  const [presentaciones, setPresentaciones] = useState<PresentacionBorrador[]>([]);
 
   // Selector inicial de tipo gastronómico — aplica presets a los flags
   type TipoGastro = "reventa" | "menu" | "materia" | null;
@@ -354,6 +358,43 @@ export default function NuevoProductoPage() {
         return;
       }
 
+      // Guardar presentaciones (PUT reemplaza el conjunto) — solo si hay al menos una válida.
+      const presValidas = presentaciones
+        .map((p) => ({
+          nombre: p.nombre.trim(),
+          precio: Number(p.precio),
+          id: p.id,
+        }))
+        .filter((p) => p.nombre.length > 0 && Number.isFinite(p.precio) && p.precio >= 0);
+      if (presValidas.length > 0) {
+        try {
+          const respPres = await fetch(`/api/productos/${guardado.id}/presentaciones`, {
+            method: "PUT",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              presentaciones: presValidas.map((p, idx) => ({
+                id: p.id,
+                nombre: p.nombre,
+                precio: p.precio,
+                orden: (idx + 1) * 10,
+                activo: true,
+              })),
+            }),
+          });
+          const jPres = await respPres.json().catch(() => ({}));
+          if (!respPres.ok || !jPres?.success) {
+            alert(
+              `El producto se creó, pero las presentaciones no pudieron guardarse: ${
+                jPres?.error ?? "error desconocido"
+              }`,
+            );
+          }
+        } catch (err) {
+          console.warn("[inventario/nuevo] presentaciones:", err);
+        }
+      }
+
       // Subir imagen (post-creacion, con producto_id real)
       if (imagenFile) {
         try {
@@ -612,8 +653,9 @@ export default function NuevoProductoPage() {
             </div>
           </div>
 
-          {/* Código de barras (escaneable, separado del SKU) */}
-          <div className="border-t border-slate-100 pt-5">
+          {/* Código de barras — oculto en Açaí House (Fase 1).
+              Se preserva state y columna en BD; no se muestra en la UI. */}
+          <div className="hidden border-t border-slate-100 pt-5">
             <label className={labelClass}>Código de barras</label>
             <div className="flex gap-2">
               <input
@@ -690,22 +732,27 @@ export default function NuevoProductoPage() {
             <p className="text-xs text-gray-400 mb-3 uppercase tracking-wide font-semibold">
               {showPrecioVenta ? "Precios — los tres campos son reactivos entre sí" : "Costo de adquisición"}
             </p>
-            <div className={`grid grid-cols-1 gap-6 ${showPrecioVenta ? "sm:grid-cols-3" : ""}`}>
+            <div className={`grid grid-cols-1 gap-6 ${showPrecioVenta ? "sm:grid-cols-2" : ""}`}>
 
               <div>
-                <label className={labelClass}>{showPrecioVenta ? "Costo promedio (Gs.)" : "Costo promedio / adquisición (Gs.)"}</label>
+                <label className={labelClass}>
+                  {showPrecioVenta ? "Costo promedio (Gs.)" : "Costo promedio / adquisición (Gs.)"}
+                  <span className="text-xs font-normal text-gray-400 ml-1">(opcional)</span>
+                </label>
                 <MontoInput
                   value={form.costo_promedio}
                   onChange={handleCostoChange}
                   placeholder="Ej: 52000"
                   className={inputClass}
                   decimals={false}
-                  required
                 />
+                <p className="mt-1.5 text-xs text-gray-400">
+                  Podés cargar el costo más adelante cuando lo tengas.
+                </p>
               </div>
 
               {showPrecioVenta && (
-              <div>
+              <div className="hidden">
                 <label className={labelClass}>Markup s/costo (%)</label>
                 <div className="relative">
                   <input
@@ -740,7 +787,7 @@ export default function NuevoProductoPage() {
             </div>
 
             {showPrecioVenta && (
-              <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="hidden mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                   <label className={labelClass}>Precio mayorista (Gs.) <span className="text-gray-400 font-normal">(opcional)</span></label>
                   <MontoInput
@@ -838,8 +885,8 @@ export default function NuevoProductoPage() {
               <span className="text-xs text-gray-400">Opcional</span>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-12 gap-5">
-              {/* Categoría — 4 cols */}
-              <div className="md:col-span-4 min-w-0">
+              {/* Categoría — ocupa todo el ancho (proveedor y ubicación están ocultos en Fase 1). */}
+              <div className="md:col-span-12 min-w-0">
                 <label className={labelClass}>Categoría principal</label>
                 <SelectFromList
                   value={categoriaId}
@@ -860,8 +907,8 @@ export default function NuevoProductoPage() {
                 </div>
               </div>
 
-              {/* Proveedor — 4 cols. Oculto para Menú (productos preparados no tienen proveedor). */}
-              <div className={`md:col-span-4 min-w-0 ${tipoGastro === "menu" ? "hidden" : ""}`}>
+              {/* Proveedor — oculto en Açaí House Fase 1 (no es esencial para la operación de la carta). */}
+              <div className="hidden md:col-span-4 min-w-0">
                 <label className={labelClass}>Proveedor principal</label>
                 <SelectFromList
                   value={proveedorId}
@@ -1006,6 +1053,23 @@ export default function NuevoProductoPage() {
               </p>
             </div>
           </div>
+
+          {/* Presentaciones (tamaños con precio propio) — solo productos vendibles */}
+          {tipoGastro !== "materia" && (
+            <div className="border-t border-slate-100 pt-6">
+              <div className="flex items-baseline justify-between mb-3">
+                <p className="text-xs text-gray-400 uppercase tracking-wide font-semibold">
+                  Presentaciones por tamaño
+                </p>
+                <span className="text-xs text-gray-400">Opcional</span>
+              </div>
+              <PresentacionesEditor
+                value={presentaciones}
+                onChange={setPresentaciones}
+                hint="Cada tamaño se vende como una línea distinta en caja. En Fase 2 podrá tener su propia receta."
+              />
+            </div>
+          )}
 
           {/* Stock actual + Stock mínimo — solo para Reventa (Menú/Materia no controlan stock en UX simple) */}
           <div className={showStock ? "" : "hidden"}>

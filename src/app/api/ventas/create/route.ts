@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthWithRol } from "@/lib/middleware/auth";
 import { fetchDataSchemaForEmpresaId } from "@/lib/supabase/empresa-data-schema";
 import { createVentaTransaccionalPg, StockInsuficienteError } from "@/lib/ventas/server/create-venta-pg";
-import type { CreateVentaItemInput } from "@/lib/ventas/server/create-venta-pg";
+import type { CreateVentaItemInput, CreateVentaItemAdicionalInput } from "@/lib/ventas/server/create-venta-pg";
 import { insertVentaPagoDetalle } from "@/lib/ventas/server/pago-detalle-pg";
 import { successResponse, errorResponse } from "@/lib/api/response";
 import { API_ERRORS } from "@/lib/api/errors";
@@ -17,6 +17,29 @@ class PedidoYaFacturadoError extends Error {
     super("Este pedido ya fue facturado.");
     this.name = "PedidoYaFacturadoError";
   }
+}
+
+function asAdicionales(v: unknown): CreateVentaItemAdicionalInput[] {
+  if (!Array.isArray(v)) return [];
+  const out: CreateVentaItemAdicionalInput[] = [];
+  for (const x of v) {
+    if (!x || typeof x !== "object") continue;
+    const r = x as Record<string, unknown>;
+    const nombre = typeof r.nombre === "string" ? r.nombre.trim() : "";
+    const precio = Number(r.precio_unitario ?? r.precio);
+    if (!nombre || !Number.isFinite(precio) || precio < 0) continue;
+    out.push({
+      adicional_id: typeof r.adicional_id === "string" && r.adicional_id.length > 0
+        ? r.adicional_id
+        : typeof r.id === "string" && r.id.length > 0
+          ? r.id
+          : null,
+      nombre: nombre.slice(0, 120),
+      precio_unitario: precio,
+      cantidad: Number.isFinite(Number(r.cantidad)) && Number(r.cantidad) > 0 ? Math.floor(Number(r.cantidad)) : 1,
+    });
+  }
+  return out;
 }
 
 function asItems(body: unknown): CreateVentaItemInput[] | null {
@@ -45,6 +68,10 @@ function asItems(body: unknown): CreateVentaItemInput[] | null {
       monto_iva: Number(r.monto_iva),
       total_linea: Number(r.total_linea),
       nota: typeof r.nota === "string" && r.nota.trim() ? r.nota.trim().slice(0, 300) : null,
+      presentacion_id: typeof r.presentacion_id === "string" && r.presentacion_id.length > 0
+        ? r.presentacion_id
+        : null,
+      adicionales: asAdicionales(r.adicionales),
     });
   }
   if (out.some((i) => !i.producto_id || !(i.cantidad > 0))) return null;

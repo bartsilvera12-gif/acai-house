@@ -6,6 +6,14 @@ export type MetodoPago  = "efectivo" | "tarjeta" | "transferencia";
  *  'costo' se conserva SOLO como histórico (ventas viejas); ya no se ofrece en la UI. */
 export type TipoPrecioVenta = "minorista" | "mayorista" | "distribuidor" | "costo";
 
+/** Adicional aplicado a una línea de venta (Fase 1 Açaí House). */
+export interface AdicionalLinea {
+  id: string;
+  nombre: string;
+  /** Precio unitario en Gs. (ya convertido a GS si la venta es en USD). */
+  precio: number;
+}
+
 /** Un ítem dentro de una venta (una línea de producto). */
 export interface LineaVenta {
   producto_id:           string;
@@ -13,7 +21,7 @@ export interface LineaVenta {
   sku:                   string;
   cantidad:              number;
   precio_venta_original: number;  // en la moneda elegida
-  precio_venta:          number;  // siempre en GS
+  precio_venta:          number;  // siempre en GS (incluye adicionales si aplica)
   tipo_iva:              TipoIvaVenta;
   /** Nivel de precio aplicado: minorista (precio_venta) | mayorista (precio_mayorista) | costo (costo_promedio). */
   tipo_precio?:          TipoPrecioVenta;
@@ -22,6 +30,11 @@ export interface LineaVenta {
   total_linea:           number;  // subtotal + monto_iva
   /** Variación/nota del ítem para la cocina (ej: "sin leche condensada"). Opcional. */
   nota?:                 string | null;
+  /** Presentación/tamaño elegido (Chico/Mediano/Grande). */
+  presentacion_id?:      string | null;
+  presentacion_nombre?:  string | null;
+  /** Adicionales sumados al precio de la línea. */
+  adicionales?:          AdicionalLinea[];
 }
 
 /** Cabecera de venta: condiciones comerciales + totales consolidados. */

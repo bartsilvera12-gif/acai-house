@@ -51,6 +51,8 @@ export interface Producto {
   descripcion?: string | null;
   /** Modo de receta (productos de Menú): 'preparado_al_vender' | 'produccion_previa'. */
   modo_receta?: string;
+  /** Si false, el producto queda inactivo (no se muestra en caja ni en el listado por defecto). */
+  activo?: boolean;
 }
 
 export interface MovimientoInventario {

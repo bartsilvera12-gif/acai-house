@@ -2,6 +2,19 @@
 
 import { useEffect, useRef, useState } from "react";
 
+export interface PresentacionPicker {
+  id: string;
+  nombre: string;
+  precio: number;
+  orden?: number;
+}
+
+export interface AdicionalPicker {
+  id: string;
+  nombre: string;
+  precio: number;
+}
+
 export interface ProductoPickerItem {
   id: string;
   nombre: string;
@@ -26,6 +39,14 @@ export interface ProductoPickerItem {
   controla_stock?: boolean;
   /** Modo de receta: 'produccion_previa' (Menú stockeado) muestra stock real. */
   modo_receta?: string;
+  /** Presentaciones disponibles (tamaños) con precio propio. Vacío = no aplica. */
+  presentaciones?: PresentacionPicker[];
+  /**
+   * Ids de adicionales permitidos para este producto.
+   * Si viene vacío/undefined → el producto acepta TODOS los adicionales activos.
+   * Si tiene items → sólo esos se muestran en caja al vender este producto.
+   */
+  adicionales_permitidos_ids?: string[];
 }
 
 /** Un Menú con produccion_previa maneja stock real del terminado (como reventa para mostrar). */
@@ -43,10 +64,15 @@ function manejaStock(p: { controla_stock?: boolean; modo_receta?: string }): boo
 export interface AgregarVentaPayload {
   producto: ProductoPickerItem;
   cantidad: number;
+  /** Precio unitario del producto base (NO incluye los adicionales). */
   precio_input: number;
   iva: "EXENTA" | "5%" | "10%";
   /** Nivel de precio elegido en el panel de detalle. */
   tipo_precio: "minorista" | "mayorista" | "distribuidor";
+  /** Presentación/tamaño elegido (si el producto las tiene). */
+  presentacion?: PresentacionPicker | null;
+  /** Adicionales seleccionados (ya con su precio unitario). */
+  adicionales?: AdicionalPicker[];
 }
 
 /**
@@ -101,6 +127,10 @@ export default function ProductPickerModal({
   const [iva, setIva] = useState<"EXENTA" | "5%" | "10%">(ivaDefault);
   const [tipoPrecio, setTipoPrecio] = useState<"minorista" | "mayorista" | "distribuidor">("minorista");
   const [feedback, setFeedback] = useState<string | null>(null);
+  // Presentación elegida (si el producto tiene varias) y adicionales marcados.
+  const [presentacionId, setPresentacionId] = useState<string | null>(null);
+  const [adicionalesCatalog, setAdicionalesCatalog] = useState<AdicionalPicker[]>([]);
+  const [adicionalesSeleccionados, setAdicionalesSeleccionados] = useState<Set<string>>(new Set());
 
   /** Precio en la moneda activa de la venta (string para el input). */
   function precioEnMonedaStr(precioGs: number): string {
@@ -116,6 +146,23 @@ export default function ProductPickerModal({
   }
 
   useEffect(() => { if (open) { setQ(""); setError(null); setSel(null); setTimeout(() => inputRef.current?.focus(), 50); } }, [open]);
+
+  // Cargar catálogo de adicionales una vez al abrir el modal.
+  useEffect(() => {
+    if (!open) return;
+    let cancel = false;
+    fetch("/api/adicionales", { credentials: "include", cache: "no-store" })
+      .then((r) => r.json())
+      .then((j) => {
+        if (cancel || !j?.success) return;
+        const list = (j.data?.adicionales ?? []) as Array<{
+          id: string; nombre: string; precio: number | string;
+        }>;
+        setAdicionalesCatalog(list.map((a) => ({ id: a.id, nombre: a.nombre, precio: Number(a.precio) })));
+      })
+      .catch(() => { /* no bloquea la venta */ });
+    return () => { cancel = true; };
+  }, [open]);
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -152,11 +199,39 @@ export default function ProductPickerModal({
   function selectProducto(p: ProductoPickerItem) {
     setSel(p);
     setCantidad("1");
-    // Precio inicial: minorista (precio_venta) en la moneda de la venta.
-    setTipoPrecio("minorista");
-    setPrecio(precioEnMonedaStr(precioPorTipoPicker(p, "minorista")));
+    setAdicionalesSeleccionados(new Set());
+    // Si el producto tiene presentaciones, usar la primera como default y su precio.
+    const presentaciones = (p.presentaciones ?? []).slice().sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0));
+    if (presentaciones.length > 0) {
+      const first = presentaciones[0];
+      setPresentacionId(first.id);
+      setTipoPrecio("minorista");
+      setPrecio(precioEnMonedaStr(first.precio));
+    } else {
+      setPresentacionId(null);
+      setTipoPrecio("minorista");
+      setPrecio(precioEnMonedaStr(precioPorTipoPicker(p, "minorista")));
+    }
     setIva(ivaDefault);
     setFeedback(null);
+  }
+
+  /** Cambia la presentación seleccionada y setea el precio correspondiente. */
+  function handlePresentacion(presId: string) {
+    if (!sel) return;
+    const pres = (sel.presentaciones ?? []).find((p) => p.id === presId);
+    if (!pres) return;
+    setPresentacionId(presId);
+    setPrecio(precioEnMonedaStr(pres.precio));
+  }
+
+  function toggleAdicional(id: string) {
+    setAdicionalesSeleccionados((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   }
 
   function handleAgregar() {
@@ -166,12 +241,33 @@ export default function ProductPickerModal({
     if (cantNum <= 0) { setFeedback("Cantidad debe ser > 0"); return; }
     if (precioNum <= 0) { setFeedback("Precio debe ser > 0"); return; }
     if (moneda === "USD" && tipoCambio <= 0) { setFeedback("Falta tipo de cambio en la venta"); return; }
+    const presentacion =
+      presentacionId && sel.presentaciones
+        ? sel.presentaciones.find((p) => p.id === presentacionId) ?? null
+        : null;
+    // Defensa en profundidad: aunque la UI sólo muestra los permitidos, re-filtramos
+    // acá para que un estado stale nunca envíe un adicional prohibido.
+    const permitidos = sel.adicionales_permitidos_ids ?? [];
+    const adicionales = adicionalesCatalog.filter((a) => {
+      if (!adicionalesSeleccionados.has(a.id)) return false;
+      if (permitidos.length === 0) return true;
+      return permitidos.includes(a.id);
+    });
     // Venta sin stock (Fase 5): NO se bloquea por falta de stock; se permite agregar
     // y la confirmación se pide al registrar la venta.
-    const ok = onAgregar({ producto: sel, cantidad: cantNum, precio_input: precioNum, iva, tipo_precio: tipoPrecio });
+    const ok = onAgregar({
+      producto: sel,
+      cantidad: cantNum,
+      precio_input: precioNum,
+      iva,
+      tipo_precio: tipoPrecio,
+      presentacion,
+      adicionales,
+    });
     if (ok !== false) {
       setFeedback("Producto agregado ✓");
       setCantidad("1");
+      setAdicionalesSeleccionados(new Set());
       // foco al buscador para seguir cargando
       setTimeout(() => inputRef.current?.focus(), 0);
       setTimeout(() => setFeedback(null), 1500);
@@ -181,11 +277,17 @@ export default function ProductPickerModal({
   if (!open) return null;
   const enCarritoSel = sel ? excludeIds.filter((id) => id === sel.id).length : 0;
   const dispSel = sel ? sel.stock_actual - enCarritoSel : 0;
-  const precioGsEquiv = moneda === "USD" ? (parseFloat(precio) || 0) * (tipoCambio || 0) : (parseFloat(precio) || 0);
-  // IVA INCLUIDO: el precio ya contiene el IVA. Total de línea = precio × cantidad
+  const precioBaseGs = moneda === "USD" ? (parseFloat(precio) || 0) * (tipoCambio || 0) : (parseFloat(precio) || 0);
+  const adicionalesTotalUnit = adicionalesCatalog
+    .filter((a) => adicionalesSeleccionados.has(a.id))
+    .reduce((acc, a) => acc + a.precio, 0);
+  const precioUnitarioGs = precioBaseGs + adicionalesTotalUnit;
+  // IVA INCLUIDO: el precio ya contiene el IVA. Total de línea = (precio base + adicionales) × cantidad
   // y el IVA se desglosa desde adentro (no se suma encima). Debe coincidir con
   // la lógica de ventas/nueva (calcIva) para que el preview no engañe al cajero.
-  const totalLinea = (parseInt(cantidad, 10) || 0) * precioGsEquiv;
+  const totalLinea = (parseInt(cantidad, 10) || 0) * precioUnitarioGs;
+  // Compatibilidad: el bloque USD→GS equivale ahora al precio base.
+  const precioGsEquiv = precioBaseGs;
   const ivaMonto = iva === "10%"
     ? totalLinea - totalLinea / 1.10
     : iva === "5%"
@@ -368,29 +470,64 @@ export default function ProductPickerModal({
                 )}
 
                 <div className="space-y-2 bg-white p-3 rounded-xl border border-slate-200">
-                  {/* Tipo de precio: al tocar, carga el precio correspondiente y recalcula. */}
-                  <div>
-                    <label className="block text-[11px] uppercase text-slate-400 mb-1">Tipo de precio</label>
-                    <div className="flex border border-slate-200 rounded-lg overflow-hidden">
-                      {(["minorista", "mayorista", "distribuidor"] as const).map((t) => (
-                        <button
-                          key={t}
-                          type="button"
-                          onClick={() => handleTipoPrecio(t)}
-                          className={`flex-1 py-1.5 px-1 text-center transition-colors ${
-                            tipoPrecio === t ? "bg-[#0EA5E9] text-white" : "bg-white text-slate-600 hover:bg-slate-50"
-                          }`}
-                        >
-                          <span className="block text-xs font-medium">
-                            {t === "minorista" ? "Minorista" : t === "mayorista" ? "Mayorista" : "Distribuidor"}
-                          </span>
-                          <span className={`block text-[10px] tabular-nums ${tipoPrecio === t ? "text-white/90" : "text-slate-400"}`}>
-                            {formatGs(precioPorTipoPicker(sel, t))}
-                          </span>
-                        </button>
-                      ))}
+                  {/* Presentaciones (tamaños) — solo si el producto las tiene. */}
+                  {sel.presentaciones && sel.presentaciones.length > 0 && (
+                    <div>
+                      <label className="block text-[11px] uppercase text-slate-400 mb-1">Tamaño</label>
+                      <div className="grid grid-cols-3 gap-1 border border-slate-200 rounded-lg p-1 bg-slate-50">
+                        {sel.presentaciones
+                          .slice()
+                          .sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0))
+                          .map((pres) => (
+                            <button
+                              key={pres.id}
+                              type="button"
+                              onClick={() => handlePresentacion(pres.id)}
+                              className={`py-1.5 px-1 rounded-md text-center transition-colors ${
+                                presentacionId === pres.id
+                                  ? "bg-[#0EA5E9] text-white"
+                                  : "bg-white text-slate-700 hover:bg-slate-100"
+                              }`}
+                            >
+                              <span className="block text-xs font-medium">{pres.nombre}</span>
+                              <span
+                                className={`block text-[10px] tabular-nums ${
+                                  presentacionId === pres.id ? "text-white/90" : "text-slate-400"
+                                }`}
+                              >
+                                {formatGs(pres.precio)}
+                              </span>
+                            </button>
+                          ))}
+                      </div>
                     </div>
-                  </div>
+                  )}
+
+                  {/* Tipo de precio: oculto cuando el producto maneja presentaciones. */}
+                  {(!sel.presentaciones || sel.presentaciones.length === 0) && (
+                    <div>
+                      <label className="block text-[11px] uppercase text-slate-400 mb-1">Tipo de precio</label>
+                      <div className="flex border border-slate-200 rounded-lg overflow-hidden">
+                        {(["minorista", "mayorista", "distribuidor"] as const).map((t) => (
+                          <button
+                            key={t}
+                            type="button"
+                            onClick={() => handleTipoPrecio(t)}
+                            className={`flex-1 py-1.5 px-1 text-center transition-colors ${
+                              tipoPrecio === t ? "bg-[#0EA5E9] text-white" : "bg-white text-slate-600 hover:bg-slate-50"
+                            }`}
+                          >
+                            <span className="block text-xs font-medium">
+                              {t === "minorista" ? "Minorista" : t === "mayorista" ? "Mayorista" : "Distribuidor"}
+                            </span>
+                            <span className={`block text-[10px] tabular-nums ${tipoPrecio === t ? "text-white/90" : "text-slate-400"}`}>
+                              {formatGs(precioPorTipoPicker(sel, t))}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className="block text-[11px] uppercase text-slate-400 mb-1">Cantidad</label>
@@ -431,6 +568,56 @@ export default function ProductPickerModal({
                       ))}
                     </div>
                   </div>
+
+                  {/* Adicionales: si el producto define una lista permitida, filtramos.
+                      Lista vacía/undefined → permisivo (todos los adicionales). */}
+                  {(() => {
+                    const permitidos = sel.adicionales_permitidos_ids ?? [];
+                    const visibles =
+                      permitidos.length > 0
+                        ? adicionalesCatalog.filter((a) => permitidos.includes(a.id))
+                        : adicionalesCatalog;
+                    if (visibles.length === 0) return null;
+                    return (
+                    <div className="pt-1">
+                      <label className="block text-[11px] uppercase text-slate-400 mb-1">
+                        Adicionales
+                        {permitidos.length > 0 && (
+                          <span className="ml-1 text-slate-400 normal-case font-normal">
+                            (sólo los permitidos para este producto)
+                          </span>
+                        )}
+                      </label>
+                      <div className="grid grid-cols-2 gap-1">
+                        {visibles.map((a) => {
+                          const marcado = adicionalesSeleccionados.has(a.id);
+                          return (
+                            <button
+                              key={a.id}
+                              type="button"
+                              onClick={() => toggleAdicional(a.id)}
+                              className={`flex items-center justify-between gap-2 px-2 py-1.5 rounded-md border text-left transition-colors ${
+                                marcado
+                                  ? "border-emerald-300 bg-emerald-50 text-emerald-800"
+                                  : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                              }`}
+                            >
+                              <span className="text-xs font-medium truncate">{a.nombre}</span>
+                              <span className="text-[11px] tabular-nums text-slate-500">
+                                +{formatGs(a.precio)}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {adicionalesTotalUnit > 0 && (
+                        <p className="mt-1 text-[11px] text-slate-500">
+                          Adicionales por unidad: <span className="tabular-nums">{formatGs(adicionalesTotalUnit)}</span>
+                        </p>
+                      )}
+                    </div>
+                    );
+                  })()}
 
                   <div className="text-xs text-slate-500 space-y-0.5 pt-1">
                     <div className="flex justify-between"><span>Subtotal</span><span className="tabular-nums">{formatGs(subtotal)}</span></div>

@@ -208,8 +208,10 @@ export default function NuevaVentaPage() {
    * por el form inline. Mantiene el modal abierto si todo OK.
    */
   function handleAgregarDesdePicker(payload: AgregarVentaPayload): boolean {
-    const { producto: p, cantidad, precio_input, iva, tipo_precio } = payload;
-    const precioPyg = precio_input;
+    const { producto: p, cantidad, precio_input, iva, tipo_precio, presentacion, adicionales } = payload;
+    // Precio unitario = precio base (presentación o minorista) + suma de adicionales (siempre en GS).
+    const adicionalesUnit = (adicionales ?? []).reduce((acc, a) => acc + a.precio, 0);
+    const precioPyg = precio_input + adicionalesUnit;
     // Verificar stock vs lo ya cargado SOLO si el producto controla stock.
     // Venta sin stock (Fase 5): NO se bloquea por falta de stock al agregar; la
     // confirmación se pide al registrar la venta. El Menú (controla_stock=false) tampoco valida.
@@ -224,20 +226,31 @@ export default function NuevaVentaPage() {
     const prodLocal = pickerToProducto(p);
     setProductos((prev) => (prev.find((x) => x.id === prodLocal.id) ? prev : [...prev, prodLocal]));
 
+    // Para la vista de carrito, agregamos la presentación al nombre y los adicionales como nota.
+    const nombreMostrado = presentacion ? `${p.nombre} — ${presentacion.nombre}` : p.nombre;
+    const notaAdicionales =
+      (adicionales ?? []).length > 0
+        ? `+ ${(adicionales ?? []).map((a) => a.nombre).join(", ")}`
+        : null;
+
     setItems((prev) => [
       ...prev,
       {
         producto_id: p.id,
-        producto_nombre: p.nombre,
+        producto_nombre: nombreMostrado,
         sku: p.sku,
         cantidad,
-        precio_venta_original: precio_input,
+        precio_venta_original: precio_input + adicionalesUnit,
         precio_venta: precioPyg,
         tipo_iva: iva,
         tipo_precio,
         subtotal,
         monto_iva: montoIva,
         total_linea: totalLinea,
+        presentacion_id: presentacion?.id ?? null,
+        presentacion_nombre: presentacion?.nombre ?? null,
+        adicionales: adicionales ?? [],
+        nota: notaAdicionales,
       },
     ]);
     setErrorVenta(null);

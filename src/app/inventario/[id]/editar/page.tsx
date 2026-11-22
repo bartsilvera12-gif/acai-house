@@ -11,6 +11,8 @@ import SelectFromList from "@/components/inventario/SelectFromList";
 import ProveedoresCostos from "@/components/inventario/ProveedoresCostos";
 import MarcarPerdidaCard from "@/components/inventario/MarcarPerdidaCard";
 import { ShoppingBag, Boxes, ClipboardList, type LucideIcon } from "lucide-react";
+import PresentacionesEditor, { type PresentacionBorrador } from "@/components/inventario/PresentacionesEditor";
+import AdicionalesPermitidosEditor from "@/components/inventario/AdicionalesPermitidosEditor";
 
 // Opciones estándar de unidad de medida (UX simplificada gastro)
 const UNIDADES_OPCIONES = [
@@ -83,6 +85,22 @@ export default function EditarProductoPage() {
 
   // Configuración gastronómica
   const [controlaStock, setControlaStock] = useState(true);
+
+  // Presentaciones (tamaños con precio propio) — se cargan desde el backend.
+  const [presentaciones, setPresentaciones] = useState<PresentacionBorrador[]>([]);
+  /**
+   * Flag que indica que el GET inicial de presentaciones respondió OK.
+   * Mientras sea false, NO sincronizamos (PUT) al guardar para evitar wipe
+   * accidental de presentaciones que la UI nunca llegó a ver.
+   */
+  const [presentacionesLoaded, setPresentacionesLoaded] = useState(false);
+  // Toggle activo/inactivo del producto.
+  const [activo, setActivo] = useState(true);
+
+  // Catálogo completo de adicionales + restricción por producto.
+  const [adicionalesCatalog, setAdicionalesCatalog] = useState<Array<{ id: string; nombre: string; precio: number }>>([]);
+  const [adicionalesPermitidos, setAdicionalesPermitidos] = useState<Set<string>>(new Set());
+  const [adicionalesPermitidosLoaded, setAdicionalesPermitidosLoaded] = useState(false);
 
   /** Cambia el tipo de producto y aplica los flags correctos (igual que en Nuevo producto). */
   function aplicarTipoGastro(tipo: TipoGastro) {
@@ -218,6 +236,7 @@ export default function EditarProductoPage() {
       setControlaStock(ctrlStock);
       setModoReceta(p.modo_receta === "produccion_previa" ? "produccion_previa" : "preparado_al_vender");
       setDescripcion(p.descripcion ?? "");
+      setActivo(p.activo !== false);
       setValorizado(p.valorizado ?? true);
       setUnidadCompra(p.unidad_compra ?? "");
       setUnidadReceta(p.unidad_receta ?? "");
@@ -231,6 +250,82 @@ export default function EditarProductoPage() {
       if (!cancelled) setCargando(false);
     });
     return () => { cancelled = true; };
+  }, [id]);
+
+  // Cargar presentaciones del producto.
+  useEffect(() => {
+    if (!id) return;
+    let cancel = false;
+    fetch(`/api/productos/${encodeURIComponent(id)}/presentaciones`, {
+      credentials: "include",
+      cache: "no-store",
+    })
+      .then(async (r) => {
+        const j = await r.json().catch(() => ({}));
+        if (cancel) return;
+        if (!r.ok || !j?.success) {
+          // No marcar loaded=true: evita que un PUT posterior borre lo existente.
+          console.warn("[inventario/editar] GET presentaciones falló:", j?.error ?? r.status);
+          return;
+        }
+        const list = (j.data?.presentaciones ?? []) as Array<{
+          id: string;
+          nombre: string;
+          precio: number | string;
+        }>;
+        setPresentaciones(
+          list.map((p) => ({
+            id: p.id,
+            nombre: p.nombre,
+            precio: String(p.precio),
+          })),
+        );
+        setPresentacionesLoaded(true);
+      })
+      .catch((err) => {
+        console.warn("[inventario/editar] GET presentaciones error de red:", err);
+        // No marcar loaded: el submit no sincronizará.
+      });
+    return () => { cancel = true; };
+  }, [id]);
+
+  // Cargar catálogo global de adicionales.
+  useEffect(() => {
+    let cancel = false;
+    fetch("/api/adicionales", { credentials: "include", cache: "no-store" })
+      .then((r) => r.json())
+      .then((j) => {
+        if (cancel || !j?.success) return;
+        const list = (j.data?.adicionales ?? []) as Array<{ id: string; nombre: string; precio: number | string }>;
+        setAdicionalesCatalog(list.map((a) => ({ id: a.id, nombre: a.nombre, precio: Number(a.precio) })));
+      })
+      .catch(() => { /* no crítico */ });
+    return () => { cancel = true; };
+  }, []);
+
+  // Cargar los adicionales permitidos para este producto.
+  useEffect(() => {
+    if (!id) return;
+    let cancel = false;
+    fetch(`/api/productos/${encodeURIComponent(id)}/adicionales-permitidos`, {
+      credentials: "include",
+      cache: "no-store",
+    })
+      .then(async (r) => {
+        const j = await r.json().catch(() => ({}));
+        if (cancel) return;
+        if (!r.ok || !j?.success) {
+          console.warn("[inventario/editar] GET adicionales-permitidos falló:", j?.error ?? r.status);
+          return;
+        }
+        const ids = (j.data?.adicional_ids ?? []) as string[];
+        setAdicionalesPermitidos(new Set(ids));
+        setAdicionalesPermitidosLoaded(true);
+      })
+      .catch((err) => {
+        console.warn("[inventario/editar] GET adicionales-permitidos error:", err);
+      });
+    return () => { cancel = true; };
   }, [id]);
 
   // ¿El producto tiene receta asociada? (para advertir al cambiar el tipo)
@@ -357,6 +452,7 @@ export default function EditarProductoPage() {
         descripcion: descripcion.trim() || null,
         // Modo de receta solo aplica a Menú con receta; en otros tipos se mantiene el default.
         modo_receta: tipoGastro === "menu" && tieneReceta ? modoReceta : "preparado_al_vender",
+        activo,
       };
       if (cambioCodigo) {
         updatePayload.codigo_barras = codigoIngresado || null;
@@ -366,11 +462,72 @@ export default function EditarProductoPage() {
       console.log("[inventario/editar] sending PATCH", { id, payloadKeys: Object.keys(updatePayload) });
       const actualizado = await updateProducto(id, updatePayload);
       console.log("[inventario/editar] PATCH result:", actualizado ? { id: actualizado.id, nombre: actualizado.nombre } : "null");
-      if (actualizado) {
-        router.push("/inventario");
-      } else {
+      if (!actualizado) {
         showErr("No se pudo guardar los cambios. Revisá los datos e intentá nuevamente.");
+        return;
       }
+
+      // Sincronizar presentaciones (PUT reemplaza el conjunto).
+      // Protección anti-wipe: NO enviamos el PUT si el GET inicial nunca respondió OK.
+      // De otra forma, una falla transitoria de red al cargar borraría todas las
+      // presentaciones existentes al guardar.
+      if (presentacionesLoaded) {
+        try {
+          const presPayload = presentaciones
+            .map((p, idx) => ({
+              id: p.id,
+              nombre: p.nombre.trim(),
+              precio: Number(p.precio),
+              orden: (idx + 1) * 10,
+              activo: true,
+            }))
+            .filter((p) => p.nombre.length > 0 && Number.isFinite(p.precio) && p.precio >= 0);
+          const respPres = await fetch(`/api/productos/${id}/presentaciones`, {
+            method: "PUT",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ presentaciones: presPayload }),
+          });
+          const jPres = await respPres.json().catch(() => ({}));
+          if (!respPres.ok || !jPres?.success) {
+            alert(
+              `El producto se guardó, pero las presentaciones no pudieron sincronizarse: ${
+                jPres?.error ?? "error desconocido"
+              }`,
+            );
+          }
+        } catch (err) {
+          console.warn("[inventario/editar] presentaciones:", err);
+        }
+      } else {
+        console.warn("[inventario/editar] no sincronizo presentaciones: GET inicial no cargó.");
+      }
+
+      // Sincronizar adicionales permitidos (misma protección anti-wipe).
+      if (adicionalesPermitidosLoaded) {
+        try {
+          const respAdic = await fetch(`/api/productos/${id}/adicionales-permitidos`, {
+            method: "PUT",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ adicional_ids: [...adicionalesPermitidos] }),
+          });
+          const jAdic = await respAdic.json().catch(() => ({}));
+          if (!respAdic.ok || !jAdic?.success) {
+            alert(
+              `El producto se guardó, pero los adicionales permitidos no se sincronizaron: ${
+                jAdic?.error ?? "error desconocido"
+              }`,
+            );
+          }
+        } catch (err) {
+          console.warn("[inventario/editar] adicionales-permitidos:", err);
+        }
+      } else {
+        console.warn("[inventario/editar] no sincronizo adicionales permitidos: GET inicial no cargó.");
+      }
+
+      router.push("/inventario");
     } catch (err) {
       console.error("[inventario/editar] handleSubmit error:", err);
       showErr(err instanceof Error ? err.message : "No se pudieron guardar los cambios.");
@@ -599,8 +756,8 @@ export default function EditarProductoPage() {
             </div>
           </div>
 
-          {/* Codigo de barras */}
-          <div className="border-t border-slate-100 pt-5">
+          {/* Código de barras — oculto en Açaí House (Fase 1). */}
+          <div className="hidden border-t border-slate-100 pt-5">
             <label className={labelClass}>Código de barras</label>
             <div className="flex gap-2">
               <input
@@ -653,7 +810,7 @@ export default function EditarProductoPage() {
               <span className="text-xs text-gray-400">Opcional</span>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-12 gap-5">
-              <div className="md:col-span-4 min-w-0">
+              <div className="md:col-span-12 min-w-0">
                 <label className={labelClass}>Categoría principal</label>
                 <SelectFromList
                   value={categoriaId}
@@ -673,7 +830,8 @@ export default function EditarProductoPage() {
                   </Link>
                 </div>
               </div>
-              <div className={`md:col-span-4 min-w-0 ${tipoGastro === "menu" ? "hidden" : ""}`}>
+              {/* Proveedor — oculto en Açaí House Fase 1. */}
+              <div className="hidden md:col-span-4 min-w-0">
                 <label className={labelClass}>Proveedor principal</label>
                 <SelectFromList
                   value={proveedorId}
@@ -821,19 +979,24 @@ export default function EditarProductoPage() {
             <p className="text-xs text-gray-400 mb-3 uppercase tracking-wide font-semibold">
               {showPrecioVenta ? "Precios" : "Costo de adquisición"}
             </p>
-            <div className={`grid grid-cols-1 gap-6 ${showPrecioVenta ? "sm:grid-cols-3" : ""}`}>
+            <div className={`grid grid-cols-1 gap-6 ${showPrecioVenta ? "sm:grid-cols-2" : ""}`}>
               <div>
-                <label className={labelClass}>{showPrecioVenta ? "Costo promedio (Gs.)" : "Costo promedio / adquisición (Gs.)"}</label>
+                <label className={labelClass}>
+                  {showPrecioVenta ? "Costo promedio (Gs.)" : "Costo promedio / adquisición (Gs.)"}
+                  <span className="text-xs font-normal text-gray-400 ml-1">(opcional)</span>
+                </label>
                 <MontoInput
                   value={form.costo_promedio}
                   onChange={handleCostoChange}
                   className={inputClass}
                   decimals={false}
-                  required
                 />
+                <p className="mt-1.5 text-xs text-gray-400">
+                  Podés cargar el costo cuando lo tengas.
+                </p>
               </div>
               {showPrecioVenta && (
-              <div>
+              <div className="hidden">
                 <label className={labelClass}>Markup s/costo (%)</label>
                 <input
                   type="number"
@@ -857,7 +1020,7 @@ export default function EditarProductoPage() {
               </div>
             </div>
             {showPrecioVenta && (
-              <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="hidden mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                   <label className={labelClass}>Precio mayorista (Gs.) <span className="text-gray-400 font-normal">(opcional)</span></label>
                   <MontoInput
@@ -911,6 +1074,68 @@ export default function EditarProductoPage() {
                 </div>
               </div>
             )}
+          </div>
+
+          {/* Presentaciones (tamaños con precio propio) — solo vendibles */}
+          {tipoGastro !== "materia" && (
+            <div className="border-t border-slate-100 pt-6">
+              <div className="flex items-baseline justify-between mb-3">
+                <p className="text-xs text-gray-400 uppercase tracking-wide font-semibold">
+                  Presentaciones por tamaño
+                </p>
+                <span className="text-xs text-gray-400">Opcional</span>
+              </div>
+              {!presentacionesLoaded && (
+                <div className="mb-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                  <span>⚠</span>
+                  <span>
+                    No pudimos cargar las presentaciones actuales de este producto. Los cambios acá
+                    <strong> no se guardarán</strong> hasta que recargues la página y veas la lista real.
+                  </span>
+                </div>
+              )}
+              <PresentacionesEditor
+                value={presentaciones}
+                onChange={setPresentaciones}
+                hint="Al guardar, se sincronizan contra lo que ves acá. En Fase 2 cada presentación podrá asociar su receta."
+              />
+            </div>
+          )}
+
+          {/* Adicionales permitidos para este producto (sólo vendibles). */}
+          {tipoGastro !== "materia" && (
+            <div className="border-t border-slate-100 pt-6">
+              <div className="flex items-baseline justify-between mb-3">
+                <p className="text-xs text-gray-400 uppercase tracking-wide font-semibold">
+                  Adicionales permitidos
+                </p>
+                <span className="text-xs text-gray-400">Opcional</span>
+              </div>
+              <AdicionalesPermitidosEditor
+                catalogo={adicionalesCatalog}
+                seleccionados={adicionalesPermitidos}
+                onChange={setAdicionalesPermitidos}
+                loaded={adicionalesPermitidosLoaded}
+              />
+            </div>
+          )}
+
+          {/* Toggle activo/inactivo del producto */}
+          <div className="border-t border-slate-100 pt-6">
+            <label className="inline-flex items-center gap-3 text-sm text-slate-700 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={activo}
+                onChange={(e) => setActivo(e.target.checked)}
+                className="h-4 w-4 rounded border-slate-300 text-[#0EA5E9] focus:ring-[#0EA5E9]"
+              />
+              <span>
+                <span className="font-medium">Producto activo</span>
+                <span className="block text-xs text-slate-500">
+                  Si está inactivo, no aparece en caja ni en el listado principal del inventario.
+                </span>
+              </span>
+            </label>
           </div>
 
           <div className={`grid grid-cols-1 sm:grid-cols-2 gap-6 ${showStock ? "" : "hidden"}`}>

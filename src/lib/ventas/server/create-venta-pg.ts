@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { createServiceRoleClientWithDbSchema } from "@/lib/supabase/empresa-data-schema";
 import { convertirCantidad } from "@/lib/unidades/convert";
 
@@ -26,6 +27,17 @@ export class StockInsuficienteError extends Error {
   }
 }
 
+export interface CreateVentaItemAdicionalInput {
+  /** Catalog id (acaihouse.adicionales.id). Puede quedar null si fuera ad-hoc; hoy siempre viene. */
+  adicional_id: string | null;
+  /** Snapshot de nombre al momento de vender. */
+  nombre: string;
+  /** Precio unitario en Gs. (ya convertido si la venta era USD). */
+  precio_unitario: number;
+  /** Veces que se aplica el adicional a la línea. Hoy siempre 1 desde la UI. */
+  cantidad?: number;
+}
+
 export interface CreateVentaItemInput {
   producto_id: string;
   producto_nombre: string;
@@ -40,6 +52,10 @@ export interface CreateVentaItemInput {
   total_linea: number;
   /** Variación/nota para la cocina (ej: "sin leche condensada"). Opcional. */
   nota?: string | null;
+  /** Presentación/tamaño elegido (FK a producto_presentaciones). Null = sin presentaciones. */
+  presentacion_id?: string | null;
+  /** Adicionales aplicados a esta línea (se insertan como filas hijas en venta_item_adicionales). */
+  adicionales?: CreateVentaItemAdicionalInput[];
 }
 
 export interface CreateVentaPedidoCocinaInput {
@@ -133,6 +149,164 @@ export async function createVentaTransaccionalPg(
   }
 
   const sb = createServiceRoleClientWithDbSchema(params.schema);
+
+  // ============================================================================
+  // Pre-flight server-side validation para presentaciones y adicionales (Fase 1).
+  // Se ejecuta ANTES de insertar venta/items para fallar sin crear basura.
+  //
+  // Regla de precio por línea (servidor-trusted):
+  //   precio_base    = presentacion.precio (si viene presentacion_id)
+  //                   | producto.precio_venta (en otro caso)
+  //   precio_esperado = precio_base + Σ(adicional.precio × adicional.cantidad)
+  //   Se compara contra line.precio_venta con tolerancia ±TOL Gs.
+  // ============================================================================
+  const presentacionIds = Array.from(
+    new Set(items.map((i) => i.presentacion_id).filter((v): v is string => !!v)),
+  );
+  const adicionalIds = Array.from(
+    new Set(
+      items.flatMap((i) => (i.adicionales ?? []).map((a) => a.adicional_id).filter((v): v is string => !!v)),
+    ),
+  );
+
+  interface PresentacionRow { id: string; producto_id: string; precio: number; activo: boolean; nombre: string }
+  const presentacionById = new Map<string, PresentacionRow>();
+  if (presentacionIds.length > 0) {
+    const presQ = await sb
+      .from("producto_presentaciones")
+      .select("id, producto_id, precio, activo, nombre")
+      .eq("empresa_id", params.empresaId)
+      .in("id", presentacionIds);
+    if (presQ.error) throw new Error(presQ.error.message);
+    for (const r of (presQ.data ?? []) as unknown as PresentacionRow[]) {
+      presentacionById.set(r.id, { ...r, precio: Number(r.precio) });
+    }
+    for (const pid of presentacionIds) {
+      if (!presentacionById.has(pid)) {
+        throw new Error(`Presentación ${pid} no existe o no pertenece a esta empresa.`);
+      }
+    }
+  }
+
+  interface AdicionalRow { id: string; precio: number; activo: boolean; nombre: string }
+  const adicionalById = new Map<string, AdicionalRow>();
+  if (adicionalIds.length > 0) {
+    const adQ = await sb
+      .from("adicionales")
+      .select("id, precio, activo, nombre")
+      .eq("empresa_id", params.empresaId)
+      .in("id", adicionalIds);
+    if (adQ.error) throw new Error(adQ.error.message);
+    for (const r of (adQ.data ?? []) as unknown as AdicionalRow[]) {
+      adicionalById.set(r.id, { ...r, precio: Number(r.precio) });
+    }
+    for (const aid of adicionalIds) {
+      if (!adicionalById.has(aid)) {
+        throw new Error(`Adicional ${aid} no existe o no pertenece a esta empresa.`);
+      }
+    }
+  }
+
+  // Lista restrictiva de adicionales por producto (si existe para alguno de los
+  // productos del carrito). producto_id → Set<adicional_id permitido>.
+  const productosConRestriccion = new Map<string, Set<string>>();
+  if (adicionalIds.length > 0) {
+    const restrQ = await sb
+      .from("producto_adicionales_permitidos")
+      .select("producto_id, adicional_id")
+      .eq("empresa_id", params.empresaId)
+      .in("producto_id", [...qtyByProduct.keys()]);
+    if (restrQ.error) throw new Error(restrQ.error.message);
+    for (const r of (restrQ.data ?? []) as Array<{ producto_id: string; adicional_id: string }>) {
+      const set = productosConRestriccion.get(r.producto_id) ?? new Set<string>();
+      set.add(r.adicional_id);
+      productosConRestriccion.set(r.producto_id, set);
+    }
+  }
+
+  // Por línea: validar correspondencia presentación↔producto, permiso de adicionales,
+  // y recomputar precio_venta servidor-trusted.
+  const productoPrecioQ = await sb
+    .from("productos")
+    .select("id, precio_venta")
+    .eq("empresa_id", params.empresaId)
+    .in("id", [...qtyByProduct.keys()]);
+  if (productoPrecioQ.error) throw new Error(productoPrecioQ.error.message);
+  const productoPrecioById = new Map<string, number>();
+  for (const r of (productoPrecioQ.data ?? []) as Array<{ id: string; precio_venta: number | string }>) {
+    productoPrecioById.set(String(r.id), Number(r.precio_venta));
+  }
+
+  for (let idx = 0; idx < items.length; idx++) {
+    const line = items[idx];
+    // a) Presentación pertenece al mismo producto y está activa.
+    if (line.presentacion_id) {
+      const pres = presentacionById.get(line.presentacion_id);
+      if (!pres) throw new Error(`Presentación ${line.presentacion_id} no existe.`);
+      if (!pres.activo) {
+        throw new Error(`La presentación "${pres.nombre}" está inactiva y no puede venderse.`);
+      }
+      if (pres.producto_id !== line.producto_id) {
+        throw new Error(
+          `La presentación "${pres.nombre}" no pertenece al producto de la línea ${idx + 1}.`,
+        );
+      }
+    }
+
+    // b) Cada adicional está activo y permitido (si el producto tiene lista restrictiva).
+    const permitidos = productosConRestriccion.get(line.producto_id);
+    const seenInLine = new Set<string>();
+    for (const ad of line.adicionales ?? []) {
+      if (ad.adicional_id) {
+        const cat = adicionalById.get(ad.adicional_id);
+        if (!cat) throw new Error(`Adicional ${ad.adicional_id} no existe en la empresa.`);
+        if (!cat.activo) {
+          throw new Error(`El adicional "${cat.nombre}" está inactivo y no puede venderse.`);
+        }
+        if (permitidos && permitidos.size > 0 && !permitidos.has(ad.adicional_id)) {
+          throw new Error(
+            `El adicional "${cat.nombre}" no está permitido para este producto.`,
+          );
+        }
+        if (seenInLine.has(ad.adicional_id)) {
+          throw new Error(
+            `El adicional "${cat.nombre}" aparece dos veces en la misma línea.`,
+          );
+        }
+        seenInLine.add(ad.adicional_id);
+      }
+    }
+
+    // c) Tope anti-inflación: el cajero puede DESCONTAR el precio base (comportamiento
+    //    histórico del ERP: el input de precio es libre en caja), pero NO puede inflarlo
+    //    por encima del tope de catálogo. Calculamos el tope servidor-trusted:
+    //      max = precio_base_catalogo (presentación o producto) + Σ(adicional.precio × cantidad)
+    //    `line.precio_venta` incluye los adicionales (el front los suma al unitario).
+    //    Si excede el tope por más de TOL Gs. → rechazar (anti-fraude), si no, aceptar.
+    //    En USD no validamos (la conversión la hace el cliente con TC).
+    if (params.moneda === "GS") {
+      const precioBaseEsperado = line.presentacion_id
+        ? presentacionById.get(line.presentacion_id)!.precio
+        : productoPrecioById.get(line.producto_id);
+      if (precioBaseEsperado == null) {
+        throw new Error(`Producto ${line.producto_id} no tiene precio registrado.`);
+      }
+      const sumaAdicionalesCatalogo = (line.adicionales ?? []).reduce((acc, ad) => {
+        const cantAd = ad.cantidad && ad.cantidad > 0 ? Math.floor(ad.cantidad) : 1;
+        const precioAd = ad.adicional_id
+          ? adicionalById.get(ad.adicional_id)!.precio
+          : Number(ad.precio_unitario);
+        return acc + precioAd * cantAd;
+      }, 0);
+      const techo = precioBaseEsperado + sumaAdicionalesCatalogo;
+      if (line.precio_venta - techo > TOL) {
+        throw new Error(
+          `El precio de la línea ${idx + 1} supera el tope de catálogo. ` +
+            `Máximo Gs. ${Math.round(techo)}, recibido Gs. ${Math.round(line.precio_venta)}.`,
+        );
+      }
+    }
+  }
 
   // 1) Cliente
   if (params.clienteId) {
@@ -416,13 +590,27 @@ export async function createVentaTransaccionalPg(
   if (insVenta.error) throw new Error(insVenta.error.message);
   const ventaId = String((insVenta.data as { id: string }).id);
 
-  // Helper de rollback best-effort
+  // Helper de rollback best-effort.
+  // IMPORTANTE: borramos venta_item_adicionales explícitamente antes que ventas_items
+  // (el CASCADE lo cubriría igual, pero preferimos borrado dirigido por si en el
+  // futuro la FK cambia de modo).
   const rollback = async () => {
     try {
       await sb.from("cuentas_por_cobrar").delete().eq("venta_id", ventaId).eq("empresa_id", params.empresaId);
     } catch {}
     try {
       await sb.from("movimientos_inventario").delete().eq("venta_id", ventaId).eq("empresa_id", params.empresaId);
+    } catch {}
+    // Hijos de ventas_items: usamos los ids pre-generados (orden-independiente
+    // y disponibles aunque el insert haya fallado a mitad de camino).
+    try {
+      if (preGeneratedItemIds.length > 0) {
+        await sb
+          .from("venta_item_adicionales")
+          .delete()
+          .eq("empresa_id", params.empresaId)
+          .in("venta_item_id", preGeneratedItemIds);
+      }
     } catch {}
     try {
       await sb.from("ventas_items").delete().eq("venta_id", ventaId).eq("empresa_id", params.empresaId);
@@ -432,9 +620,17 @@ export async function createVentaTransaccionalPg(
     } catch {}
   };
 
+  // Pre-generar los UUIDs de ventas_items.id ANTES del insert. De esta forma:
+  //   1) la asociación línea → item_id es inequívoca (no dependemos del orden
+  //      en que PostgREST devuelve filas, que no está garantizado);
+  //   2) el rollback puede borrar venta_item_adicionales por venta_item_id aun
+  //      si el insert falló antes de responder.
+  const preGeneratedItemIds: string[] = items.map(() => randomUUID());
+
   try {
-    // 6) Insertar items (bulk)
-    const itemsRows = items.map((line) => ({
+    // 6) Insertar items (bulk) con id explícito por línea.
+    const itemsRows = items.map((line, i) => ({
+      id: preGeneratedItemIds[i],
       empresa_id: params.empresaId,
       venta_id: ventaId,
       producto_id: line.producto_id,
@@ -449,9 +645,43 @@ export async function createVentaTransaccionalPg(
       monto_iva: line.monto_iva,
       total_linea: line.total_linea,
       nota: line.nota ?? null,
+      presentacion_id: line.presentacion_id ?? null,
     }));
     const insItems = await sb.from("ventas_items").insert(itemsRows);
     if (insItems.error) throw new Error(insItems.error.message);
+
+    // 6.b) Insertar adicionales por línea. BLOQUEANTE: si falla, re-lanzamos
+    //      para que el catch externo ejecute `rollback()` y la venta no quede
+    //      persistida con adicionales faltantes.
+    const adicionalesRows: Array<Record<string, unknown>> = [];
+    items.forEach((line, i) => {
+      const itemId = preGeneratedItemIds[i];
+      for (const ad of line.adicionales ?? []) {
+        // Snapshot (nombre+precio): si vino adicional_id, usamos nombre/precio
+        // del catálogo (ya cargado y validado en el pre-flight). Si no, usamos
+        // los valores del cliente (compatibilidad con adicionales ad-hoc).
+        const cat = ad.adicional_id ? adicionalById.get(ad.adicional_id) : null;
+        const nombre = (cat?.nombre ?? ad.nombre ?? "").trim();
+        const precio = cat ? cat.precio : Number(ad.precio_unitario);
+        if (!nombre || !Number.isFinite(precio) || precio < 0) {
+          throw new Error(`Adicional inválido en la línea ${i + 1}.`);
+        }
+        adicionalesRows.push({
+          empresa_id: params.empresaId,
+          venta_item_id: itemId,
+          adicional_id: ad.adicional_id || null,
+          adicional_nombre: nombre.slice(0, 120),
+          precio_unitario: precio,
+          cantidad: ad.cantidad && ad.cantidad > 0 ? Math.floor(ad.cantidad) : 1,
+        });
+      }
+    });
+    if (adicionalesRows.length > 0) {
+      const insAd = await sb.from("venta_item_adicionales").insert(adicionalesRows);
+      if (insAd.error) {
+        throw new Error(`No se pudieron registrar los adicionales: ${insAd.error.message}`);
+      }
+    }
 
     // 7) Descuento de stock + movimientos solo para productos con controla_stock=true SIN receta.
     for (const line of items) {
