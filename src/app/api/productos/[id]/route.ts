@@ -161,6 +161,7 @@ export async function PATCH(
       const mr = body.modo_receta;
       patch.modo_receta = mr === "produccion_previa" ? "produccion_previa" : "preparado_al_vender";
     }
+    if (typeof body.activo === "boolean") patch.activo = body.activo;
 
     if (Object.keys(patch).length === 0) {
       const { data: existing, error: errGet } = await sb

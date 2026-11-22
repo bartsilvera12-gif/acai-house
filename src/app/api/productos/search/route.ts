@@ -4,6 +4,13 @@ import { successResponse, errorResponse } from "@/lib/api/response";
 import { API_ERRORS } from "@/lib/api/errors";
 import { signProductoImagen } from "@/lib/inventario/imagen-storage";
 
+interface PresentacionHit {
+  id: string;
+  nombre: string;
+  precio: number;
+  orden: number;
+}
+
 interface ProductoSearchHit {
   id: string;
   nombre: string;
@@ -27,6 +34,13 @@ interface ProductoSearchHit {
   es_vendible: boolean;
   controla_stock: boolean;
   modo_receta: string;
+  presentaciones: PresentacionHit[];
+  /**
+   * Adicionales permitidos por este producto.
+   * Array vacío = "aplican todos los adicionales activos del catálogo" (modo permisivo).
+   * Array con ids = sólo esos aplican.
+   */
+  adicionales_permitidos_ids: string[];
 }
 
 const DEFAULT_LIMIT = 30;
@@ -112,6 +126,53 @@ export async function GET(request: NextRequest) {
       )
     );
 
+    // Bulk lookup de presentaciones activas por producto.
+    const productoIds = rows.map((r) => r.id);
+    const presentacionesByProducto = new Map<string, PresentacionHit[]>();
+    const adicionalesPermitidosByProducto = new Map<string, string[]>();
+    if (productoIds.length > 0) {
+      const pres = await supabase
+        .from("producto_presentaciones")
+        .select("id, producto_id, nombre, precio, orden, activo")
+        .eq("empresa_id", empresaId)
+        .in("producto_id", productoIds)
+        .eq("activo", true)
+        .order("orden")
+        .order("nombre");
+      if (pres.error) {
+        // No romper la búsqueda si la tabla aún no existe (migración pendiente).
+        console.warn("[/api/productos/search] presentaciones:", pres.error.message);
+      } else {
+        for (const row of (pres.data ?? []) as Array<Record<string, unknown>>) {
+          const pid = String(row.producto_id);
+          const list = presentacionesByProducto.get(pid) ?? [];
+          list.push({
+            id: String(row.id),
+            nombre: String(row.nombre ?? ""),
+            precio: Number(row.precio ?? 0),
+            orden: Number(row.orden ?? 0),
+          });
+          presentacionesByProducto.set(pid, list);
+        }
+      }
+
+      // Bulk lookup de adicionales permitidos (tabla opcional).
+      const permitidos = await supabase
+        .from("producto_adicionales_permitidos")
+        .select("producto_id, adicional_id")
+        .eq("empresa_id", empresaId)
+        .in("producto_id", productoIds);
+      if (permitidos.error) {
+        console.warn("[/api/productos/search] adicionales permitidos:", permitidos.error.message);
+      } else {
+        for (const row of (permitidos.data ?? []) as Array<{ producto_id: string; adicional_id: string }>) {
+          const list = adicionalesPermitidosByProducto.get(row.producto_id) ?? [];
+          list.push(row.adicional_id);
+          adicionalesPermitidosByProducto.set(row.producto_id, list);
+        }
+      }
+    }
+
     const hits: ProductoSearchHit[] = rows.map((r, i) => ({
       id: r.id,
       nombre: r.nombre,
@@ -135,6 +196,8 @@ export async function GET(request: NextRequest) {
       es_vendible: r.es_vendible,
       controla_stock: r.controla_stock,
       modo_receta: r.modo_receta,
+      presentaciones: presentacionesByProducto.get(r.id) ?? [],
+      adicionales_permitidos_ids: adicionalesPermitidosByProducto.get(r.id) ?? [],
     }));
 
     return NextResponse.json(successResponse({ items: hits, count: hits.length, q }));
