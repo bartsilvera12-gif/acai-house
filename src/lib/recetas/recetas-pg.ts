@@ -52,17 +52,63 @@ export type RecetaCosteo = {
 };
 
 export async function listRecetas(sb: AppSupabaseClient, empresaId: string) {
-  const { data, error } = await sb
+  // Fase 2.2: evitamos el embedded join con `producto_presentaciones` porque, tras
+  // el ALTER TABLE que agregó `recetas.presentacion_id` (FK), el schema cache de
+  // PostgREST puede no haber refrescado todavía y el embed falla con 500. Hacemos
+  // tres queries independientes y las relacionamos en JS; el filtro por empresa
+  // se preserva en cada una y mantenemos compatibilidad con recetas históricas
+  // (presentacion_id = NULL → presentacion_nombre = null).
+  const { data: recetas, error } = await sb
     .from("recetas")
-    .select("id, producto_id, presentacion_id, nombre, rendimiento_cantidad, rendimiento_unidad, activa, updated_at, productos(nombre), producto_presentaciones(nombre)")
+    .select("id, producto_id, presentacion_id, nombre, rendimiento_cantidad, rendimiento_unidad, activa, updated_at")
     .eq("empresa_id", empresaId)
     .order("updated_at", { ascending: false });
   if (error) throw new Error(error.message);
-  // Aplanar nombres (producto + presentación) para la UI.
-  return (data ?? []).map((r: Record<string, unknown>) => ({
+  const rows = (recetas ?? []) as Array<{
+    id: string;
+    producto_id: string;
+    presentacion_id: string | null;
+    nombre: string | null;
+    rendimiento_cantidad: number;
+    rendimiento_unidad: string | null;
+    activa: boolean;
+    updated_at: string;
+  }>;
+  if (rows.length === 0) return [];
+
+  const productoIds = Array.from(new Set(rows.map((r) => r.producto_id)));
+  const presentacionIds = Array.from(
+    new Set(rows.map((r) => r.presentacion_id).filter((v): v is string => !!v)),
+  );
+
+  const [prodRes, presRes] = await Promise.all([
+    productoIds.length > 0
+      ? sb.from("productos").select("id, nombre").eq("empresa_id", empresaId).in("id", productoIds)
+      : Promise.resolve({ data: [], error: null }),
+    presentacionIds.length > 0
+      ? sb
+          .from("producto_presentaciones")
+          .select("id, nombre")
+          .eq("empresa_id", empresaId)
+          .in("id", presentacionIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (prodRes.error) throw new Error(prodRes.error.message);
+  if (presRes.error) throw new Error(presRes.error.message);
+
+  const prodMap = new Map<string, string>();
+  for (const p of (prodRes.data ?? []) as Array<{ id: string; nombre: string }>) {
+    prodMap.set(p.id, p.nombre);
+  }
+  const presMap = new Map<string, string>();
+  for (const p of (presRes.data ?? []) as Array<{ id: string; nombre: string }>) {
+    presMap.set(p.id, p.nombre);
+  }
+
+  return rows.map((r) => ({
     ...r,
-    producto_nombre: (r.productos as { nombre?: string } | null)?.nombre ?? null,
-    presentacion_nombre: (r.producto_presentaciones as { nombre?: string } | null)?.nombre ?? null,
+    producto_nombre: prodMap.get(r.producto_id) ?? null,
+    presentacion_nombre: r.presentacion_id ? presMap.get(r.presentacion_id) ?? null : null,
   }));
 }
 
