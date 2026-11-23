@@ -4,6 +4,8 @@ export type RecetaRow = {
   id: string;
   empresa_id: string;
   producto_id: string;
+  /** Fase 2.2: presentación específica (tamaño) o NULL = receta base del producto. */
+  presentacion_id: string | null;
   nombre: string | null;
   rendimiento_cantidad: number;
   rendimiento_unidad: string | null;
@@ -52,14 +54,15 @@ export type RecetaCosteo = {
 export async function listRecetas(sb: AppSupabaseClient, empresaId: string) {
   const { data, error } = await sb
     .from("recetas")
-    .select("id, producto_id, nombre, rendimiento_cantidad, rendimiento_unidad, activa, updated_at, productos(nombre)")
+    .select("id, producto_id, presentacion_id, nombre, rendimiento_cantidad, rendimiento_unidad, activa, updated_at, productos(nombre), producto_presentaciones(nombre)")
     .eq("empresa_id", empresaId)
     .order("updated_at", { ascending: false });
   if (error) throw new Error(error.message);
-  // Aplanar el nombre del producto para el fallback de nombre de receta.
+  // Aplanar nombres (producto + presentación) para la UI.
   return (data ?? []).map((r: Record<string, unknown>) => ({
     ...r,
     producto_nombre: (r.productos as { nombre?: string } | null)?.nombre ?? null,
+    presentacion_nombre: (r.producto_presentaciones as { nombre?: string } | null)?.nombre ?? null,
   }));
 }
 
@@ -105,6 +108,8 @@ export async function insertReceta(
   empresaId: string,
   input: {
     producto_id: string;
+    /** Fase 2.2: presentación específica. NULL / undefined = receta base del producto. */
+    presentacion_id?: string | null;
     nombre?: string | null;
     rendimiento_cantidad?: number;
     rendimiento_unidad?: string | null;
@@ -117,6 +122,7 @@ export async function insertReceta(
     .insert({
       empresa_id: empresaId,
       producto_id: input.producto_id,
+      presentacion_id: input.presentacion_id ?? null,
       nombre: input.nombre ?? null,
       rendimiento_cantidad: input.rendimiento_cantidad ?? 1,
       rendimiento_unidad: input.rendimiento_unidad ?? null,
@@ -134,6 +140,7 @@ export async function updateReceta(
   empresaId: string,
   id: string,
   patch: Partial<{
+    presentacion_id: string | null;
     nombre: string | null;
     rendimiento_cantidad: number;
     rendimiento_unidad: string | null;
@@ -211,16 +218,23 @@ export async function deleteRecetaItem(sb: AppSupabaseClient, itemId: string) {
   if (error) throw new Error(error.message);
 }
 
-/** Productos vendibles SIN receta (para listado en "Crear receta"). */
+/** Productos vendibles SIN receta (para listado en "Crear receta").
+ *  Fase 2.2: "sin receta" = sin receta activa *base* (presentacion_id IS NULL). Un producto
+ *  puede tener recetas activas por presentación y aún así necesitar una base, o viceversa.
+ *  La UI de Fase 2.2 usa `vendibles-menu` para listar TODOS los productos de menú y crear
+ *  recetas por presentación. Este filtro queda compatible para el flujo legacy.
+ */
 export async function listProductosVendiblesSinReceta(sb: AppSupabaseClient, empresaId: string) {
   const { data: usados, error: errUsados } = await sb
     .from("recetas")
-    .select("producto_id")
+    .select("producto_id, presentacion_id, activa")
     .eq("empresa_id", empresaId);
   if (errUsados) throw new Error(errUsados.message);
-  const usadosSet = new Set((usados ?? []).map((r: { producto_id: string }) => r.producto_id));
-  // Solo productos elaborados / tipo Menú: vendibles que NO controlan su propio stock
-  // (se arman por receta). Excluye reventa (controla_stock=true) y materia prima (es_vendible=false).
+  const usadosSet = new Set(
+    ((usados ?? []) as Array<{ producto_id: string; presentacion_id: string | null; activa: boolean }>)
+      .filter((r) => r.activa && r.presentacion_id === null)
+      .map((r) => r.producto_id),
+  );
   const { data, error } = await sb
     .from("productos")
     .select("id, nombre, sku, precio_venta, unidad_medida")
@@ -231,6 +245,77 @@ export async function listProductosVendiblesSinReceta(sb: AppSupabaseClient, emp
     .order("nombre");
   if (error) throw new Error(error.message);
   return (data ?? []).filter((p: { id: string }) => !usadosSet.has(p.id));
+}
+
+/** Fase 2.2: productos de menú (vendibles + preparado_al_vender) para crear recetas por
+ *  presentación. Incluye los que ya tienen receta base (para poder sumar las por-presentación). */
+export async function listProductosMenu(sb: AppSupabaseClient, empresaId: string) {
+  const { data, error } = await sb
+    .from("productos")
+    .select("id, nombre, sku, precio_venta, unidad_medida, categoria_principal_id")
+    .eq("empresa_id", empresaId)
+    .eq("activo", true)
+    .eq("es_vendible", true)
+    .eq("controla_stock", false)
+    .order("nombre");
+  if (error) throw new Error(error.message);
+  return data ?? [];
+}
+
+/** Fase 2.2: presentaciones ACTIVAS de un producto, para poblar el selector de la UI de recetas. */
+export async function listPresentacionesDeProducto(
+  sb: AppSupabaseClient,
+  empresaId: string,
+  productoId: string,
+) {
+  const { data, error } = await sb
+    .from("producto_presentaciones")
+    .select("id, nombre, precio, orden, activo")
+    .eq("empresa_id", empresaId)
+    .eq("producto_id", productoId)
+    .eq("activo", true)
+    .order("orden")
+    .order("nombre");
+  if (error) throw new Error(error.message);
+  return data ?? [];
+}
+
+/** Fase 2.2: matriz producto × presentación → tiene receta activa? Para el badge "pendientes". */
+export async function getRecetaCoberturaMatriz(sb: AppSupabaseClient, empresaId: string) {
+  const [productos, presentaciones, recetas] = await Promise.all([
+    sb.from("productos").select("id, nombre, sku, categoria_principal_id")
+      .eq("empresa_id", empresaId).eq("es_vendible", true).eq("controla_stock", false).eq("activo", true),
+    sb.from("producto_presentaciones").select("id, producto_id, nombre, orden, activo")
+      .eq("empresa_id", empresaId).eq("activo", true),
+    sb.from("recetas").select("producto_id, presentacion_id, activa")
+      .eq("empresa_id", empresaId).eq("activa", true),
+  ]);
+  if (productos.error) throw new Error(productos.error.message);
+  if (presentaciones.error) throw new Error(presentaciones.error.message);
+  if (recetas.error) throw new Error(recetas.error.message);
+
+  const recetasSet = new Set(
+    ((recetas.data ?? []) as Array<{ producto_id: string; presentacion_id: string | null }>)
+      .map((r) => `${r.producto_id}:${r.presentacion_id ?? "NULL"}`),
+  );
+  const presByProd = new Map<string, Array<{ id: string; nombre: string; orden: number }>>();
+  for (const pp of (presentaciones.data ?? []) as Array<{ id: string; producto_id: string; nombre: string; orden: number }>) {
+    const arr = presByProd.get(pp.producto_id) ?? [];
+    arr.push({ id: pp.id, nombre: pp.nombre, orden: pp.orden });
+    presByProd.set(pp.producto_id, arr);
+  }
+  return ((productos.data ?? []) as Array<{ id: string; nombre: string; sku: string; categoria_principal_id: string | null }>)
+    .map((p) => {
+      const pres = (presByProd.get(p.id) ?? []).sort((a, b) => a.orden - b.orden);
+      const rows = pres.length > 0
+        ? pres.map((pp) => ({
+            presentacion_id: pp.id,
+            presentacion_nombre: pp.nombre,
+            tiene_receta: recetasSet.has(`${p.id}:${pp.id}`),
+          }))
+        : [{ presentacion_id: null, presentacion_nombre: null, tiene_receta: recetasSet.has(`${p.id}:NULL`) }];
+      return { producto_id: p.id, producto_nombre: p.nombre, sku: p.sku, presentaciones: rows };
+    });
 }
 
 export async function listProductos(

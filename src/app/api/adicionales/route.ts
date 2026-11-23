@@ -9,7 +9,25 @@ import { API_ERRORS } from "@/lib/api/errors";
  * POST → crea un adicional (nombre + precio).
  */
 
-const COLS = "id, empresa_id, nombre, precio, orden, activo, created_at, updated_at";
+const COLS = "id, empresa_id, nombre, precio, orden, activo, insumo_producto_id, insumo_cantidad, insumo_unidad, created_at, updated_at";
+
+/**
+ * Normaliza un valor numérico opcional para `insumo_cantidad`. Devuelve null si
+ * no es un número > 0, undefined si el campo no vino en el body (no cambia).
+ */
+function toPositiveNumberOrNull(v: unknown): number | null | undefined {
+  if (v === undefined) return undefined;
+  if (v === null || v === "") return null;
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n;
+}
+function toStringOrNull(v: unknown): string | null | undefined {
+  if (v === undefined) return undefined;
+  if (v === null) return null;
+  const s = String(v).trim();
+  return s === "" ? null : s;
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -58,9 +76,36 @@ export async function POST(request: NextRequest) {
     const orden = Number.isFinite(Number(body.orden)) ? Number(body.orden) : 0;
     const activo = body.activo === false ? false : true;
 
+    // Fase 2.2: vínculo opcional con insumo físico (alternativa A).
+    const insumoProductoId = toStringOrNull(body.insumo_producto_id);
+    const insumoCantidad = toPositiveNumberOrNull(body.insumo_cantidad);
+    const insumoUnidad = toStringOrNull(body.insumo_unidad);
+
+    // Validación: si se vincula insumo, debe existir en la misma empresa y ser es_insumo=true.
+    if (insumoProductoId) {
+      const check = await ctx.supabase
+        .from("productos")
+        .select("id, es_insumo")
+        .eq("empresa_id", ctx.auth.empresa_id)
+        .eq("id", insumoProductoId)
+        .maybeSingle();
+      if (check.error) throw new Error(check.error.message);
+      if (!check.data) {
+        return NextResponse.json(errorResponse("El insumo indicado no existe."), { status: 400 });
+      }
+      if ((check.data as { es_insumo?: boolean }).es_insumo !== true) {
+        return NextResponse.json(errorResponse("El producto vinculado no es un insumo."), { status: 400 });
+      }
+    }
+
+    const insertPayload: Record<string, unknown> = { empresa_id: ctx.auth.empresa_id, nombre, precio, orden, activo };
+    if (insumoProductoId !== undefined) insertPayload.insumo_producto_id = insumoProductoId;
+    if (insumoCantidad !== undefined) insertPayload.insumo_cantidad = insumoCantidad;
+    if (insumoUnidad !== undefined) insertPayload.insumo_unidad = insumoUnidad;
+
     const ins = await ctx.supabase
       .from("adicionales")
-      .insert({ empresa_id: ctx.auth.empresa_id, nombre, precio, orden, activo })
+      .insert(insertPayload)
       .select(COLS)
       .single();
 

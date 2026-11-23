@@ -17,16 +17,20 @@ type Producto = {
   precio_venta: number;
   unidad_medida: string | null;
 };
+type Presentacion = { id: string; nombre: string; precio: number | string; orden: number };
 
 export default function NuevaRecetaPage() {
   const router = useRouter();
   const [productos, setProductos] = useState<Producto[]>([]);
   const [productoId, setProductoId] = useState("");
+  const [presentaciones, setPresentaciones] = useState<Presentacion[]>([]);
+  const [presentacionId, setPresentacionId] = useState<string>(""); // "" = receta base
   const [nombre, setNombre] = useState("");
   const [rendCantidad, setRendCantidad] = useState(1);
   const [rendUnidad, setRendUnidad] = useState("");
   const [notas, setNotas] = useState("");
   const [loading, setLoading] = useState(true);
+  const [loadingPres, setLoadingPres] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -34,8 +38,10 @@ export default function NuevaRecetaPage() {
     let cancelled = false;
     (async () => {
       try {
+        // Fase 2.2: cargamos TODOS los vendibles del menú para poder crear recetas por presentación
+        // (ya no filtramos "sin receta" porque un mismo producto puede tener varias por tamaño).
         const res = await fetchWithSupabaseSession(
-          "/api/recetas/productos?filtro=vendibles-sin-receta",
+          "/api/recetas/productos?filtro=vendibles-menu",
           { cache: "no-store" }
         );
         const body = await res.json();
@@ -59,10 +65,42 @@ export default function NuevaRecetaPage() {
     };
   }, []);
 
+  // Cargar presentaciones al cambiar de producto.
+  useEffect(() => {
+    if (!productoId) { setPresentaciones([]); setPresentacionId(""); return; }
+    let cancelled = false;
+    setLoadingPres(true);
+    (async () => {
+      try {
+        const res = await fetchWithSupabaseSession(
+          `/api/recetas/productos?producto_id=${encodeURIComponent(productoId)}`,
+          { cache: "no-store" }
+        );
+        const body = await res.json();
+        if (cancelled) return;
+        if (res.ok && body?.success) {
+          const list = (body.data?.presentaciones ?? []) as Presentacion[];
+          setPresentaciones(list);
+          setPresentacionId(""); // default: receta base
+        }
+      } finally {
+        if (!cancelled) setLoadingPres(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [productoId]);
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!productoId) {
       setError("Elegí un producto.");
+      return;
+    }
+    // Fase 2.2: si el producto tiene presentaciones, es obligatorio elegir una.
+    // No se permite crear una receta base genérica que podría descontar insumos
+    // de forma equivocada al vender un tamaño específico.
+    if (presentaciones.length > 0 && !presentacionId) {
+      setError("Elegí una presentación. Este producto tiene tamaños configurados; no se permite crear una receta base genérica.");
       return;
     }
     setSaving(true);
@@ -73,6 +111,7 @@ export default function NuevaRecetaPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           producto_id: productoId,
+          presentacion_id: presentacionId || null,
           nombre: nombre.trim() || null,
           rendimiento_cantidad: Number(rendCantidad) || 1,
           rendimiento_unidad: rendUnidad.trim() || null,
@@ -161,6 +200,45 @@ export default function NuevaRecetaPage() {
             <p className="mt-1 text-[11px] text-gray-400">
               Solo productos elaborados / de menú. Los de reventa y la materia prima no llevan receta.
             </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Presentación (tamaño)
+              {presentaciones.length === 0 && (
+                <span className="ml-1 text-[11px] font-normal text-gray-400">sin presentaciones → se guardará como base</span>
+              )}
+              {presentaciones.length > 0 && (
+                <span className="ml-1 text-[11px] font-normal text-red-500">obligatorio</span>
+              )}
+            </label>
+            <select
+              value={presentacionId}
+              onChange={(e) => setPresentacionId(e.target.value)}
+              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+              disabled={loadingPres || presentaciones.length === 0}
+              required={presentaciones.length > 0}
+            >
+              {/* Si hay presentaciones, NO ofrecemos opción "base". Si no hay, dejamos vacío = base. */}
+              {presentaciones.length === 0 ? (
+                <option value="">— Receta base (producto sin tamaños) —</option>
+              ) : (
+                <option value="" disabled>— Elegí un tamaño —</option>
+              )}
+              {presentaciones.map((pp) => (
+                <option key={pp.id} value={pp.id}>{pp.nombre} · Gs. {Number(pp.precio).toLocaleString("es-PY")}</option>
+              ))}
+            </select>
+            {presentaciones.length === 0 && !loadingPres && productoId && (
+              <p className="mt-1 text-[11px] text-amber-600">
+                Este producto no tiene presentaciones configuradas. La receta se guardará como base.
+              </p>
+            )}
+            {presentaciones.length > 0 && (
+              <p className="mt-1 text-[11px] text-slate-500">
+                Este producto tiene tamaños. No se permite crear una receta base genérica: cada tamaño debe tener su receta propia para evitar descuentos de insumos equivocados al vender.
+              </p>
+            )}
           </div>
 
           {!RECETA_SIMPLE && (

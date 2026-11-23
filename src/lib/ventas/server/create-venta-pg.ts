@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { createServiceRoleClientWithDbSchema } from "@/lib/supabase/empresa-data-schema";
 import { convertirCantidad } from "@/lib/unidades/convert";
+import { consumoAutoInsumosActivo } from "@/lib/inventario/consumo-auto-flag";
 
 /** Un faltante de stock detectado al validar la venta. */
 export interface FaltanteStock {
@@ -188,17 +189,26 @@ export async function createVentaTransaccionalPg(
     }
   }
 
-  interface AdicionalRow { id: string; precio: number; activo: boolean; nombre: string }
+  // Fase 2.2: se carga también el vínculo con insumo físico para calcular descuento de stock
+  // cuando el cliente paga un adicional (ej: Granola +2.000 Gs → consume N g de MP-0003).
+  interface AdicionalRow {
+    id: string; precio: number; activo: boolean; nombre: string;
+    insumo_producto_id: string | null; insumo_cantidad: number | null; insumo_unidad: string | null;
+  }
   const adicionalById = new Map<string, AdicionalRow>();
   if (adicionalIds.length > 0) {
     const adQ = await sb
       .from("adicionales")
-      .select("id, precio, activo, nombre")
+      .select("id, precio, activo, nombre, insumo_producto_id, insumo_cantidad, insumo_unidad")
       .eq("empresa_id", params.empresaId)
       .in("id", adicionalIds);
     if (adQ.error) throw new Error(adQ.error.message);
     for (const r of (adQ.data ?? []) as unknown as AdicionalRow[]) {
-      adicionalById.set(r.id, { ...r, precio: Number(r.precio) });
+      adicionalById.set(r.id, {
+        ...r,
+        precio: Number(r.precio),
+        insumo_cantidad: r.insumo_cantidad != null ? Number(r.insumo_cantidad) : null,
+      });
     }
     for (const aid of adicionalIds) {
       if (!adicionalById.has(aid)) {
@@ -354,31 +364,75 @@ export async function createVentaTransaccionalPg(
     });
   }
 
-  // 2b) Recetas: para cada producto vendido con receta activa, calcular el consumo de
+  // Fase 2.2: feature flag — si la empresa tiene el consumo automático desactivado,
+  // saltamos la carga de recetas y el descuento de insumos (tanto por receta como por
+  // adicional). El stock propio de productos (controla_stock=true) sigue funcionando.
+  const consumoInsumosActivo = consumoAutoInsumosActivo(params.empresaId);
+
+  // 2b) Recetas: para cada línea vendida (producto + presentación), calcular el consumo de
   //     materia prima (insumos). Consistente con el costeo (fn_receta_costeo):
   //     consumo por unidad vendida = cantidad * (1 + merma_pct) / rendimiento.
-  const recetasQ = await sb
-    .from("recetas")
-    .select("id, producto_id, rendimiento_cantidad")
-    .eq("empresa_id", params.empresaId)
-    .eq("activa", true)
-    .in("producto_id", ids);
+  //
+  // Fase 2.2: selección de receta por (producto_id, presentacion_id). Políticas:
+  //  - Si la línea envía presentacion_id → busca EXACTA (producto_id, presentacion_id).
+  //    Si no existe, cae a la receta base (presentacion_id IS NULL) solo si es la única activa.
+  //    Si tampoco existe → no se descuenta nada por receta (modo legacy).
+  //  - Si la línea NO envía presentacion_id → usa receta base (presentacion_id IS NULL).
+  //    Si el producto tiene recetas por presentación activas pero la venta no indica cuál,
+  //    NO se descuenta (evita descontar la receta equivocada).
+  const recetasQ = consumoInsumosActivo
+    ? await sb
+        .from("recetas")
+        .select("id, producto_id, presentacion_id, rendimiento_cantidad")
+        .eq("empresa_id", params.empresaId)
+        .eq("activa", true)
+        .in("producto_id", ids)
+    : { data: [] as unknown[], error: null };
   if (recetasQ.error) throw new Error(recetasQ.error.message);
   const recetaRows = (recetasQ.data ?? []) as unknown as Array<{
     id: string;
     producto_id: string;
+    presentacion_id: string | null;
     rendimiento_cantidad: number | string | null;
   }>;
+  if (!consumoInsumosActivo) {
+    console.info(`[create-venta-pg] consumo automático de insumos DESACTIVADO para empresa ${params.empresaId} — solo stock de productos propios se descontará.`);
+  }
+
+  // Index: producto_id -> { base: receta|undefined, byPresentacion: Map<presentacion_id, receta> }
+  type RecetaIdx = { id: string; rendimiento: number };
+  const recetasByProducto = new Map<string, { base?: RecetaIdx; byPresentacion: Map<string, RecetaIdx> }>();
+  for (const r of recetaRows) {
+    const modo = stockMap.get(r.producto_id)?.modo ?? "preparado_al_vender";
+    if (modo === "produccion_previa") continue; // ver comentario abajo
+    const rend = Number(r.rendimiento_cantidad);
+    const entry = { id: r.id, rendimiento: rend > 0 ? rend : 1 };
+    let idx = recetasByProducto.get(r.producto_id);
+    if (!idx) { idx = { byPresentacion: new Map() }; recetasByProducto.set(r.producto_id, idx); }
+    if (r.presentacion_id) idx.byPresentacion.set(r.presentacion_id, entry);
+    else idx.base = entry;
+  }
+
+  // Selección final por línea de venta. Mapea producto_id -> receta elegida.
+  // IMPORTANTE: la unicidad DB (unique parcial WHERE activa=true) garantiza que no haya dos
+  // recetas activas para la misma (producto, presentación). Pero dos líneas del mismo producto
+  // con distinta presentación pueden coexistir — se procesan por línea en el bloque siguiente.
+  //
   // Solo se explota la receta (descuento de materia prima al vender) para productos en modo
   // 'preparado_al_vender'. Los productos 'produccion_previa' descuentan su PROPIO stock del
   // terminado (la materia prima ya se descontó al fabricar) → NO se agregan acá, así caen en
   // la rama de descuento de stock propio (pasos 3a/7). Evita el doble descuento.
+  //
+  // Para compatibilidad con el map `recetaByProducto` usado aguas abajo cuando NO hay múltiples
+  // presentaciones por producto, mantenemos un map "simple" cuando la línea no distingue
+  // presentación. Para el caso con presentación, se arma un map por línea.
   const recetaByProducto = new Map<string, { id: string; rendimiento: number }>();
-  for (const r of recetaRows) {
-    const modo = stockMap.get(r.producto_id)?.modo ?? "preparado_al_vender";
-    if (modo === "produccion_previa") continue;
-    const rend = Number(r.rendimiento_cantidad);
-    recetaByProducto.set(r.producto_id, { id: r.id, rendimiento: rend > 0 ? rend : 1 });
+  for (const [pid, idx] of recetasByProducto) {
+    // Default conservador: si el producto tiene presentaciones con receta, NO poblar el map
+    // "por producto" (las líneas con presentacion_id usarán el byPresentacion; las que no
+    // tengan presentacion_id tampoco deben caer en receta ajena → no se descuenta).
+    if (idx.byPresentacion.size > 0) continue;
+    if (idx.base) recetaByProducto.set(pid, idx.base);
   }
 
   // insumo_producto_id -> cantidad total a descontar en esta venta (EN LA UNIDAD DEL INSUMO).
@@ -449,19 +503,42 @@ export async function createVentaTransaccionalPg(
       }
     }
 
-    // Agregar consumo CONVIRTIENDO la cantidad del ítem a la unidad del insumo.
-    for (const [pid, qtySold] of qtyByProduct) {
-      const rec = recetaByProducto.get(pid);
-      if (!rec) continue;
+    // Agregar consumo POR LÍNEA (no por producto agregado): cada línea aporta su presentacion_id
+    // si está presente. Esto evita descontar la receta equivocada para presentaciones distintas
+    // del mismo producto. CONVIRTIENDO la cantidad del ítem a la unidad del insumo.
+    const recetasSinCobertura: string[] = []; // líneas que no encontraron receta para su presentación
+    for (const line of params.items) {
+      const pid = line.producto_id;
+      const idx = recetasByProducto.get(pid);
+      if (!idx) continue; // sin recetas para ese producto → cae en descuento de stock propio (3a)
+      let rec: RecetaIdx | undefined;
+      if (line.presentacion_id) {
+        rec = idx.byPresentacion.get(line.presentacion_id);
+        if (!rec) {
+          // La presentación vendida no tiene receta propia Y hay presentaciones con receta
+          // activa → NO caemos a la base (sería la receta equivocada). Dejamos sin descuento
+          // y avisamos. Si no hay NADA de presentaciones (byPresentacion vacío), usaremos base.
+          if (idx.byPresentacion.size === 0 && idx.base) rec = idx.base;
+        }
+      } else {
+        // Sin presentacion_id en la línea: solo se usa la base si el producto NO tiene
+        // recetas por presentación. Si las tiene, el vendedor debió elegir tamaño → no descontar.
+        if (idx.byPresentacion.size === 0 && idx.base) rec = idx.base;
+      }
+      if (!rec) {
+        const nombre = stockMap.get(pid)?.nombre ?? pid;
+        if (!recetasSinCobertura.includes(nombre)) recetasSinCobertura.push(nombre);
+        continue;
+      }
+      const qtySold = Number(line.cantidad) || 0;
+      if (!(qtySold > 0)) continue;
       for (const ri of itemsByReceta.get(rec.id) ?? []) {
         const meta = insumoMeta.get(ri.insumo_producto_id);
         const unidadInsumo = meta?.unidad ?? null;
-        // Sin unidad declarada en el ítem o en el insumo → se asume misma unidad (sin conversión).
         const cantConv = (ri.unidad_item == null || unidadInsumo == null)
           ? ri.cantidad
           : convertirCantidad(ri.cantidad, ri.unidad_item, unidadInsumo);
         if (cantConv == null) {
-          // Unidad incompatible (familias distintas): no se descuenta para no corromper el stock.
           const nombre = meta?.nombre ?? ri.insumo_producto_id;
           if (!insumosIncompatibles.includes(nombre)) insumosIncompatibles.push(nombre);
           continue;
@@ -469,6 +546,74 @@ export async function createVentaTransaccionalPg(
         const consumo = (qtySold * cantConv * (1 + ri.merma_pct)) / rec.rendimiento;
         if (!(consumo > 0)) continue;
         insumoNeed.set(ri.insumo_producto_id, (insumoNeed.get(ri.insumo_producto_id) ?? 0) + consumo);
+      }
+    }
+    if (recetasSinCobertura.length > 0) {
+      console.warn("[create-venta-pg] presentaciones vendidas sin receta específica (no descuentan insumos):",
+        recetasSinCobertura.join(", "));
+    }
+  }
+
+  // Fase 2.2: consumo de insumos por adicionales comerciales vendidos.
+  // Si un adicional tiene insumo_producto_id + insumo_cantidad configurados, descuenta
+  // cantidad × line.cantidad × ad.cantidad del insumo correspondiente.
+  // Reutiliza `insumoMeta` para unidad/stock/costo. Si falta meta (insumo nuevo), se carga.
+  // Respeta el feature flag: si está off, salta todo el bloque.
+  if (!consumoInsumosActivo) {
+    // Early skip — el map insumoNeed se mantiene vacío y step 3b/7 no harán nada.
+    // Dejamos el flujo continuar hacia el cálculo de totales y descuento de stock propio.
+  }
+  const extraInsumoIds = new Set<string>();
+  if (consumoInsumosActivo) {
+    for (const line of params.items) {
+      for (const ad of line.adicionales ?? []) {
+        if (!ad.adicional_id) continue;
+        const cat = adicionalById.get(ad.adicional_id);
+        if (!cat?.insumo_producto_id) continue;
+        if (!insumoMeta.has(cat.insumo_producto_id)) extraInsumoIds.add(cat.insumo_producto_id);
+      }
+    }
+  }
+  if (extraInsumoIds.size > 0) {
+    const insQ2 = await sb
+      .from("productos")
+      .select("id, stock_actual, costo_promedio, nombre, sku, unidad_medida")
+      .eq("empresa_id", params.empresaId)
+      .in("id", [...extraInsumoIds]);
+    if (insQ2.error) throw new Error(insQ2.error.message);
+    for (const r of (insQ2.data ?? []) as unknown as Array<{
+      id: string; stock_actual: number | string; costo_promedio: number | string;
+      nombre: string; sku: string; unidad_medida: string | null;
+    }>) {
+      insumoMeta.set(r.id, {
+        stock: Number(r.stock_actual), costo: Number(r.costo_promedio),
+        nombre: r.nombre, sku: r.sku, unidad: r.unidad_medida ?? null,
+      });
+    }
+  }
+  if (consumoInsumosActivo) {
+    for (const line of params.items) {
+      const qtyLinea = Number(line.cantidad) || 0;
+      if (!(qtyLinea > 0)) continue;
+      for (const ad of line.adicionales ?? []) {
+        if (!ad.adicional_id) continue;
+        const cat = adicionalById.get(ad.adicional_id);
+        if (!cat?.insumo_producto_id || !(cat.insumo_cantidad != null && cat.insumo_cantidad > 0)) continue;
+        const meta = insumoMeta.get(cat.insumo_producto_id);
+        if (!meta) continue;
+        const unidadInsumo = meta.unidad;
+        const unidadAd = cat.insumo_unidad ?? unidadInsumo;
+        const cantConv = (unidadAd == null || unidadInsumo == null)
+          ? cat.insumo_cantidad
+          : convertirCantidad(cat.insumo_cantidad, unidadAd, unidadInsumo);
+        if (cantConv == null) {
+          if (!insumosIncompatibles.includes(meta.nombre)) insumosIncompatibles.push(meta.nombre);
+          continue;
+        }
+        const porcionesAd = Number(ad.cantidad ?? 1) || 1;
+        const consumo = qtyLinea * porcionesAd * cantConv;
+        if (!(consumo > 0)) continue;
+        insumoNeed.set(cat.insumo_producto_id, (insumoNeed.get(cat.insumo_producto_id) ?? 0) + consumo);
       }
     }
   }
@@ -487,7 +632,9 @@ export async function createVentaTransaccionalPg(
   // 3a) Productos de reventa (controla_stock=true, sin receta).
   for (const [pid, need] of qtyByProduct) {
     const p = stockMap.get(pid)!;
-    if (recetaByProducto.has(pid)) continue;
+    // Fase 2.2: si el producto tiene CUALQUIER receta activa (base o por presentación),
+    // el stock se controla a través de los insumos → saltar.
+    if (recetasByProducto.has(pid)) continue;
     // produccion_previa: descuenta su propio stock del terminado aunque controla_stock=false.
     if (!p.controlaStock && p.modo !== "produccion_previa") continue;
     if (p.stock < need) {
@@ -686,7 +833,8 @@ export async function createVentaTransaccionalPg(
     // 7) Descuento de stock + movimientos solo para productos con controla_stock=true SIN receta.
     for (const line of items) {
       const p = stockMap.get(line.producto_id)!;
-      if (recetaByProducto.has(line.producto_id)) continue;
+      // Fase 2.2: cualquier receta activa (base o por presentación) → stock vía insumos.
+      if (recetasByProducto.has(line.producto_id)) continue;
       // produccion_previa: descuenta su propio stock del terminado aunque controla_stock=false.
       if (!p.controlaStock && p.modo !== "produccion_previa") continue;
       // El stock nunca baja de 0: si se vendió sin stock, queda en 0 (la cantidad real
