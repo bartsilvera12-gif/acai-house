@@ -3,7 +3,7 @@ import { getTenantSupabaseFromAuth } from "@/lib/supabase/tenant-api";
 import { successResponse, errorResponse } from "@/lib/api/response";
 import { API_ERRORS } from "@/lib/api/errors";
 
-const COLS = "id, empresa_id, nombre, precio, orden, activo, created_at, updated_at";
+const COLS = "id, empresa_id, nombre, precio, orden, activo, insumo_producto_id, insumo_cantidad, insumo_unidad, created_at, updated_at";
 
 export async function PATCH(
   request: NextRequest,
@@ -40,6 +40,41 @@ export async function PATCH(
       patch.orden = o;
     }
     if (typeof body.activo === "boolean") patch.activo = body.activo;
+
+    // Fase 2.2: vínculo insumo físico (alternativa A).
+    if (body.insumo_producto_id !== undefined) {
+      const v = body.insumo_producto_id;
+      const id = v === null || v === "" ? null : String(v);
+      if (id) {
+        const check = await ctx.supabase
+          .from("productos")
+          .select("id, es_insumo")
+          .eq("empresa_id", ctx.auth.empresa_id)
+          .eq("id", id)
+          .maybeSingle();
+        if (check.error) throw new Error(check.error.message);
+        if (!check.data) return NextResponse.json(errorResponse("El insumo indicado no existe."), { status: 400 });
+        if ((check.data as { es_insumo?: boolean }).es_insumo !== true) {
+          return NextResponse.json(errorResponse("El producto vinculado no es un insumo."), { status: 400 });
+        }
+      }
+      patch.insumo_producto_id = id;
+    }
+    if (body.insumo_cantidad !== undefined) {
+      const v = body.insumo_cantidad;
+      if (v === null || v === "") patch.insumo_cantidad = null;
+      else {
+        const n = Number(v);
+        if (!Number.isFinite(n) || n <= 0) {
+          return NextResponse.json(errorResponse("La cantidad de insumo debe ser > 0 o nula."), { status: 400 });
+        }
+        patch.insumo_cantidad = n;
+      }
+    }
+    if (body.insumo_unidad !== undefined) {
+      const v = body.insumo_unidad;
+      patch.insumo_unidad = v === null || String(v).trim() === "" ? null : String(v).trim();
+    }
 
     if (Object.keys(patch).length === 0) {
       return NextResponse.json(errorResponse("Nada para actualizar."), { status: 400 });

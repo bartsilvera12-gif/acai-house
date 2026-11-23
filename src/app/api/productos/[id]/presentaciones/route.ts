@@ -127,14 +127,57 @@ export async function PUT(
     const toDelete = [...existingIds].filter((i) => !keepIds.has(i));
 
     // Borrar las que ya no están.
+    // Fase 2.2: ON DELETE RESTRICT en recetas.presentacion_id. Si alguna presentación
+    // a borrar tiene una receta vinculada, PG rechazará con ERRCODE 23503. Lo detectamos
+    // antes de intentar el DELETE para dar un mensaje claro al usuario (en vez del error crudo).
     if (toDelete.length > 0) {
+      const recetasVinc = await sb
+        .from("recetas")
+        .select("id, presentacion_id, nombre")
+        .eq("empresa_id", empresaId)
+        .in("presentacion_id", toDelete);
+      if (recetasVinc.error) throw new Error(recetasVinc.error.message);
+      const vinculadas = (recetasVinc.data ?? []) as Array<{ presentacion_id: string }>;
+      if (vinculadas.length > 0) {
+        // Nombres de las presentaciones afectadas para el mensaje.
+        const nombresAfectados = Array.from(new Set(
+          vinculadas.map((r) => {
+            const match = normalizadas.find((p) => p.id === r.presentacion_id);
+            return match?.nombre ?? r.presentacion_id;
+          }),
+        ));
+        // Pero toDelete son las que SE QUITARON del arreglo, así que no están en normalizadas.
+        // Mejor volver a buscar los nombres originales:
+        const origen = await sb
+          .from("producto_presentaciones")
+          .select("id, nombre")
+          .in("id", vinculadas.map((v) => v.presentacion_id));
+        const nombresReal = Array.isArray(origen.data)
+          ? origen.data.map((r: { nombre: string }) => r.nombre).join(", ")
+          : nombresAfectados.join(", ");
+        return NextResponse.json(
+          errorResponse(
+            `No se puede eliminar la(s) presentación(es) "${nombresReal}": tiene(n) receta vinculada. Primero archivá o eliminá la receta desde /dashboard/recetas, o desactivá la presentación en lugar de borrarla.`,
+          ),
+          { status: 409 },
+        );
+      }
       const del = await sb
         .from("producto_presentaciones")
         .delete()
         .eq("empresa_id", empresaId)
         .eq("producto_id", productoId)
         .in("id", toDelete);
-      if (del.error) throw new Error(del.error.message);
+      if (del.error) {
+        // Fallback si el check previo no detectó algo (cambio concurrente)
+        if (/23503|foreign key/i.test(del.error.message)) {
+          return NextResponse.json(
+            errorResponse("No se puede eliminar una presentación con recetas vinculadas. Archivá primero la receta."),
+            { status: 409 },
+          );
+        }
+        throw new Error(del.error.message);
+      }
     }
 
     // Upsert manual: update si trae id, insert si no.
