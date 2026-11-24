@@ -118,14 +118,15 @@ let passed = 0, failed = 0;
 let testClient = null;
 async function tryQ(fn) {
   try { return { ok: true, result: await fn() }; }
-  catch (error) {
-    try { await testClient.query("ROLLBACK"); } catch {}
-    return { ok: false, error };
-  }
+  catch (error) { return { ok: false, error }; }
 }
 async function test(name, fn) {
+  // Conexión fresca por test para evitar que un error de RPC deje estado
+  // de TX implícita contaminando los tests siguientes.
+  testClient = await newClient();
   try { await fn(); passed++; console.log(`  OK   ${name}`); }
   catch (e) { failed++; console.log(`  FAIL ${name}\n       ${e.message}`); }
+  finally { try { await testClient.end(); } catch {} }
 }
 function stripOuterTx(sql) {
   return sql.replace(/^\s*BEGIN\s*;/i, "").replace(/\s*COMMIT\s*;\s*$/i, "");
@@ -135,28 +136,28 @@ async function newClient() { const c = new pg.Client({ connectionString: url });
 (async () => {
   const c = await newClient();
   console.log("  SET-UP: schema + migraciones + seed…");
-  await c.query(SEED_SCHEMA);
-  await c.query(stripOuterTx(fs.readFileSync(MIG_TABLAS, "utf8")));
-  await c.query(stripOuterTx(fs.readFileSync(MIG_FN, "utf8")));
-  await c.query(SEED_DATA);
+  await testClient.query(SEED_SCHEMA);
+  await testClient.query(stripOuterTx(fs.readFileSync(MIG_TABLAS, "utf8")));
+  await testClient.query(stripOuterTx(fs.readFileSync(MIG_FN, "utf8")));
+  await testClient.query(SEED_DATA);
 
   // Receta activa con un grupo de variante "chocolate" y 2 opciones.
-  const recR = await c.query(
+  const recR = await testClient.query(
     "INSERT INTO acaihouse.recetas (empresa_id, producto_id, presentacion_id, rendimiento_cantidad, rendimiento_unidad, activa) VALUES ($1,$2,$3,1,'UNIDAD',true) RETURNING id",
     [EMPRESA, PROD_TRAD, PRES_CHI]
   );
   const recetaId = recR.rows[0].id;
-  const gR = await c.query(
+  const gR = await testClient.query(
     "INSERT INTO acaihouse.receta_grupos_variante (empresa_id, receta_id, codigo, etiqueta, obligatorio, orden) VALUES ($1,$2,'chocolate','Chocolate',true,1) RETURNING id",
     [EMPRESA, recetaId]
   );
   const grupoId = gR.rows[0].id;
-  const opNegroR = await c.query(
+  const opNegroR = await testClient.query(
     "INSERT INTO acaihouse.receta_grupo_opciones (empresa_id, grupo_id, insumo_producto_id, cantidad, unidad_medida, merma_pct, etiqueta, orden) VALUES ($1,$2,$3,29,'G',0,'Chocolate negro',1) RETURNING id",
     [EMPRESA, grupoId, INS_CHOCO_NEGRO]
   );
   const opNegro = opNegroR.rows[0].id;
-  const opBlancoR = await c.query(
+  const opBlancoR = await testClient.query(
     "INSERT INTO acaihouse.receta_grupo_opciones (empresa_id, grupo_id, insumo_producto_id, cantidad, unidad_medida, merma_pct, etiqueta, orden) VALUES ($1,$2,$3,29,'G',0,'Chocolate blanco',2) RETURNING id",
     [EMPRESA, grupoId, INS_CHOCO_BLANCO]
   );
@@ -195,12 +196,12 @@ async function newClient() { const c = new pg.Client({ connectionString: url });
       adicionales: [{ adicional_id: null, adicional_nombre: "Chocolate extra", precio_unitario: precioAdicional, cantidad: 1 }],
       variantes: [{ grupo_id: grupoId, opcion_id: opBlanco }],
     }];
-    const r = await c.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1::jsonb)", [JSON.stringify(payload)]);
+    const r = await testClient.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1::jsonb)", [JSON.stringify(payload)]);
     const ventaId = r.rows[0].venta_id;
-    const vit = (await c.query("SELECT precio_venta::text AS p, total_linea::text AS t FROM acaihouse.ventas_items WHERE id=$1", [itemId])).rows[0];
+    const vit = (await testClient.query("SELECT precio_venta::text AS p, total_linea::text AS t FROM acaihouse.ventas_items WHERE id=$1", [itemId])).rows[0];
     if (Number(vit.p) !== 16000) throw new Error(`precio_venta=${vit.p}, esperaba 16000 (base 14000 + adicional 2000, SIN variante)`);
     if (Number(vit.t) !== 16000) throw new Error(`total_linea=${vit.t}`);
-    const total = (await c.query("SELECT total::text FROM acaihouse.ventas WHERE id=$1", [ventaId])).rows[0].total;
+    const total = (await testClient.query("SELECT total::text FROM acaihouse.ventas WHERE id=$1", [ventaId])).rows[0].total;
     if (Number(total) !== 16000) throw new Error(`total venta=${total}`);
   });
 
@@ -216,9 +217,9 @@ async function newClient() { const c = new pg.Client({ connectionString: url });
       // El cliente envía SOLO grupo_id + opcion_id. La RPC extrae el resto.
       variantes: [{ grupo_id: grupoId, opcion_id: opNegro }],
     }];
-    const r = await c.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1::jsonb)", [JSON.stringify(payload)]);
+    const r = await testClient.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1::jsonb)", [JSON.stringify(payload)]);
     const ventaId = r.rows[0].venta_id;
-    const vv = (await c.query(
+    const vv = (await testClient.query(
       "SELECT cantidad::text AS c, unidad_medida AS u, costo_unitario_snapshot::text AS cu, opcion_etiqueta AS eo, grupo_codigo AS gc, insumo_sku AS sk FROM acaihouse.venta_item_variantes WHERE venta_item_id=$1",
       [itemId]
     )).rows[0];
@@ -242,17 +243,17 @@ async function newClient() { const c = new pg.Client({ connectionString: url });
       subtotal: 14000, monto_iva: 0, total_linea: 14000, presentacion_id: PRES_CHI,
       adicionales: [], variantes: [{ grupo_id: grupoId, opcion_id: opNegro }],
     }];
-    const stockAntes = Number((await c.query("SELECT stock_actual::text AS s FROM acaihouse.productos WHERE id=$1", [INS_CHOCO_NEGRO])).rows[0].s);
-    const r = await c.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1::jsonb)", [JSON.stringify(payload)]);
+    const stockAntes = Number((await testClient.query("SELECT stock_actual::text AS s FROM acaihouse.productos WHERE id=$1", [INS_CHOCO_NEGRO])).rows[0].s);
+    const r = await testClient.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1::jsonb)", [JSON.stringify(payload)]);
     const ventaId = r.rows[0].venta_id;
     // Sin stock_deltas → el stock del insumo NO debe haber cambiado.
-    const stockDespues = Number((await c.query("SELECT stock_actual::text AS s FROM acaihouse.productos WHERE id=$1", [INS_CHOCO_NEGRO])).rows[0].s);
+    const stockDespues = Number((await testClient.query("SELECT stock_actual::text AS s FROM acaihouse.productos WHERE id=$1", [INS_CHOCO_NEGRO])).rows[0].s);
     if (stockDespues !== stockAntes) throw new Error(`stock cambió: ${stockAntes} → ${stockDespues}`);
     // Y NO debe haber movimiento de este insumo con este venta_id.
-    const mov = Number((await c.query("SELECT count(*)::int AS n FROM acaihouse.movimientos_inventario WHERE venta_id=$1 AND producto_id=$2", [ventaId, INS_CHOCO_NEGRO])).rows[0].n);
+    const mov = Number((await testClient.query("SELECT count(*)::int AS n FROM acaihouse.movimientos_inventario WHERE venta_id=$1 AND producto_id=$2", [ventaId, INS_CHOCO_NEGRO])).rows[0].n);
     if (mov !== 0) throw new Error(`movimientos=${mov}, esperaba 0 con consumo OFF`);
     // La variante SÍ se persiste (trazabilidad).
-    const v = Number((await c.query("SELECT count(*)::int AS n FROM acaihouse.venta_item_variantes WHERE venta_item_id=$1", [itemId])).rows[0].n);
+    const v = Number((await testClient.query("SELECT count(*)::int AS n FROM acaihouse.venta_item_variantes WHERE venta_item_id=$1", [itemId])).rows[0].n);
     if (v !== 1) throw new Error("variante no se persistió");
   });
 
@@ -271,9 +272,9 @@ async function newClient() { const c = new pg.Client({ connectionString: url });
       { ...itemBase, id: i1, variantes: [{ grupo_id: grupoId, opcion_id: opBlanco }] },
       { ...itemBase, id: i2, variantes: [{ grupo_id: grupoId, opcion_id: opNegro }] },
     ];
-    await c.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1::jsonb)", [JSON.stringify(payload)]);
-    const v1 = (await c.query("SELECT opcion_etiqueta AS e, costo_unitario_snapshot::text AS c FROM acaihouse.venta_item_variantes WHERE venta_item_id=$1", [i1])).rows[0];
-    const v2 = (await c.query("SELECT opcion_etiqueta AS e, costo_unitario_snapshot::text AS c FROM acaihouse.venta_item_variantes WHERE venta_item_id=$1", [i2])).rows[0];
+    await testClient.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1::jsonb)", [JSON.stringify(payload)]);
+    const v1 = (await testClient.query("SELECT opcion_etiqueta AS e, costo_unitario_snapshot::text AS c FROM acaihouse.venta_item_variantes WHERE venta_item_id=$1", [i1])).rows[0];
+    const v2 = (await testClient.query("SELECT opcion_etiqueta AS e, costo_unitario_snapshot::text AS c FROM acaihouse.venta_item_variantes WHERE venta_item_id=$1", [i2])).rows[0];
     if (v1.e !== "Chocolate blanco" || Number(v1.c) !== 120) throw new Error(`v1=${JSON.stringify(v1)}`);
     if (v2.e !== "Chocolate negro" || Number(v2.c) !== 150) throw new Error(`v2=${JSON.stringify(v2)}`);
   });
@@ -290,18 +291,18 @@ async function newClient() { const c = new pg.Client({ connectionString: url });
       adicionales: [], variantes: [],
     }];
     payload.venta.total = 50000; payload.venta.subtotal = 50000;
-    const stockAntes = Number((await c.query("SELECT stock_actual::text AS s FROM acaihouse.productos WHERE id=$1", [PROD_REVENTA])).rows[0].s);
+    const stockAntes = Number((await testClient.query("SELECT stock_actual::text AS s FROM acaihouse.productos WHERE id=$1", [PROD_REVENTA])).rows[0].s);
     payload.stock_deltas = [{
       producto_id: PROD_REVENTA, delta_qty: 10, movimiento: { tipo: "SALIDA", origen: "venta", referencia: payload.venta.numero_control },
     }];
-    const r = await c.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1::jsonb)", [JSON.stringify(payload)]);
+    const r = await testClient.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1::jsonb)", [JSON.stringify(payload)]);
     const ventaId = r.rows[0].venta_id;
     // Política corregida: stock puede quedar negativo. stockAntes=5 (del seed), delta=10 → resultado -5.
-    const stockDespues = Number((await c.query("SELECT stock_actual::text AS s FROM acaihouse.productos WHERE id=$1", [PROD_REVENTA])).rows[0].s);
+    const stockDespues = Number((await testClient.query("SELECT stock_actual::text AS s FROM acaihouse.productos WHERE id=$1", [PROD_REVENTA])).rows[0].s);
     const esperado = stockAntes - 10;
     if (stockDespues !== esperado) throw new Error(`stock=${stockDespues}, esperaba ${esperado} (política sin GREATEST)`);
     // Movimiento registra cantidad COMPLETA (10), no solo la parte "cubierta por stock".
-    const mov = (await c.query("SELECT cantidad::text AS q, costo_unitario::text AS c FROM acaihouse.movimientos_inventario WHERE venta_id=$1 AND producto_id=$2", [ventaId, PROD_REVENTA])).rows[0];
+    const mov = (await testClient.query("SELECT cantidad::text AS q, costo_unitario::text AS c FROM acaihouse.movimientos_inventario WHERE venta_id=$1 AND producto_id=$2", [ventaId, PROD_REVENTA])).rows[0];
     if (Number(mov.q) !== 10) throw new Error(`movimiento cantidad=${mov.q}, esperaba 10 (no se oculta consumo)`);
     if (Number(mov.c) !== 3000) throw new Error(`costo_unitario=${mov.c}, esperaba 3000 del server`);
   });
@@ -310,10 +311,10 @@ async function newClient() { const c = new pg.Client({ connectionString: url });
     // Simulamos authenticated conectándonos con SET ROLE authenticated.
     // La función `puede_acceder_empresa` del seed retorna true por default.
     // Para este test cambiamos su implementación a verificar empresa específica.
-    await c.query("CREATE OR REPLACE FUNCTION acaihouse.puede_acceder_empresa(e uuid) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT e = '" + EMPRESA + "'::uuid $$");
+    await testClient.query("CREATE OR REPLACE FUNCTION acaihouse.puede_acceder_empresa(e uuid) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT e = '" + EMPRESA + "'::uuid $$");
     // Redefinir la función RPC con la nueva puede_acceder_empresa (no es necesario, es STABLE).
     try {
-      await c.query("SET ROLE authenticated");
+      await testClient.query("SET ROLE authenticated");
       const payload = basePayload("F6");
       payload.empresa_id = EMPRESA_AJENA;
       payload.items = [{
@@ -323,12 +324,12 @@ async function newClient() { const c = new pg.Client({ connectionString: url });
         subtotal: 14000, monto_iva: 0, total_linea: 14000, presentacion_id: null,
         adicionales: [], variantes: [],
       }];
-      const r = await tryQ(() => c.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1::jsonb)", [JSON.stringify(payload)]));
+      const r = await tryQ(() => testClient.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1::jsonb)", [JSON.stringify(payload)]));
       if (r.ok) throw new Error("esperaba 42501 permission denied");
       if ((r.error.code ?? "") !== "42501") throw new Error(`errcode=${r.error.code}, esperaba 42501`);
     } finally {
-      await c.query("RESET ROLE");
-      await c.query("CREATE OR REPLACE FUNCTION acaihouse.puede_acceder_empresa(e uuid) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT true $$");
+      await testClient.query("RESET ROLE");
+      await testClient.query("CREATE OR REPLACE FUNCTION acaihouse.puede_acceder_empresa(e uuid) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT true $$");
     }
   });
 

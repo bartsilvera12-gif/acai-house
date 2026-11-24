@@ -235,20 +235,20 @@ const INS_B = "22222222-2222-2222-2222-222222222222";
 
 let passed = 0, failed = 0;
 let testClient = null;
-// En caso de error dentro de una función plpgsql con RAISE EXCEPTION, el pg
-// driver puede dejar la sesión con una TX implícita en estado aborted. Para
-// no bloquear las queries siguientes, enviamos ROLLBACK explícito tras un
-// error (en autocommit ROLLBACK es no-op y no falla).
+// tryQ: ejecuta la query; si falla, atrapa. Las queries de la RPC que
+// esperamos que fallen usan este wrapper para no abortar el test.
 async function tryQ(fn) {
   try { return { ok: true, result: await fn() }; }
-  catch (error) {
-    try { await testClient.query("ROLLBACK"); } catch {}
-    return { ok: false, error };
-  }
+  catch (error) { return { ok: false, error }; }
 }
+// Cada test corre en su PROPIA conexión fresca. Evita completamente efectos
+// de sesión (TX implícitas abortadas, prepared-stmt caches corruptos tras
+// errores en PL/pgSQL). El pg service en CI acepta múltiples conexiones.
 async function test(name, fn) {
+  testClient = await newClient();
   try { await fn(); passed++; console.log(`  OK   ${name}`); }
   catch (e) { failed++; console.log(`  FAIL ${name}\n       ${e.message}`); }
+  finally { try { await testClient.end(); } catch {} }
 }
 
 function stripOuterTx(sql) {
@@ -265,28 +265,28 @@ async function newClient() {
   // 1) Preparar schema + migraciones + seed en la staging.
   const c = await newClient();
   console.log("  SET-UP: aplicando schema base + migraciones Fase 2.2 Parte 4 + seed…");
-  await c.query(SEED_SCHEMA);
-  await c.query(stripOuterTx(fs.readFileSync(MIG_TABLAS, "utf8")));
-  await c.query(stripOuterTx(fs.readFileSync(MIG_FN, "utf8")));
-  await c.query(SEED_DATA);
+  await testClient.query(SEED_SCHEMA);
+  await testClient.query(stripOuterTx(fs.readFileSync(MIG_TABLAS, "utf8")));
+  await testClient.query(stripOuterTx(fs.readFileSync(MIG_FN, "utf8")));
+  await testClient.query(SEED_DATA);
 
   // Crear una receta de prueba + un grupo + 2 opciones para usar en los tests.
-  const recetaIns = await c.query(
+  const recetaIns = await testClient.query(
     "INSERT INTO acaihouse.recetas (empresa_id, producto_id, presentacion_id, rendimiento_cantidad, rendimiento_unidad, activa) VALUES ($1,$2,$3,1,'UNIDAD',true) RETURNING id",
     [EMPRESA, PROD_TRAD, PRES_CHI]
   );
   const recetaId = recetaIns.rows[0].id;
-  const grupoIns = await c.query(
+  const grupoIns = await testClient.query(
     "INSERT INTO acaihouse.receta_grupos_variante (empresa_id, receta_id, codigo, etiqueta, obligatorio, orden) VALUES ($1,$2,'chocolate','Chocolate',true,1) RETURNING id",
     [EMPRESA, recetaId]
   );
   const grupoId = grupoIns.rows[0].id;
-  const opAIns = await c.query(
+  const opAIns = await testClient.query(
     "INSERT INTO acaihouse.receta_grupo_opciones (empresa_id, grupo_id, insumo_producto_id, cantidad, unidad_medida, merma_pct, etiqueta, orden) VALUES ($1,$2,$3,20,'G',0,'Opcion A',1) RETURNING id",
     [EMPRESA, grupoId, INS_A]
   );
   const opA = opAIns.rows[0].id;
-  const opBIns = await c.query(
+  const opBIns = await testClient.query(
     "INSERT INTO acaihouse.receta_grupo_opciones (empresa_id, grupo_id, insumo_producto_id, cantidad, unidad_medida, merma_pct, etiqueta, orden) VALUES ($1,$2,$3,25,'G',0,'Opcion B',2) RETURNING id",
     [EMPRESA, grupoId, INS_B]
   );
@@ -309,19 +309,19 @@ async function newClient() {
         { producto_id: INS_A, delta_qty: 20, movimiento: { referencia: "VTA-T1" } },
       ],
     };
-    const r = await c.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1::jsonb)", [JSON.stringify(payload)]);
+    const r = await testClient.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1::jsonb)", [JSON.stringify(payload)]);
     const ventaId = r.rows[0].venta_id;
     if (!ventaId) throw new Error("no venta_id");
 
-    const v = (await c.query("SELECT costo_unitario_snapshot::text AS c FROM acaihouse.venta_item_variantes WHERE venta_item_id=$1", [itemId])).rows[0];
+    const v = (await testClient.query("SELECT costo_unitario_snapshot::text AS c FROM acaihouse.venta_item_variantes WHERE venta_item_id=$1", [itemId])).rows[0];
     // El snapshot debe ser 150 — el costo_promedio del INS_A en la DB (server-side), no del cliente.
     if (Number(v.c) !== 150) throw new Error(`costo_unitario_snapshot=${v.c} (esperaba 150)`);
 
-    const m = (await c.query("SELECT costo_unitario::text AS c, cantidad::text AS q FROM acaihouse.movimientos_inventario WHERE venta_id=$1 AND producto_id=$2", [ventaId, INS_A])).rows[0];
+    const m = (await testClient.query("SELECT costo_unitario::text AS c, cantidad::text AS q FROM acaihouse.movimientos_inventario WHERE venta_id=$1 AND producto_id=$2", [ventaId, INS_A])).rows[0];
     if (Number(m.c) !== 150) throw new Error(`movimiento costo_unitario=${m.c}`);
     if (Number(m.q) !== 20) throw new Error(`movimiento cantidad=${m.q}`);
 
-    const stock = (await c.query("SELECT stock_actual::text AS s FROM acaihouse.productos WHERE id=$1", [INS_A])).rows[0];
+    const stock = (await testClient.query("SELECT stock_actual::text AS s FROM acaihouse.productos WHERE id=$1", [INS_A])).rows[0];
     if (Number(stock.s) !== 4980) throw new Error(`stock INS_A=${stock.s} (esperaba 4980)`);
   });
 
@@ -335,9 +335,9 @@ async function newClient() {
       ])],
       cxc: null, stock_deltas: [],
     };
-    const r = await tryQ(() => c.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1::jsonb)", [JSON.stringify(payload)]));
+    const r = await tryQ(() => testClient.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1::jsonb)", [JSON.stringify(payload)]));
     if (r.ok) throw new Error("esperaba error");
-    const n = (await c.query("SELECT count(*)::int AS n FROM acaihouse.ventas_items WHERE id=$1", [itemId])).rows[0].n;
+    const n = (await testClient.query("SELECT count(*)::int AS n FROM acaihouse.ventas_items WHERE id=$1", [itemId])).rows[0].n;
     if (n !== 0) throw new Error("item quedó");
   });
 
@@ -351,9 +351,9 @@ async function newClient() {
         { producto_id: PROD_REVENTA, delta_qty: 1, movimiento: { referencia: "VTA-T3" } },
       ],
     };
-    const r = await c.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1::jsonb)", [JSON.stringify(payload)]);
+    const r = await testClient.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1::jsonb)", [JSON.stringify(payload)]);
     if (!r.rows[0].venta_id) throw new Error("no venta_id");
-    const stock = (await c.query("SELECT stock_actual::text AS s FROM acaihouse.productos WHERE id=$1", [PROD_REVENTA])).rows[0];
+    const stock = (await testClient.query("SELECT stock_actual::text AS s FROM acaihouse.productos WHERE id=$1", [PROD_REVENTA])).rows[0];
     if (Number(stock.s) !== 9) throw new Error(`stock REV=${stock.s} (esperaba 9)`);
   });
 
@@ -366,9 +366,9 @@ async function newClient() {
       cxc: null,
       stock_deltas: [{ producto_id: "00000000-0000-0000-0000-000000000000", delta_qty: 1, movimiento: null }],
     };
-    const r = await tryQ(() => c.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1::jsonb)", [JSON.stringify(payload)]));
+    const r = await tryQ(() => testClient.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1::jsonb)", [JSON.stringify(payload)]));
     if (r.ok) throw new Error("esperaba error");
-    const n = (await c.query("SELECT count(*)::int AS n FROM acaihouse.ventas_items WHERE id=$1", [itemId])).rows[0].n;
+    const n = (await testClient.query("SELECT count(*)::int AS n FROM acaihouse.ventas_items WHERE id=$1", [itemId])).rows[0].n;
     if (n !== 0) throw new Error("item quedó");
   });
 
@@ -383,13 +383,13 @@ async function newClient() {
       ])],
       cxc: null, stock_deltas: [],
     };
-    const r = await tryQ(() => c.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1::jsonb)", [JSON.stringify(payload)]));
+    const r = await tryQ(() => testClient.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1::jsonb)", [JSON.stringify(payload)]));
     if (r.ok) throw new Error("esperaba unique violation");
   });
 
   await test("T6 — concurrencia FOR UPDATE: 2 ventas simultáneas descuentan sin perder updates", async () => {
     // Snapshot del stock actual.
-    const antes = Number((await c.query("SELECT stock_actual::text AS s FROM acaihouse.productos WHERE id=$1", [INS_B])).rows[0].s);
+    const antes = Number((await testClient.query("SELECT stock_actual::text AS s FROM acaihouse.productos WHERE id=$1", [INS_B])).rows[0].s);
     const c1 = await newClient();
     const c2 = await newClient();
     try {
@@ -404,7 +404,7 @@ async function newClient() {
       const p1 = c1.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1::jsonb)", [JSON.stringify(mk("CONC-A"))]);
       const p2 = c2.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1::jsonb)", [JSON.stringify(mk("CONC-B"))]);
       await Promise.all([p1, p2]);
-      const despues = Number((await c.query("SELECT stock_actual::text AS s FROM acaihouse.productos WHERE id=$1", [INS_B])).rows[0].s);
+      const despues = Number((await testClient.query("SELECT stock_actual::text AS s FROM acaihouse.productos WHERE id=$1", [INS_B])).rows[0].s);
       // Sin FOR UPDATE: lost-update → stock final = antes - 100 (una venta se pierde).
       // Con FOR UPDATE: stock final = antes - 200.
       if (despues !== antes - 200) throw new Error(`stock final=${despues} (esperaba ${antes - 200}) — hay lost-update`);
@@ -415,7 +415,7 @@ async function newClient() {
 
   await test("T7 — permitir_sin_stock=false con stock insuficiente → abort, sin cambios", async () => {
     const itemId = randomUUID();
-    const stockAntes = Number((await c.query("SELECT stock_actual::text AS s FROM acaihouse.productos WHERE id=$1", [INS_A])).rows[0].s);
+    const stockAntes = Number((await testClient.query("SELECT stock_actual::text AS s FROM acaihouse.productos WHERE id=$1", [INS_A])).rows[0].s);
     const payload = {
       empresa_id: EMPRESA, permitir_sin_stock: false,
       venta: makeVenta("T7"),
@@ -423,11 +423,11 @@ async function newClient() {
       cxc: null,
       stock_deltas: [{ producto_id: INS_A, delta_qty: stockAntes + 10000, movimiento: { referencia: "T7" } }],
     };
-    const r = await tryQ(() => c.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1::jsonb)", [JSON.stringify(payload)]));
+    const r = await tryQ(() => testClient.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1::jsonb)", [JSON.stringify(payload)]));
     if (r.ok) throw new Error("esperaba error de stock insuficiente");
-    const n = (await c.query("SELECT count(*)::int AS n FROM acaihouse.ventas_items WHERE id=$1", [itemId])).rows[0].n;
+    const n = (await testClient.query("SELECT count(*)::int AS n FROM acaihouse.ventas_items WHERE id=$1", [itemId])).rows[0].n;
     if (n !== 0) throw new Error("item quedó");
-    const stockDespues = Number((await c.query("SELECT stock_actual::text AS s FROM acaihouse.productos WHERE id=$1", [INS_A])).rows[0].s);
+    const stockDespues = Number((await testClient.query("SELECT stock_actual::text AS s FROM acaihouse.productos WHERE id=$1", [INS_A])).rows[0].s);
     if (stockDespues !== stockAntes) throw new Error(`stock cambió: ${stockAntes} → ${stockDespues}`);
   });
 
@@ -441,14 +441,14 @@ async function newClient() {
       cxc: { numero_cuota: 1, monto: 10000, saldo: 10000, fecha_vencimiento: "2027-01-01" },
       stock_deltas: [],
     };
-    const r = await c.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1::jsonb)", [JSON.stringify(payload)]);
+    const r = await testClient.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1::jsonb)", [JSON.stringify(payload)]);
     const ventaId = r.rows[0].venta_id;
-    const cxc = (await c.query("SELECT estado, saldo::text AS saldo FROM acaihouse.cuentas_por_cobrar WHERE venta_id=$1", [ventaId])).rows[0];
+    const cxc = (await testClient.query("SELECT estado, saldo::text AS saldo FROM acaihouse.cuentas_por_cobrar WHERE venta_id=$1", [ventaId])).rows[0];
     if (!cxc || cxc.estado !== "pendiente" || Number(cxc.saldo) !== 10000) throw new Error(`cxc=${JSON.stringify(cxc)}`);
   });
 
   console.log(`\n=== RESULT: ${passed} OK, ${failed} FAIL ===`);
-  await c.end();
+  await testClient.end();
   if (failed > 0) process.exit(1);
 })().catch((e) => { console.error("ERROR global:", e.message, e.stack); process.exit(1); });
 
