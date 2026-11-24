@@ -292,6 +292,9 @@ async function newClient() {
     [EMPRESA, grupoId, INS_B]
   );
   const opB = opBIns.rows[0].id;
+  // Asegurar que la DDL + seed se persistió antes de cerrar la conexión
+  // (pg Simple Query Protocol puede dejar statements en TX implícita abierta).
+  try { await setup.query("COMMIT"); } catch {}
   await setup.end();
 
   // ─────── Tests ───────

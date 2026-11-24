@@ -162,6 +162,7 @@ async function newClient() { const c = new pg.Client({ connectionString: url });
     [EMPRESA, grupoId, INS_CHOCO_BLANCO]
   );
   const opBlanco = opBlancoR.rows[0].id;
+  try { await setup.query("COMMIT"); } catch {}
   await setup.end();
 
   function basePayload(label) {
