@@ -134,35 +134,35 @@ function stripOuterTx(sql) {
 async function newClient() { const c = new pg.Client({ connectionString: url }); await c.connect(); return c; }
 
 (async () => {
-  const c = await newClient();
+  const setup = await newClient();
   console.log("  SET-UP: schema + migraciones + seed…");
-  await testClient.query(SEED_SCHEMA);
-  await testClient.query(stripOuterTx(fs.readFileSync(MIG_TABLAS, "utf8")));
-  await testClient.query(stripOuterTx(fs.readFileSync(MIG_FN, "utf8")));
-  await testClient.query(SEED_DATA);
+  await setup.query(SEED_SCHEMA);
+  await setup.query(stripOuterTx(fs.readFileSync(MIG_TABLAS, "utf8")));
+  await setup.query(stripOuterTx(fs.readFileSync(MIG_FN, "utf8")));
+  await setup.query(SEED_DATA);
 
   // Receta activa con un grupo de variante "chocolate" y 2 opciones.
-  const recR = await testClient.query(
+  const recR = await setup.query(
     "INSERT INTO acaihouse.recetas (empresa_id, producto_id, presentacion_id, rendimiento_cantidad, rendimiento_unidad, activa) VALUES ($1,$2,$3,1,'UNIDAD',true) RETURNING id",
     [EMPRESA, PROD_TRAD, PRES_CHI]
   );
   const recetaId = recR.rows[0].id;
-  const gR = await testClient.query(
+  const gR = await setup.query(
     "INSERT INTO acaihouse.receta_grupos_variante (empresa_id, receta_id, codigo, etiqueta, obligatorio, orden) VALUES ($1,$2,'chocolate','Chocolate',true,1) RETURNING id",
     [EMPRESA, recetaId]
   );
   const grupoId = gR.rows[0].id;
-  const opNegroR = await testClient.query(
+  const opNegroR = await setup.query(
     "INSERT INTO acaihouse.receta_grupo_opciones (empresa_id, grupo_id, insumo_producto_id, cantidad, unidad_medida, merma_pct, etiqueta, orden) VALUES ($1,$2,$3,29,'G',0,'Chocolate negro',1) RETURNING id",
     [EMPRESA, grupoId, INS_CHOCO_NEGRO]
   );
   const opNegro = opNegroR.rows[0].id;
-  const opBlancoR = await testClient.query(
+  const opBlancoR = await setup.query(
     "INSERT INTO acaihouse.receta_grupo_opciones (empresa_id, grupo_id, insumo_producto_id, cantidad, unidad_medida, merma_pct, etiqueta, orden) VALUES ($1,$2,$3,29,'G',0,'Chocolate blanco',2) RETURNING id",
     [EMPRESA, grupoId, INS_CHOCO_BLANCO]
   );
   const opBlanco = opBlancoR.rows[0].id;
-  testClient = c; // usado por tryQ para hacer ROLLBACK tras error.
+  await setup.end();
 
   function basePayload(label) {
     return {
@@ -334,6 +334,6 @@ async function newClient() { const c = new pg.Client({ connectionString: url });
   });
 
   console.log(`\n=== RESULT: ${passed} OK, ${failed} FAIL ===`);
-  await c.end();
+  // setup ya cerrado; cada test crea su propia conexión fresca.
   if (failed > 0) process.exit(1);
 })().catch((e) => { console.error("ERROR global:", e.message, e.stack); process.exit(1); });

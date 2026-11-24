@@ -263,36 +263,36 @@ async function newClient() {
 
 (async () => {
   // 1) Preparar schema + migraciones + seed en la staging.
-  const c = await newClient();
+  //    Usamos una conexión de set-up. Los tests creará su propia conexión.
+  const setup = await newClient();
   console.log("  SET-UP: aplicando schema base + migraciones Fase 2.2 Parte 4 + seed…");
-  await testClient.query(SEED_SCHEMA);
-  await testClient.query(stripOuterTx(fs.readFileSync(MIG_TABLAS, "utf8")));
-  await testClient.query(stripOuterTx(fs.readFileSync(MIG_FN, "utf8")));
-  await testClient.query(SEED_DATA);
+  await setup.query(SEED_SCHEMA);
+  await setup.query(stripOuterTx(fs.readFileSync(MIG_TABLAS, "utf8")));
+  await setup.query(stripOuterTx(fs.readFileSync(MIG_FN, "utf8")));
+  await setup.query(SEED_DATA);
 
   // Crear una receta de prueba + un grupo + 2 opciones para usar en los tests.
-  const recetaIns = await testClient.query(
+  const recetaIns = await setup.query(
     "INSERT INTO acaihouse.recetas (empresa_id, producto_id, presentacion_id, rendimiento_cantidad, rendimiento_unidad, activa) VALUES ($1,$2,$3,1,'UNIDAD',true) RETURNING id",
     [EMPRESA, PROD_TRAD, PRES_CHI]
   );
   const recetaId = recetaIns.rows[0].id;
-  const grupoIns = await testClient.query(
+  const grupoIns = await setup.query(
     "INSERT INTO acaihouse.receta_grupos_variante (empresa_id, receta_id, codigo, etiqueta, obligatorio, orden) VALUES ($1,$2,'chocolate','Chocolate',true,1) RETURNING id",
     [EMPRESA, recetaId]
   );
   const grupoId = grupoIns.rows[0].id;
-  const opAIns = await testClient.query(
+  const opAIns = await setup.query(
     "INSERT INTO acaihouse.receta_grupo_opciones (empresa_id, grupo_id, insumo_producto_id, cantidad, unidad_medida, merma_pct, etiqueta, orden) VALUES ($1,$2,$3,20,'G',0,'Opcion A',1) RETURNING id",
     [EMPRESA, grupoId, INS_A]
   );
   const opA = opAIns.rows[0].id;
-  const opBIns = await testClient.query(
+  const opBIns = await setup.query(
     "INSERT INTO acaihouse.receta_grupo_opciones (empresa_id, grupo_id, insumo_producto_id, cantidad, unidad_medida, merma_pct, etiqueta, orden) VALUES ($1,$2,$3,25,'G',0,'Opcion B',2) RETURNING id",
     [EMPRESA, grupoId, INS_B]
   );
   const opB = opBIns.rows[0].id;
-
-  testClient = c;
+  await setup.end();
 
   // ─────── Tests ───────
   await test("T1 — venta + item + variante + stock_delta persisten atómicamente", async () => {
