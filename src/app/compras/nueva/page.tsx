@@ -196,12 +196,18 @@ export default function NuevaCompraPage() {
   // Materia prima / insumo NO vendible: no exigimos precio de venta (se compra para recetas).
   const esInsumoNoVendible = !!productoSel && productoSel.es_insumo === true && productoSel.es_vendible !== true;
   const requierePrecioVenta = !esInsumoNoVendible;
-  // Costo unitario es obligatorio solo para productos vendibles (reventa / menú
-  // facturable). Para materia prima / insumos la empresa compra por caja y no
-  // tiene costo unitario — si lo dejan vacío, el CPP previo se mantiene sin
-  // diluir (ver src/lib/inventario/cpp.ts).
+  // Costo unitario es obligatorio solo para productos vendibles. Para materia
+  // prima la empresa compra por caja y no tiene costo unitario — si lo dejan
+  // vacío, el CPP previo se mantiene sin diluir (src/lib/inventario/cpp.ts).
+  // Cantidad: cuando se compra por EMPAQUE de peso variable (frutas, etc.) no
+  // se exige peso real; basta con la cantidad de empaques (cajas). Si no
+  // pesan, la compra se registra con stock += 0 — solo queda el nro de cajas
+  // como registro contable.
+  const cantidadOk = usarEmpaque
+    ? nlCantCompra > 0           // al menos 1 caja
+    : nlCant > 0;                // modo clásico: cantidad > 0
   const lineaLista =
-    !!nl.producto_id && nlCant > 0 && (esInsumoNoVendible || nlCostoPYG > 0) && (!requierePrecioVenta || nlPrecio > 0);
+    !!nl.producto_id && cantidadOk && (esInsumoNoVendible || nlCostoPYG > 0) && (!requierePrecioVenta || nlPrecio > 0);
 
   // ── Totales de la compra ───────────────────────────────────────────────────
   const totales = useMemo(() => {
@@ -711,12 +717,15 @@ export default function NuevaCompraPage() {
                     </div>
                     {pSelPesoVar ? (
                       <div>
-                        <label className={labelSmClass}>Peso real recibido ({productoSel?.unidad_medida ?? "g"})</label>
+                        <label className={labelSmClass}>
+                          Peso real recibido ({productoSel?.unidad_medida ?? "g"})
+                          <span className="font-normal text-gray-400"> (opcional)</span>
+                        </label>
                         <input
                           type="number"
                           value={nl.peso_real_recibido}
                           onChange={(e) => setNl((p) => ({ ...p, peso_real_recibido: e.target.value }))}
-                          placeholder="Ej: 13500"
+                          placeholder="Opcional (si lo pesaste)"
                           className={inputSmClass}
                           min={0}
                           step="any"
@@ -735,16 +744,17 @@ export default function NuevaCompraPage() {
                   )}
                 </div>
               )}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <div>
-                  <label className={labelSmClass}>
-                    Cantidad {!usarEmpaque && <span className="text-red-500">*</span>}
-                    {usarEmpaque && <span className="font-normal text-slate-400"> (calculada)</span>}
-                  </label>
-                  <input type="number" value={usarEmpaque ? String(nlCant || "") : nl.cantidad}
-                    onChange={(e) => setNl((p) => ({ ...p, cantidad: e.target.value }))}
-                    placeholder="Ej: 50" className={inputSmClass} min={0} step="any" readOnly={usarEmpaque} />
-                </div>
+              <div className={`grid gap-3 ${usarEmpaque ? "grid-cols-1 sm:grid-cols-3" : "grid-cols-2 sm:grid-cols-4"}`}>
+                {!usarEmpaque && (
+                  <div>
+                    <label className={labelSmClass}>
+                      Cantidad <span className="text-red-500">*</span>
+                    </label>
+                    <input type="number" value={nl.cantidad}
+                      onChange={(e) => setNl((p) => ({ ...p, cantidad: e.target.value }))}
+                      placeholder="Ej: 50" className={inputSmClass} min={0} step="any" />
+                  </div>
+                )}
                 <div>
                   <label className={labelSmClass}>
                     Costo unit. ({cab.moneda === "PYG" ? "Gs." : cab.moneda})
