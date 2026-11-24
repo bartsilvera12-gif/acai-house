@@ -35,9 +35,11 @@ const EMPRESA = "a9276529-bca9-418a-b014-375e68d667d2";
 const EMPRESA_AJENA = "ffffffff-ffff-ffff-ffff-ffffffffffff";
 const PROD_TRAD = "044bcd13-1e0f-40db-a070-d45d8003c936";
 const PRES_CHI = "fbe14515-61c5-4ae9-a785-9f9c6b1e3dbe";
-const INS_CHOCO_NEGRO = "11111111-1111-1111-1111-111111111111";
-const INS_CHOCO_BLANCO = "22222222-2222-2222-2222-222222222222";
-const PROD_REVENTA = "99999999-1111-1111-1111-111111111111";
+// UUIDs distintos a los de test-fase22p4-atomicidad.cjs para evitar
+// colisiones de ON CONFLICT en la DB efímera compartida de CI.
+const INS_CHOCO_NEGRO = "11111111-aaaa-aaaa-aaaa-111111111111";
+const INS_CHOCO_BLANCO = "22222222-aaaa-aaaa-aaaa-222222222222";
+const PROD_REVENTA = "99999999-aaaa-aaaa-aaaa-999999999999";
 
 const SEED_SCHEMA = `
 CREATE SCHEMA IF NOT EXISTS acaihouse;
@@ -330,7 +332,7 @@ async function newClient() { const c = new pg.Client({ connectionString: url });
       if ((r.error.code ?? "") !== "42501") throw new Error(`errcode=${r.error.code}, esperaba 42501`);
     } finally {
       await testClient.query("RESET ROLE");
-      await testClient.query("CREATE OR REPLACE FUNCTION acaihouse.puede_acceder_empresa(e uuid) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT true $$");
+      await testClient.query("CREATE OR REPLACE FUNCTION acaihouse.puede_acceder_empresa(empresa_id uuid) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT true $$");
     }
   });
 
