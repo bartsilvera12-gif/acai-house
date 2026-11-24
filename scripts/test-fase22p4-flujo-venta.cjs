@@ -115,27 +115,13 @@ ON CONFLICT (id) DO NOTHING;
 `;
 
 let passed = 0, failed = 0;
-let testClient = null;
-async function trySp(spName, fn) {
-  await testClient.query(`SAVEPOINT ${spName}`);
-  try {
-    const result = await fn();
-    await testClient.query(`RELEASE SAVEPOINT ${spName}`);
-    return { ok: true, result };
-  } catch (error) {
-    await testClient.query(`ROLLBACK TO SAVEPOINT ${spName}`);
-    await testClient.query(`RELEASE SAVEPOINT ${spName}`);
-    return { ok: false, error };
-  }
+async function tryQ(fn) {
+  try { return { ok: true, result: await fn() }; }
+  catch (error) { return { ok: false, error }; }
 }
 async function test(name, fn) {
-  try {
-    await testClient.query("BEGIN");
-    try { await fn(); passed++; console.log(`  OK   ${name}`); }
-    catch (e) { failed++; console.log(`  FAIL ${name}\n       ${e.message}`); }
-  } finally {
-    try { await testClient.query("ROLLBACK"); } catch {}
-  }
+  try { await fn(); passed++; console.log(`  OK   ${name}`); }
+  catch (e) { failed++; console.log(`  FAIL ${name}\n       ${e.message}`); }
 }
 function stripOuterTx(sql) {
   return sql.replace(/^\s*BEGIN\s*;/i, "").replace(/\s*COMMIT\s*;\s*$/i, "");
@@ -333,7 +319,7 @@ async function newClient() { const c = new pg.Client({ connectionString: url });
         subtotal: 14000, monto_iva: 0, total_linea: 14000, presentacion_id: null,
         adicionales: [], variantes: [],
       }];
-      const r = await trySp("sp_f6", () => c.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1::jsonb)", [JSON.stringify(payload)]));
+      const r = await tryQ(() => c.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1::jsonb)", [JSON.stringify(payload)]));
       if (r.ok) throw new Error("esperaba 42501 permission denied");
       if ((r.error.code ?? "") !== "42501") throw new Error(`errcode=${r.error.code}, esperaba 42501`);
     } finally {

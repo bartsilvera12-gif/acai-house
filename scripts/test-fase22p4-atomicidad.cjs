@@ -234,31 +234,17 @@ const INS_A = "11111111-1111-1111-1111-111111111111";
 const INS_B = "22222222-2222-2222-2222-222222222222";
 
 let passed = 0, failed = 0;
-let testClient = null;  // seteado en main() tras la conexión + seed.
-// Helper para tests: ejecuta una consulta dentro de un SAVEPOINT anidado para
-// poder continuar aun si falla. Devuelve {ok,result,error}. Usa este helper
-// en lugar de catch alrededor de c.query cuando esperás que la RPC falle y
-// necesitás seguir haciendo queries en la misma TX.
-async function trySp(spName, fn) {
-  await testClient.query(`SAVEPOINT ${spName}`);
-  try {
-    const result = await fn();
-    await testClient.query(`RELEASE SAVEPOINT ${spName}`);
-    return { ok: true, result };
-  } catch (error) {
-    await testClient.query(`ROLLBACK TO SAVEPOINT ${spName}`);
-    await testClient.query(`RELEASE SAVEPOINT ${spName}`);
-    return { ok: false, error };
-  }
+let testClient = null;
+// trySp-equivalent en autocommit: ejecuta la query; si falla, atrapa.
+// La CI usa una DB efímera que se destruye al terminar — no necesitamos
+// aislar estado entre tests.
+async function tryQ(fn) {
+  try { return { ok: true, result: await fn() }; }
+  catch (error) { return { ok: false, error }; }
 }
 async function test(name, fn) {
-  try {
-    await testClient.query("BEGIN");
-    try { await fn(); passed++; console.log(`  OK   ${name}`); }
-    catch (e) { failed++; console.log(`  FAIL ${name}\n       ${e.message}`); }
-  } finally {
-    try { await testClient.query("ROLLBACK"); } catch {}
-  }
+  try { await fn(); passed++; console.log(`  OK   ${name}`); }
+  catch (e) { failed++; console.log(`  FAIL ${name}\n       ${e.message}`); }
 }
 
 function stripOuterTx(sql) {
@@ -345,7 +331,7 @@ async function newClient() {
       ])],
       cxc: null, stock_deltas: [],
     };
-    const r = await trySp("sp_t2", () => c.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1::jsonb)", [JSON.stringify(payload)]));
+    const r = await tryQ(() => c.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1::jsonb)", [JSON.stringify(payload)]));
     if (r.ok) throw new Error("esperaba error");
     const n = (await c.query("SELECT count(*)::int AS n FROM acaihouse.ventas_items WHERE id=$1", [itemId])).rows[0].n;
     if (n !== 0) throw new Error("item quedó");
@@ -376,7 +362,7 @@ async function newClient() {
       cxc: null,
       stock_deltas: [{ producto_id: "00000000-0000-0000-0000-000000000000", delta_qty: 1, movimiento: null }],
     };
-    const r = await trySp("sp_t4", () => c.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1::jsonb)", [JSON.stringify(payload)]));
+    const r = await tryQ(() => c.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1::jsonb)", [JSON.stringify(payload)]));
     if (r.ok) throw new Error("esperaba error");
     const n = (await c.query("SELECT count(*)::int AS n FROM acaihouse.ventas_items WHERE id=$1", [itemId])).rows[0].n;
     if (n !== 0) throw new Error("item quedó");
@@ -393,7 +379,7 @@ async function newClient() {
       ])],
       cxc: null, stock_deltas: [],
     };
-    const r = await trySp("sp_t5", () => c.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1::jsonb)", [JSON.stringify(payload)]));
+    const r = await tryQ(() => c.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1::jsonb)", [JSON.stringify(payload)]));
     if (r.ok) throw new Error("esperaba unique violation");
   });
 
@@ -433,7 +419,7 @@ async function newClient() {
       cxc: null,
       stock_deltas: [{ producto_id: INS_A, delta_qty: stockAntes + 10000, movimiento: { referencia: "T7" } }],
     };
-    const r = await trySp("sp_t7", () => c.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1::jsonb)", [JSON.stringify(payload)]));
+    const r = await tryQ(() => c.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1::jsonb)", [JSON.stringify(payload)]));
     if (r.ok) throw new Error("esperaba error de stock insuficiente");
     const n = (await c.query("SELECT count(*)::int AS n FROM acaihouse.ventas_items WHERE id=$1", [itemId])).rows[0].n;
     if (n !== 0) throw new Error("item quedó");
