@@ -39,6 +39,13 @@ export interface CreateVentaItemAdicionalInput {
   cantidad?: number;
 }
 
+export interface CreateVentaItemVarianteInput {
+  /** FK a receta_grupos_variante.id — identifica el grupo (chocolate/bis/oreo) */
+  grupo_id: string;
+  /** FK a receta_grupo_opciones.id — la opción elegida por el cliente (snapshot aparte) */
+  opcion_id: string;
+}
+
 export interface CreateVentaItemInput {
   producto_id: string;
   producto_nombre: string;
@@ -57,6 +64,13 @@ export interface CreateVentaItemInput {
   presentacion_id?: string | null;
   /** Adicionales aplicados a esta línea (se insertan como filas hijas en venta_item_adicionales). */
   adicionales?: CreateVentaItemAdicionalInput[];
+  /**
+   * Fase 2.2 Parte 4: variantes elegidas por el cliente en los grupos obligatorios
+   * de la receta activa. La selección NO modifica el precio. Se persiste snapshot
+   * inmutable en venta_item_variantes y se descuenta stock del insumo elegido
+   * cuando el consumo automático está activo.
+   */
+  variantes_elegidas?: CreateVentaItemVarianteInput[];
 }
 
 export interface CreateVentaPedidoCocinaInput {
@@ -554,6 +568,190 @@ export async function createVentaTransaccionalPg(
     }
   }
 
+  // ───────── Fase 2.2 Parte 4: variantes obligatorias de receta ─────────
+  // Carga de grupos de variantes + opciones para todas las recetas que aplican
+  // a alguna línea. Valida:
+  //   · toda receta con grupos obligatorios recibe la selección completa en la línea;
+  //   · grupos no duplicados por línea; opción pertenece al grupo declarado;
+  //   · ningún grupo-opción "cruzado" (otro producto/presentación).
+  // Agrega al `insumoNeed` el consumo de la opción elegida (misma lógica de
+  // conversión y merma que los items base). Guarda `variantesSnapshotPorLinea`
+  // para persistirlo como snapshot inmutable después del INSERT de ventas_items.
+  type GrupoRow = { id: string; receta_id: string; codigo: string; etiqueta: string; obligatorio: boolean; orden: number };
+  type OpcionRow = { id: string; grupo_id: string; insumo_producto_id: string; cantidad: number; unidad_medida: string; merma_pct: number; etiqueta: string };
+  type VarianteSnapshot = {
+    grupo_id: string;
+    opcion_id: string;
+    grupo_codigo: string;
+    grupo_etiqueta: string;
+    opcion_etiqueta: string;
+    insumo_producto_id: string;
+    insumo_sku: string;
+    insumo_nombre: string;
+    cantidad: number;
+    unidad_medida: string;
+    merma_pct: number;
+  };
+  const gruposPorReceta = new Map<string, Array<GrupoRow & { opciones: Map<string, OpcionRow> }>>();
+  const variantesSnapshotPorLinea: VarianteSnapshot[][] = params.items.map(() => []);
+  if (recetaRows.length) {
+    const recetaIdsForGrupos = recetaRows.map((r) => r.id);
+    const gq = await sb
+      .from("receta_grupos_variante")
+      .select("id, receta_id, codigo, etiqueta, obligatorio, orden")
+      .eq("empresa_id", params.empresaId)
+      .in("receta_id", recetaIdsForGrupos);
+    if (gq.error) throw new Error(gq.error.message);
+    const grupos = (gq.data ?? []) as unknown as GrupoRow[];
+    if (grupos.length > 0) {
+      const grupoIds = grupos.map((g) => g.id);
+      const oq = await sb
+        .from("receta_grupo_opciones")
+        .select("id, grupo_id, insumo_producto_id, cantidad, unidad_medida, merma_pct, etiqueta")
+        .eq("empresa_id", params.empresaId)
+        .in("grupo_id", grupoIds);
+      if (oq.error) throw new Error(oq.error.message);
+      const opcionesPorGrupo = new Map<string, Map<string, OpcionRow>>();
+      for (const row of (oq.data ?? []) as unknown as OpcionRow[]) {
+        const rowNorm: OpcionRow = {
+          ...row,
+          cantidad: Number(row.cantidad),
+          merma_pct: Number(row.merma_pct ?? 0),
+        };
+        const mp = opcionesPorGrupo.get(row.grupo_id) ?? new Map<string, OpcionRow>();
+        mp.set(row.id, rowNorm);
+        opcionesPorGrupo.set(row.grupo_id, mp);
+      }
+      for (const g of grupos) {
+        const arr = gruposPorReceta.get(g.receta_id) ?? [];
+        arr.push({ ...g, opciones: opcionesPorGrupo.get(g.id) ?? new Map() });
+        gruposPorReceta.set(g.receta_id, arr);
+      }
+      // Cargar meta de los insumos de variantes (puede haber ids nuevos no incluidos
+      // en insumoMeta — los que solo aparecen como opción, no como receta_item).
+      const varInsumoIds = new Set<string>();
+      for (const mp of opcionesPorGrupo.values()) for (const op of mp.values()) {
+        if (!insumoMeta.has(op.insumo_producto_id)) varInsumoIds.add(op.insumo_producto_id);
+      }
+      if (varInsumoIds.size > 0) {
+        const insQV = await sb
+          .from("productos")
+          .select("id, stock_actual, costo_promedio, nombre, sku, unidad_medida")
+          .eq("empresa_id", params.empresaId)
+          .in("id", [...varInsumoIds]);
+        if (insQV.error) throw new Error(insQV.error.message);
+        for (const r of (insQV.data ?? []) as unknown as Array<{
+          id: string; stock_actual: number | string; costo_promedio: number | string;
+          nombre: string; sku: string; unidad_medida: string | null;
+        }>) {
+          insumoMeta.set(r.id, {
+            stock: Number(r.stock_actual), costo: Number(r.costo_promedio),
+            nombre: r.nombre, sku: r.sku, unidad: r.unidad_medida ?? null,
+          });
+        }
+      }
+
+      // Validación por línea + consumo + snapshot.
+      for (let i = 0; i < params.items.length; i++) {
+        const line = params.items[i]!;
+        const pid = line.producto_id;
+        const idx = recetasByProducto.get(pid);
+        if (!idx) {
+          if ((line.variantes_elegidas ?? []).length > 0) {
+            throw new Error(`Línea ${i + 1} (${line.producto_nombre}): no tiene receta, no debe enviar variantes.`);
+          }
+          continue;
+        }
+        let rec: RecetaIdx | undefined;
+        if (line.presentacion_id) {
+          rec = idx.byPresentacion.get(line.presentacion_id) ?? (idx.byPresentacion.size === 0 ? idx.base : undefined);
+        } else if (idx.byPresentacion.size === 0) {
+          rec = idx.base;
+        }
+        if (!rec) {
+          if ((line.variantes_elegidas ?? []).length > 0) {
+            throw new Error(`Línea ${i + 1}: la presentación vendida no tiene receta, no se pueden mandar variantes.`);
+          }
+          continue;
+        }
+        const gruposDeReceta = gruposPorReceta.get(rec.id) ?? [];
+        const obligatorios = gruposDeReceta.filter((g) => g.obligatorio);
+        const seleccion = line.variantes_elegidas ?? [];
+
+        // Grupos duplicados en la misma línea.
+        const seenGrupo = new Set<string>();
+        for (const v of seleccion) {
+          if (seenGrupo.has(v.grupo_id)) {
+            throw new Error(`Línea ${i + 1}: grupo repetido en la selección de variantes.`);
+          }
+          seenGrupo.add(v.grupo_id);
+        }
+        // Toda selección debe apuntar a un grupo+opción de ESTA receta.
+        const grupoById = new Map(gruposDeReceta.map((g) => [g.id, g]));
+        for (const v of seleccion) {
+          const g = grupoById.get(v.grupo_id);
+          if (!g) {
+            throw new Error(`Línea ${i + 1}: grupo ${v.grupo_id} no pertenece a la receta "${rec.id}".`);
+          }
+          const op = g.opciones.get(v.opcion_id);
+          if (!op) {
+            throw new Error(`Línea ${i + 1} (${g.etiqueta}): opción ${v.opcion_id} no pertenece al grupo.`);
+          }
+        }
+        // Todos los grupos obligatorios tienen que estar presentes.
+        for (const g of obligatorios) {
+          const hit = seleccion.find((v) => v.grupo_id === g.id);
+          if (!hit) {
+            throw new Error(`Línea ${i + 1} (${line.producto_nombre}): falta elegir "${g.etiqueta}".`);
+          }
+        }
+
+        // Consumo + snapshot.
+        const qtySold = Number(line.cantidad) || 0;
+        for (const v of seleccion) {
+          const g = grupoById.get(v.grupo_id)!;
+          const op = g.opciones.get(v.opcion_id)!;
+          const meta = insumoMeta.get(op.insumo_producto_id);
+          if (!meta) throw new Error(`Línea ${i + 1} (${g.etiqueta}): insumo de la opción no existe o no es accesible.`);
+          variantesSnapshotPorLinea[i]!.push({
+            grupo_id: g.id,
+            opcion_id: op.id,
+            grupo_codigo: g.codigo,
+            grupo_etiqueta: g.etiqueta,
+            opcion_etiqueta: op.etiqueta,
+            insumo_producto_id: op.insumo_producto_id,
+            insumo_sku: meta.sku,
+            insumo_nombre: meta.nombre,
+            cantidad: op.cantidad,
+            unidad_medida: op.unidad_medida,
+            merma_pct: op.merma_pct,
+          });
+          if (consumoInsumosActivo && qtySold > 0) {
+            const unidadInsumo = meta.unidad;
+            const cantConv = (unidadInsumo == null || !op.unidad_medida)
+              ? op.cantidad
+              : convertirCantidad(op.cantidad, op.unidad_medida, unidadInsumo);
+            if (cantConv == null) {
+              if (!insumosIncompatibles.includes(meta.nombre)) insumosIncompatibles.push(meta.nombre);
+              continue;
+            }
+            const consumo = (qtySold * cantConv * (1 + op.merma_pct)) / rec.rendimiento;
+            if (consumo > 0) {
+              insumoNeed.set(op.insumo_producto_id, (insumoNeed.get(op.insumo_producto_id) ?? 0) + consumo);
+            }
+          }
+        }
+      }
+    } else {
+      // No hay grupos declarados para ninguna receta activa — las líneas no deben traer variantes.
+      for (let i = 0; i < params.items.length; i++) {
+        if ((params.items[i]!.variantes_elegidas ?? []).length > 0) {
+          throw new Error(`Línea ${i + 1}: la receta no define grupos de variante.`);
+        }
+      }
+    }
+  }
+
   // Fase 2.2: consumo de insumos por adicionales comerciales vendidos.
   // Si un adicional tiene insumo_producto_id + insumo_cantidad configurados, descuenta
   // cantidad × line.cantidad × ad.cantidad del insumo correspondiente.
@@ -760,6 +958,15 @@ export async function createVentaTransaccionalPg(
       }
     } catch {}
     try {
+      if (preGeneratedItemIds.length > 0) {
+        await sb
+          .from("venta_item_variantes")
+          .delete()
+          .eq("empresa_id", params.empresaId)
+          .in("venta_item_id", preGeneratedItemIds);
+      }
+    } catch {}
+    try {
       await sb.from("ventas_items").delete().eq("venta_id", ventaId).eq("empresa_id", params.empresaId);
     } catch {}
     try {
@@ -827,6 +1034,37 @@ export async function createVentaTransaccionalPg(
       const insAd = await sb.from("venta_item_adicionales").insert(adicionalesRows);
       if (insAd.error) {
         throw new Error(`No se pudieron registrar los adicionales: ${insAd.error.message}`);
+      }
+    }
+
+    // 6.c) Insertar snapshots de variantes obligatorias elegidas por el cliente.
+    //      BLOQUEANTE: cualquier error acá fuerza rollback de la venta. Los datos
+    //      son snapshot inmutable (no dependen de que la opción siga existiendo).
+    const variantesRows: Array<Record<string, unknown>> = [];
+    items.forEach((_line, i) => {
+      const itemId = preGeneratedItemIds[i];
+      for (const snap of variantesSnapshotPorLinea[i] ?? []) {
+        variantesRows.push({
+          empresa_id: params.empresaId,
+          venta_item_id: itemId,
+          grupo_id: snap.grupo_id,
+          opcion_id: snap.opcion_id,
+          grupo_codigo: snap.grupo_codigo,
+          grupo_etiqueta: snap.grupo_etiqueta,
+          opcion_etiqueta: snap.opcion_etiqueta,
+          insumo_producto_id: snap.insumo_producto_id,
+          insumo_sku: snap.insumo_sku,
+          insumo_nombre: snap.insumo_nombre,
+          cantidad: snap.cantidad,
+          unidad_medida: snap.unidad_medida,
+          merma_pct: snap.merma_pct,
+        });
+      }
+    });
+    if (variantesRows.length > 0) {
+      const insVar = await sb.from("venta_item_variantes").insert(variantesRows);
+      if (insVar.error) {
+        throw new Error(`No se pudieron registrar las variantes elegidas: ${insVar.error.message}`);
       }
     }
 

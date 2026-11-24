@@ -128,6 +128,87 @@ export async function getReceta(sb: AppSupabaseClient, empresaId: string, id: st
   } as RecetaRow & { producto_nombre: string | null };
 }
 
+/** Fase 2.2 Parte 4: grupos obligatorios + opciones indexados por receta.
+ *  Devuelve estructura lista para consumir desde la UI del POS. */
+export type RecetaGrupoOpcionUi = {
+  id: string;
+  insumo_producto_id: string;
+  insumo_nombre: string | null;
+  insumo_sku: string | null;
+  etiqueta: string;
+  cantidad: number;
+  unidad_medida: string;
+  merma_pct: number;
+  orden: number;
+};
+export type RecetaGrupoUi = {
+  id: string;
+  codigo: string;
+  etiqueta: string;
+  obligatorio: boolean;
+  orden: number;
+  opciones: RecetaGrupoOpcionUi[];
+};
+export async function listGruposDeRecetas(
+  sb: AppSupabaseClient,
+  empresaId: string,
+  recetaIds: string[],
+): Promise<Map<string, RecetaGrupoUi[]>> {
+  const out = new Map<string, RecetaGrupoUi[]>();
+  if (recetaIds.length === 0) return out;
+  const { data: grupos, error: e1 } = await sb
+    .from("receta_grupos_variante")
+    .select("id, receta_id, codigo, etiqueta, obligatorio, orden")
+    .eq("empresa_id", empresaId)
+    .in("receta_id", recetaIds)
+    .order("orden");
+  if (e1) throw new Error(e1.message);
+  const gs = (grupos ?? []) as Array<{ id: string; receta_id: string; codigo: string; etiqueta: string; obligatorio: boolean; orden: number }>;
+  if (gs.length === 0) return out;
+  const grupoIds = gs.map((g) => g.id);
+  const { data: opciones, error: e2 } = await sb
+    .from("receta_grupo_opciones")
+    .select("id, grupo_id, insumo_producto_id, cantidad, unidad_medida, merma_pct, etiqueta, orden, productos(nombre, sku)")
+    .eq("empresa_id", empresaId)
+    .in("grupo_id", grupoIds)
+    .order("orden");
+  if (e2) throw new Error(e2.message);
+  const opsByGrupo = new Map<string, RecetaGrupoOpcionUi[]>();
+  for (const row of (opciones ?? []) as unknown as Array<{
+    id: string; grupo_id: string; insumo_producto_id: string;
+    cantidad: number | string; unidad_medida: string; merma_pct: number | string;
+    etiqueta: string; orden: number;
+    productos: { nombre?: string; sku?: string } | null;
+  }>) {
+    const arr = opsByGrupo.get(row.grupo_id) ?? [];
+    arr.push({
+      id: row.id,
+      insumo_producto_id: row.insumo_producto_id,
+      insumo_nombre: row.productos?.nombre ?? null,
+      insumo_sku: row.productos?.sku ?? null,
+      etiqueta: row.etiqueta,
+      cantidad: Number(row.cantidad),
+      unidad_medida: row.unidad_medida,
+      merma_pct: Number(row.merma_pct ?? 0),
+      orden: row.orden,
+    });
+    opsByGrupo.set(row.grupo_id, arr);
+  }
+  for (const g of gs) {
+    const arr = out.get(g.receta_id) ?? [];
+    arr.push({
+      id: g.id,
+      codigo: g.codigo,
+      etiqueta: g.etiqueta,
+      obligatorio: g.obligatorio,
+      orden: g.orden,
+      opciones: opsByGrupo.get(g.id) ?? [],
+    });
+    out.set(g.receta_id, arr);
+  }
+  return out;
+}
+
 export async function listRecetaItems(sb: AppSupabaseClient, recetaId: string) {
   const { data, error } = await sb
     .from("receta_items")
