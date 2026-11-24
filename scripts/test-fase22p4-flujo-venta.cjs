@@ -104,12 +104,13 @@ DO $$ BEGIN CREATE ROLE service_role NOLOGIN; EXCEPTION WHEN duplicate_object TH
 `;
 
 const SEED_DATA = `
+-- SKUs únicos de este test (los MP-0019/20/21 oficiales se crean en la migración).
 INSERT INTO acaihouse.productos (id, empresa_id, sku, nombre, unidad_medida, es_insumo, es_vendible, controla_stock, costo_promedio, stock_actual)
 VALUES
   ('${PROD_TRAD}', '${EMPRESA}', 'ACAI_TRAD_001', 'Tradicional', 'UNIDAD', false, true, false, 0, 0),
-  ('${INS_CHOCO_NEGRO}', '${EMPRESA}', 'MP-0020', 'Crema de chocolate negro', 'G', true, false, true, 150, 1000),
-  ('${INS_CHOCO_BLANCO}', '${EMPRESA}', 'MP-0019', 'Crema de chocolate blanco', 'G', true, false, true, 120, 1000),
-  ('${PROD_REVENTA}', '${EMPRESA}', 'REV-TEST', 'Gaseosa test', 'UNIDAD', false, true, true, 3000, 5)
+  ('${INS_CHOCO_NEGRO}', '${EMPRESA}', 'MP-FLUJO-NEGRO', 'Crema negro flujo', 'G', true, false, true, 150, 1000),
+  ('${INS_CHOCO_BLANCO}', '${EMPRESA}', 'MP-FLUJO-BLANCO', 'Crema blanco flujo', 'G', true, false, true, 120, 1000),
+  ('${PROD_REVENTA}', '${EMPRESA}', 'REV-FLUJO', 'Gaseosa flujo', 'UNIDAD', false, true, true, 3000, 5)
 ON CONFLICT (empresa_id, sku) DO NOTHING;
 INSERT INTO acaihouse.producto_presentaciones (id, empresa_id, producto_id, nombre, precio, orden, activo)
 VALUES ('${PRES_CHI}', '${EMPRESA}', '${PROD_TRAD}', 'Chico', 14000, 1, true)
@@ -231,7 +232,7 @@ async function newClient() { const c = new pg.Client({ connectionString: url });
     if (Number(vv.cu) !== 150) throw new Error(`costo_unitario_snapshot=${vv.cu}, esperaba 150 del server`);
     if (vv.eo !== "Chocolate negro") throw new Error(`opcion_etiqueta=${vv.eo}`);
     if (vv.gc !== "chocolate") throw new Error(`grupo_codigo=${vv.gc}`);
-    if (vv.sk !== "MP-0020") throw new Error(`insumo_sku=${vv.sk}`);
+    if (vv.sk !== "MP-FLUJO-NEGRO") throw new Error(`insumo_sku=${vv.sk}`);
     void ventaId;
   });
 
