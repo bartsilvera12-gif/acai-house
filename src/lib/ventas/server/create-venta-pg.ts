@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { createServiceRoleClientWithDbSchema } from "@/lib/supabase/empresa-data-schema";
 import { convertirCantidad } from "@/lib/unidades/convert";
 import { consumoAutoInsumosActivo } from "@/lib/inventario/consumo-auto-flag";
+import { crearVentaAtomica, type CrearVentaAtomicaPayload } from "./rpc-crear-venta-atomica";
 
 /** Un faltante de stock detectado al validar la venta. */
 export interface FaltanteStock {
@@ -914,85 +915,75 @@ export async function createVentaTransaccionalPg(
     notaRemisionNumero = `NR-${String(nextNr).padStart(6, "0")}`;
   }
 
-  // 5) Insertar venta
-  const insVenta = await sb
-    .from("ventas")
-    .insert({
-      empresa_id: params.empresaId,
-      cliente_id: params.clienteId,
-      numero_control: numeroControl,
-      moneda: params.moneda,
-      tipo_cambio: params.tipoCambio,
-      subtotal: calc.subtotal,
-      monto_iva: calc.montoIva,
-      total: calc.total,
-      estado: "completada",
-      tipo_venta: params.tipoVenta,
-      plazo_dias: params.plazoDias,
-      metodo_pago: params.metodoPago,
-      genera_nota_remision: generaNota,
-      nota_remision_numero: notaRemisionNumero,
-      fecha: fechaIso,
-      observaciones: observacionesFinal,
-      caja_id: params.cajaId ?? null,
-    })
-    .select("id")
-    .single();
-  if (insVenta.error) throw new Error(insVenta.error.message);
-  const ventaId = String((insVenta.data as { id: string }).id);
-
-  // Helper de rollback best-effort.
-  // IMPORTANTE: borramos venta_item_adicionales explícitamente antes que ventas_items
-  // (el CASCADE lo cubriría igual, pero preferimos borrado dirigido por si en el
-  // futuro la FK cambia de modo).
-  const rollback = async () => {
-    try {
-      await sb.from("cuentas_por_cobrar").delete().eq("venta_id", ventaId).eq("empresa_id", params.empresaId);
-    } catch {}
-    try {
-      await sb.from("movimientos_inventario").delete().eq("venta_id", ventaId).eq("empresa_id", params.empresaId);
-    } catch {}
-    // Hijos de ventas_items: usamos los ids pre-generados (orden-independiente
-    // y disponibles aunque el insert haya fallado a mitad de camino).
-    try {
-      if (preGeneratedItemIds.length > 0) {
-        await sb
-          .from("venta_item_adicionales")
-          .delete()
-          .eq("empresa_id", params.empresaId)
-          .in("venta_item_id", preGeneratedItemIds);
-      }
-    } catch {}
-    try {
-      if (preGeneratedItemIds.length > 0) {
-        await sb
-          .from("venta_item_variantes")
-          .delete()
-          .eq("empresa_id", params.empresaId)
-          .in("venta_item_id", preGeneratedItemIds);
-      }
-    } catch {}
-    try {
-      await sb.from("ventas_items").delete().eq("venta_id", ventaId).eq("empresa_id", params.empresaId);
-    } catch {}
-    try {
-      await sb.from("ventas").delete().eq("id", ventaId).eq("empresa_id", params.empresaId);
-    } catch {}
-  };
-
-  // Pre-generar los UUIDs de ventas_items.id ANTES del insert. De esta forma:
-  //   1) la asociación línea → item_id es inequívoca (no dependemos del orden
-  //      en que PostgREST devuelve filas, que no está garantizado);
-  //   2) el rollback puede borrar venta_item_adicionales por venta_item_id aun
-  //      si el insert falló antes de responder.
+  // 5) VENTA ATÓMICA. Reemplaza inserts secuenciales + rollback best-effort
+  //    por una única llamada a fn_crear_venta_atomica (PL/pgSQL): ventas +
+  //    ventas_items + venta_item_adicionales + venta_item_variantes +
+  //    cuentas_por_cobrar + stock_deltas (UPDATE productos + INSERT
+  //    movimientos_inventario con FOR UPDATE). Si CUALQUIER paso falla,
+  //    PostgreSQL hace rollback automático; no hay estado parcial.
+  //
+  //    Lo que queda FUERA de la atomicidad (por diseño existente): la tarjeta
+  //    de pedido_cocina en `proyectos`, que es visibilidad para cocina y no
+  //    integridad de la venta — se inserta después del COMMIT.
   const preGeneratedItemIds: string[] = items.map(() => randomUUID());
 
-  try {
-    // 6) Insertar items (bulk) con id explícito por línea.
-    const itemsRows = items.map((line, i) => ({
-      id: preGeneratedItemIds[i],
-      empresa_id: params.empresaId,
-      venta_id: ventaId,
+  // Preparar stock_deltas: productos controla_stock=true SIN receta siempre
+  // descuentan; los insumos (insumoNeed) descuentan solo si consumo auto ON.
+  const stockDeltas: CrearVentaAtomicaPayload["stock_deltas"] = [];
+  for (const line of items) {
+    const p = stockMap.get(line.producto_id)!;
+    if (recetasByProducto.has(line.producto_id)) continue;
+    if (!p.controlaStock && p.modo !== "produccion_previa") continue;
+    stockDeltas.push({
+      producto_id: line.producto_id,
+      delta_qty: Number(line.cantidad),
+      movimiento: {
+        tipo: "SALIDA", origen: "venta", referencia: numeroControl,
+        created_by: params.createdBy ?? null, usuario_nombre: params.usuarioNombre ?? null,
+      },
+    });
+  }
+  if (consumoInsumosActivo) {
+    for (const [insId, need] of insumoNeed) {
+      if (!(need > 0)) continue;
+      stockDeltas.push({
+        producto_id: insId,
+        delta_qty: need,
+        movimiento: {
+          tipo: "SALIDA", origen: "venta", referencia: numeroControl,
+          created_by: params.createdBy ?? null, usuario_nombre: params.usuarioNombre ?? null,
+        },
+      });
+    }
+  }
+
+  // Armar payload de items (snapshot de adicionales con precio del catálogo,
+  // y variantes como SOLO {grupo_id, opcion_id} — el resto del snapshot lo
+  // calcula la RPC server-side para evitar inyección).
+  const payloadItems: CrearVentaAtomicaPayload["items"] = items.map((line, i) => {
+    const adicionales = (line.adicionales ?? []).map((ad) => {
+      const cat = ad.adicional_id ? adicionalById.get(ad.adicional_id) : null;
+      const nombre = (cat?.nombre ?? ad.nombre ?? "").trim();
+      const precio = cat ? cat.precio : Number(ad.precio_unitario);
+      if (!nombre || !Number.isFinite(precio) || precio < 0) {
+        throw new Error(`Adicional inválido en la línea ${i + 1}.`);
+      }
+      return {
+        adicional_id: ad.adicional_id || null,
+        adicional_nombre: nombre.slice(0, 120),
+        precio_unitario: precio,
+        cantidad: ad.cantidad && ad.cantidad > 0 ? Math.floor(ad.cantidad) : 1,
+      };
+    });
+    // Variantes: solo grupo_id + opcion_id. La RPC verifica la correspondencia
+    // y rellena cantidad/unidad/merma/costo del server. variantesSnapshotPorLinea
+    // está pre-validado en TS para dar errores HTTP claros antes del RPC.
+    const variantes = (variantesSnapshotPorLinea[i] ?? []).map((snap) => ({
+      grupo_id: snap.grupo_id,
+      opcion_id: snap.opcion_id,
+    }));
+    return {
+      id: preGeneratedItemIds[i]!,
       producto_id: line.producto_id,
       producto_nombre: line.producto_nombre,
       sku: line.sku,
@@ -1006,146 +997,77 @@ export async function createVentaTransaccionalPg(
       total_linea: line.total_linea,
       nota: line.nota ?? null,
       presentacion_id: line.presentacion_id ?? null,
-    }));
-    const insItems = await sb.from("ventas_items").insert(itemsRows);
-    if (insItems.error) throw new Error(insItems.error.message);
+      adicionales,
+      variantes,
+    };
+  });
 
-    // 6.b) Insertar adicionales por línea. BLOQUEANTE: si falla, re-lanzamos
-    //      para que el catch externo ejecute `rollback()` y la venta no quede
-    //      persistida con adicionales faltantes.
-    const adicionalesRows: Array<Record<string, unknown>> = [];
-    items.forEach((line, i) => {
-      const itemId = preGeneratedItemIds[i];
-      for (const ad of line.adicionales ?? []) {
-        // Snapshot (nombre+precio): si vino adicional_id, usamos nombre/precio
-        // del catálogo (ya cargado y validado en el pre-flight). Si no, usamos
-        // los valores del cliente (compatibilidad con adicionales ad-hoc).
-        const cat = ad.adicional_id ? adicionalById.get(ad.adicional_id) : null;
-        const nombre = (cat?.nombre ?? ad.nombre ?? "").trim();
-        const precio = cat ? cat.precio : Number(ad.precio_unitario);
-        if (!nombre || !Number.isFinite(precio) || precio < 0) {
-          throw new Error(`Adicional inválido en la línea ${i + 1}.`);
-        }
-        adicionalesRows.push({
-          empresa_id: params.empresaId,
-          venta_item_id: itemId,
-          adicional_id: ad.adicional_id || null,
-          adicional_nombre: nombre.slice(0, 120),
-          precio_unitario: precio,
-          cantidad: ad.cantidad && ad.cantidad > 0 ? Math.floor(ad.cantidad) : 1,
-        });
-      }
-    });
-    if (adicionalesRows.length > 0) {
-      const insAd = await sb.from("venta_item_adicionales").insert(adicionalesRows);
-      if (insAd.error) {
-        throw new Error(`No se pudieron registrar los adicionales: ${insAd.error.message}`);
-      }
+  // Preparar CxC si aplica.
+  let cxcPayload: CrearVentaAtomicaPayload["cxc"] = null;
+  if (params.tipoVenta === "CREDITO" && params.clienteId) {
+    let fechaVencimiento: string | null = null;
+    if (params.fechaVencimiento) fechaVencimiento = params.fechaVencimiento;
+    else if (params.plazoDias && params.plazoDias > 0) {
+      const d = new Date(fechaIso);
+      d.setDate(d.getDate() + params.plazoDias);
+      fechaVencimiento = d.toISOString().slice(0, 10);
     }
+    if (!fechaVencimiento) fechaVencimiento = fechaIso.slice(0, 10);
+    cxcPayload = {
+      numero_cuota: 1, monto: calc.total, saldo: calc.total,
+      fecha_vencimiento: fechaVencimiento,
+    };
+  }
 
-    // 6.c) Insertar snapshots de variantes obligatorias elegidas por el cliente.
-    //      BLOQUEANTE: cualquier error acá fuerza rollback de la venta. Los datos
-    //      son snapshot inmutable (no dependen de que la opción siga existiendo).
-    const variantesRows: Array<Record<string, unknown>> = [];
-    items.forEach((_line, i) => {
-      const itemId = preGeneratedItemIds[i];
-      for (const snap of variantesSnapshotPorLinea[i] ?? []) {
-        variantesRows.push({
-          empresa_id: params.empresaId,
-          venta_item_id: itemId,
-          grupo_id: snap.grupo_id,
-          opcion_id: snap.opcion_id,
-          grupo_codigo: snap.grupo_codigo,
-          grupo_etiqueta: snap.grupo_etiqueta,
-          opcion_etiqueta: snap.opcion_etiqueta,
-          insumo_producto_id: snap.insumo_producto_id,
-          insumo_sku: snap.insumo_sku,
-          insumo_nombre: snap.insumo_nombre,
-          cantidad: snap.cantidad,
-          unidad_medida: snap.unidad_medida,
-          merma_pct: snap.merma_pct,
-          costo_unitario_snapshot: snap.costo_unitario_snapshot,
-        });
-      }
-    });
-    if (variantesRows.length > 0) {
-      const insVar = await sb.from("venta_item_variantes").insert(variantesRows);
-      if (insVar.error) {
-        throw new Error(`No se pudieron registrar las variantes elegidas: ${insVar.error.message}`);
-      }
-    }
+  // Resumen de tipo_iva a nivel venta: usamos el del primer item o calc.
+  const tipoIvaResumen = items[0]?.tipo_iva ?? "EXENTA";
+  const rpcPayload: CrearVentaAtomicaPayload = {
+    empresa_id: params.empresaId,
+    permitir_sin_stock: !!params.permitirSinStock,
+    venta: {
+      numero_control: numeroControl,
+      fecha: fechaIso,
+      total: calc.total,
+      subtotal: calc.subtotal,
+      monto_iva: calc.montoIva,
+      tipo_iva_resumen: tipoIvaResumen,
+      tipo_venta: params.tipoVenta,
+      plazo_dias: params.plazoDias ?? null,
+      fecha_vencimiento: null,
+      moneda: params.moneda,
+      tipo_cambio: params.tipoCambio,
+      cliente_id: params.clienteId ?? null,
+      observaciones: observacionesFinal,
+      metodo_pago: params.metodoPago ?? null,
+      caja_id: params.cajaId ?? null,
+      created_by: params.createdBy ?? null,
+      usuario_nombre: params.usuarioNombre ?? null,
+      genera_nota_remision: generaNota,
+    },
+    items: payloadItems,
+    cxc: cxcPayload,
+    stock_deltas: stockDeltas,
+  };
+  const rpcResult = await crearVentaAtomica(sb, rpcPayload);
+  const ventaId = rpcResult.venta_id;
 
-    // 7) Descuento de stock + movimientos solo para productos con controla_stock=true SIN receta.
-    for (const line of items) {
-      const p = stockMap.get(line.producto_id)!;
-      // Fase 2.2: cualquier receta activa (base o por presentación) → stock vía insumos.
-      if (recetasByProducto.has(line.producto_id)) continue;
-      // produccion_previa: descuenta su propio stock del terminado aunque controla_stock=false.
-      if (!p.controlaStock && p.modo !== "produccion_previa") continue;
-      // El stock nunca baja de 0: si se vendió sin stock, queda en 0 (la cantidad real
-      // vendida queda registrada en el movimiento SALIDA, así no se pierde trazabilidad).
-      const nuevoStock = Math.max(0, p.stock - line.cantidad);
-      const upd = await sb
-        .from("productos")
-        .update({ stock_actual: nuevoStock })
-        .eq("id", line.producto_id)
-        .eq("empresa_id", params.empresaId);
-      if (upd.error) throw new Error(upd.error.message);
-      p.stock = nuevoStock;
+  // Para compatibilidad con el response legacy: el nota_remision_numero y la
+  // cuenta_por_cobrar quedaron creados dentro de la RPC. Recuperamos el id de
+  // la CxC si era crédito (lectura simple, no afecta atomicidad).
+  let cuentaPorCobrarId: string | null = null;
+  if (cxcPayload) {
+    const cxcQ = await sb.from("cuentas_por_cobrar").select("id").eq("venta_id", ventaId).eq("empresa_id", params.empresaId).maybeSingle();
+    if (!cxcQ.error && cxcQ.data) cuentaPorCobrarId = String((cxcQ.data as { id: string }).id);
+  }
 
-      const mov = await sb.from("movimientos_inventario").insert({
-        empresa_id: params.empresaId,
-        producto_id: line.producto_id,
-        producto_nombre: line.producto_nombre,
-        producto_sku: line.sku,
-        tipo: "SALIDA",
-        cantidad: line.cantidad,
-        costo_unitario: p.costo,
-        origen: "venta",
-        referencia: numeroControl,
-        fecha: fechaIso,
-        venta_id: ventaId,
-        created_by: params.createdBy ?? null,
-        usuario_nombre: params.usuarioNombre ?? null,
-      });
-      if (mov.error) throw new Error(mov.error.message);
-    }
+  // Avisar incompatibilidades como warning (no bloqueante).
+  if (insumosIncompatibles.length > 0) {
+    console.warn("[create-venta-pg] insumos con unidades incompatibles:", insumosIncompatibles.join(", "));
+  }
 
-    // 7b) Descontar materia prima (insumos) por explosión de receta + movimiento SALIDA por insumo.
-    for (const [insId, need] of insumoNeed) {
-      const m = insumoMeta.get(insId)!;
-      // Igual que productos: el stock de insumos nunca baja de 0 (la salida real
-      // queda registrada en el movimiento SALIDA del insumo).
-      const nuevoStock = Math.max(0, m.stock - need);
-      const upd = await sb
-        .from("productos")
-        .update({ stock_actual: nuevoStock })
-        .eq("id", insId)
-        .eq("empresa_id", params.empresaId);
-      if (upd.error) throw new Error(upd.error.message);
-      m.stock = nuevoStock;
-
-      const mov = await sb.from("movimientos_inventario").insert({
-        empresa_id: params.empresaId,
-        producto_id: insId,
-        producto_nombre: m.nombre,
-        producto_sku: m.sku,
-        tipo: "SALIDA",
-        cantidad: need,
-        costo_unitario: m.costo,
-        // origen restringido por CHECK a compra|venta|ajuste_manual|inventario_inicial.
-        // El consumo de insumo lo causa una venta → 'venta' (se distingue por venta_id + producto insumo).
-        origen: "venta",
-        referencia: numeroControl,
-        fecha: fechaIso,
-        venta_id: ventaId,
-        created_by: params.createdBy ?? null,
-        usuario_nombre: params.usuarioNombre ?? null,
-      });
-      if (mov.error) throw new Error(mov.error.message);
-    }
-
-    // 8) Pedido cocina (tarjeta en proyectos)
+  try {
+    // 8) Pedido cocina (tarjeta en proyectos). Queda FUERA de la atomicidad
+    //    de la venta — si falla se registra como warning y la venta igual queda.
     if (params.pedidoCocina) {
       const tipoQ = await sb
         .from("proyecto_tipos")
@@ -1222,46 +1144,17 @@ export async function createVentaTransaccionalPg(
         brief_data: briefData,
         metadata,
       });
-      if (insProy.error) throw new Error(insProy.error.message);
-    }
-
-    // 9) Cuenta por cobrar (solo CRÉDITO con cliente). El saldo inicial = total de la venta;
-    //    estado 'pendiente'. NO afecta stock ni movimientos: es cobranza. Un índice único
-    //    sobre venta_id impide CxC duplicada si la venta se reintentara.
-    let cuentaPorCobrarId: string | null = null;
-    if (params.tipoVenta === "CREDITO" && params.clienteId) {
-      const fechaEmision = fechaIso.slice(0, 10);
-      let fechaVencimiento: string | null = null;
-      if (params.fechaVencimiento) {
-        fechaVencimiento = params.fechaVencimiento;
-      } else if (params.plazoDias && params.plazoDias > 0) {
-        const d = new Date(fechaIso);
-        d.setDate(d.getDate() + params.plazoDias);
-        fechaVencimiento = d.toISOString().slice(0, 10);
+      if (insProy.error) {
+        // El pedido_cocina NO es parte de la atomicidad de la venta. Si falla,
+        // dejamos warning y continuamos — la venta ya está persistida y correcta.
+        console.warn(`[create-venta-pg] pedido_cocina insert falló: ${insProy.error.message}`);
       }
-      const insCxc = await sb
-        .from("cuentas_por_cobrar")
-        .insert({
-          empresa_id: params.empresaId,
-          cliente_id: params.clienteId,
-          venta_id: ventaId,
-          numero_venta: numeroControl,
-          fecha_emision: fechaEmision,
-          fecha_vencimiento: fechaVencimiento,
-          moneda: params.moneda === "USD" ? "USD" : "PYG",
-          total: calc.total,
-          saldo: calc.total,
-          estado: "pendiente",
-        })
-        .select("id")
-        .single();
-      if (insCxc.error) throw new Error(insCxc.error.message);
-      cuentaPorCobrarId = String((insCxc.data as { id: string }).id);
     }
-
-    return { ventaId, numeroControl, fechaIso, notaRemisionNumero, cuentaPorCobrarId };
   } catch (err) {
-    await rollback();
-    throw err;
+    // pedido_cocina es best-effort post-RPC. La venta ya está persistida.
+    console.warn(`[create-venta-pg] post-RPC error (no bloqueante):`, err instanceof Error ? err.message : err);
   }
+
+  // La cuenta_por_cobrar ya fue creada DENTRO de fn_crear_venta_atomica.
+  return { ventaId, numeroControl, fechaIso, notaRemisionNumero, cuentaPorCobrarId };
 }

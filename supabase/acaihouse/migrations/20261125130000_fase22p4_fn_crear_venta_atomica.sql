@@ -92,6 +92,17 @@ BEGIN
     RAISE EXCEPTION 'items debe ser array no vacío' USING ERRCODE = '22P02';
   END IF;
 
+  -- GUARD DE TENANT (SECURITY DEFINER no puede confiar en el empresa_id del
+  -- caller). Solo service_role puede especificar cualquier empresa_id; roles
+  -- autenticados deben pasar la validación acaihouse.puede_acceder_empresa,
+  -- que resuelve el empresa_id del JWT. Anon NO puede ejecutar nunca.
+  IF current_user = 'anon' THEN
+    RAISE EXCEPTION 'Rol anon no puede ejecutar fn_crear_venta_atomica' USING ERRCODE = '42501';
+  END IF;
+  IF current_user <> 'service_role' AND NOT acaihouse.puede_acceder_empresa(v_empresa_id) THEN
+    RAISE EXCEPTION 'Sin acceso a la empresa % (tenant mismatch)', v_empresa_id USING ERRCODE = '42501';
+  END IF;
+
   -- 1) INSERT ventas (header)
   INSERT INTO acaihouse.ventas (
     empresa_id, numero_control, fecha, total, subtotal, monto_iva, estado,
@@ -274,7 +285,11 @@ BEGIN
           v_prod_nombre, v_current_stock, v_delta_qty, (v_delta_qty - v_current_stock)
           USING ERRCODE = '23514';
       END IF;
-      v_nueva_cantidad := GREATEST(0::numeric, v_current_stock - v_delta_qty);
+      -- Política: cuando `permitir_sin_stock=true`, el stock_actual queda en
+      -- su valor real (puede quedar negativo). El movimiento SALIDA registra
+      -- la cantidad consumida completa. No usamos GREATEST(0, ...) porque
+      -- oculta sobreconsumos y rompe la reconciliación de inventario.
+      v_nueva_cantidad := v_current_stock - v_delta_qty;
       UPDATE acaihouse.productos
          SET stock_actual = v_nueva_cantidad
        WHERE id = v_prod_id AND empresa_id = v_empresa_id;
