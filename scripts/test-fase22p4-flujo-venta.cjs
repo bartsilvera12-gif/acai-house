@@ -315,7 +315,7 @@ async function newClient() { const c = new pg.Client({ connectionString: url });
     // Simulamos authenticated conectándonos con SET ROLE authenticated.
     // La función `puede_acceder_empresa` del seed retorna true por default.
     // Para este test cambiamos su implementación a verificar empresa específica.
-    await testClient.query("CREATE OR REPLACE FUNCTION acaihouse.puede_acceder_empresa(e uuid) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT e = '" + EMPRESA + "'::uuid $$");
+    await testClient.query("CREATE OR REPLACE FUNCTION acaihouse.puede_acceder_empresa(empresa_id uuid) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT empresa_id = '" + EMPRESA + "'::uuid $$");
     // Redefinir la función RPC con la nueva puede_acceder_empresa (no es necesario, es STABLE).
     try {
       await testClient.query("SET ROLE authenticated");
