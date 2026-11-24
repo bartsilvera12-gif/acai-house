@@ -78,8 +78,12 @@ export async function POST(request: NextRequest) {
         return NextResponse.json(errorResponse(`${label}: falta el producto.`), { status: 400 });
       if (!(Number(it.cantidad) > 0))
         return NextResponse.json(errorResponse(`${label}: la cantidad debe ser mayor a 0.`), { status: 400 });
-      if (!(Number(it.costo_unitario) > 0))
-        return NextResponse.json(errorResponse(`${label}: el costo unitario debe ser mayor a 0.`), { status: 400 });
+      // El costo unitario puede venir en 0 cuando es materia prima comprada por
+      // caja sin desglose por unidad. El UI solo lo exige para productos
+      // vendibles; en el backend solo rechazamos valores negativos. Si llega 0,
+      // calcularNuevoCostoPromedio mantiene el CPP previo (ver cpp.ts).
+      if (it.costo_unitario != null && Number(it.costo_unitario) < 0)
+        return NextResponse.json(errorResponse(`${label}: el costo unitario no puede ser negativo.`), { status: 400 });
       // El precio de venta NO es obligatorio: para materia prima / insumos no vendibles
       // puede venir vacío o en 0. Solo rechazamos valores negativos.
       if (it.precio_venta != null && Number(it.precio_venta) < 0)
