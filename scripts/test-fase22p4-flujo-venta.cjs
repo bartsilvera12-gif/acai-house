@@ -115,9 +115,13 @@ ON CONFLICT (id) DO NOTHING;
 `;
 
 let passed = 0, failed = 0;
+let testClient = null;
 async function tryQ(fn) {
   try { return { ok: true, result: await fn() }; }
-  catch (error) { return { ok: false, error }; }
+  catch (error) {
+    try { await testClient.query("ROLLBACK"); } catch {}
+    return { ok: false, error };
+  }
 }
 async function test(name, fn) {
   try { await fn(); passed++; console.log(`  OK   ${name}`); }
@@ -157,7 +161,7 @@ async function newClient() { const c = new pg.Client({ connectionString: url });
     [EMPRESA, grupoId, INS_CHOCO_BLANCO]
   );
   const opBlanco = opBlancoR.rows[0].id;
-  testClient = c;
+  testClient = c; // usado por tryQ para hacer ROLLBACK tras error.
 
   function basePayload(label) {
     return {

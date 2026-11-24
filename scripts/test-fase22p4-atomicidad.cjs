@@ -235,12 +235,16 @@ const INS_B = "22222222-2222-2222-2222-222222222222";
 
 let passed = 0, failed = 0;
 let testClient = null;
-// trySp-equivalent en autocommit: ejecuta la query; si falla, atrapa.
-// La CI usa una DB efímera que se destruye al terminar — no necesitamos
-// aislar estado entre tests.
+// En caso de error dentro de una función plpgsql con RAISE EXCEPTION, el pg
+// driver puede dejar la sesión con una TX implícita en estado aborted. Para
+// no bloquear las queries siguientes, enviamos ROLLBACK explícito tras un
+// error (en autocommit ROLLBACK es no-op y no falla).
 async function tryQ(fn) {
   try { return { ok: true, result: await fn() }; }
-  catch (error) { return { ok: false, error }; }
+  catch (error) {
+    try { await testClient.query("ROLLBACK"); } catch {}
+    return { ok: false, error };
+  }
 }
 async function test(name, fn) {
   try { await fn(); passed++; console.log(`  OK   ${name}`); }
