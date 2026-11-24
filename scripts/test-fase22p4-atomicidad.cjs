@@ -234,9 +234,22 @@ const INS_A = "11111111-1111-1111-1111-111111111111";
 const INS_B = "22222222-2222-2222-2222-222222222222";
 
 let passed = 0, failed = 0;
+let testClient = null;  // seteado en main() tras la conexión + seed.
 async function test(name, fn) {
-  try { await fn(); passed++; console.log(`  OK   ${name}`); }
-  catch (e) { failed++; console.log(`  FAIL ${name}\n       ${e.message}`); }
+  // Aislamiento por test: BEGIN + ROLLBACK. Cualquier error (incluido error
+  // dentro de la RPC que aborte la TX implícita) queda contenido en este
+  // ROLLBACK y el siguiente test arranca limpio. Nada persiste entre tests
+  // salvo el seed inicial aplicado fuera de la transacción.
+  //
+  // Aviso: T6 (concurrencia) NO usa este wrapper porque necesita dos
+  // conexiones distintas — se maneja manualmente.
+  try {
+    await testClient.query("BEGIN");
+    try { await fn(); passed++; console.log(`  OK   ${name}`); }
+    catch (e) { failed++; console.log(`  FAIL ${name}\n       ${e.message}`); }
+  } finally {
+    try { await testClient.query("ROLLBACK"); } catch {}
+  }
 }
 
 function stripOuterTx(sql) {
@@ -279,6 +292,8 @@ async function newClient() {
     [EMPRESA, grupoId, INS_B]
   );
   const opB = opBIns.rows[0].id;
+
+  testClient = c;
 
   // ─────── Tests ───────
   await test("T1 — venta + item + variante + stock_delta persisten atómicamente", async () => {

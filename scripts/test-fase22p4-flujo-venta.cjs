@@ -115,9 +115,17 @@ ON CONFLICT (id) DO NOTHING;
 `;
 
 let passed = 0, failed = 0;
+let testClient = null;
 async function test(name, fn) {
-  try { await fn(); passed++; console.log(`  OK   ${name}`); }
-  catch (e) { failed++; console.log(`  FAIL ${name}\n       ${e.message}`); }
+  // Aislamiento por test con BEGIN/ROLLBACK para evitar que errores en la RPC
+  // dejen la conexión abortada entre tests.
+  try {
+    await testClient.query("BEGIN");
+    try { await fn(); passed++; console.log(`  OK   ${name}`); }
+    catch (e) { failed++; console.log(`  FAIL ${name}\n       ${e.message}`); }
+  } finally {
+    try { await testClient.query("ROLLBACK"); } catch {}
+  }
 }
 function stripOuterTx(sql) {
   return sql.replace(/^\s*BEGIN\s*;/i, "").replace(/\s*COMMIT\s*;\s*$/i, "");
@@ -153,6 +161,7 @@ async function newClient() { const c = new pg.Client({ connectionString: url });
     [EMPRESA, grupoId, INS_CHOCO_BLANCO]
   );
   const opBlanco = opBlancoR.rows[0].id;
+  testClient = c;
 
   function basePayload(label) {
     return {
