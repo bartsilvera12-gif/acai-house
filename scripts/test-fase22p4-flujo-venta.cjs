@@ -116,9 +116,19 @@ ON CONFLICT (id) DO NOTHING;
 
 let passed = 0, failed = 0;
 let testClient = null;
+async function trySp(spName, fn) {
+  await testClient.query(`SAVEPOINT ${spName}`);
+  try {
+    const result = await fn();
+    await testClient.query(`RELEASE SAVEPOINT ${spName}`);
+    return { ok: true, result };
+  } catch (error) {
+    await testClient.query(`ROLLBACK TO SAVEPOINT ${spName}`);
+    await testClient.query(`RELEASE SAVEPOINT ${spName}`);
+    return { ok: false, error };
+  }
+}
 async function test(name, fn) {
-  // Aislamiento por test con BEGIN/ROLLBACK para evitar que errores en la RPC
-  // dejen la conexión abortada entre tests.
   try {
     await testClient.query("BEGIN");
     try { await fn(); passed++; console.log(`  OK   ${name}`); }
@@ -195,7 +205,7 @@ async function newClient() { const c = new pg.Client({ connectionString: url });
       adicionales: [{ adicional_id: null, adicional_nombre: "Chocolate extra", precio_unitario: precioAdicional, cantidad: 1 }],
       variantes: [{ grupo_id: grupoId, opcion_id: opBlanco }],
     }];
-    const r = await c.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1)", [JSON.stringify(payload)]);
+    const r = await c.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1::jsonb)", [JSON.stringify(payload)]);
     const ventaId = r.rows[0].venta_id;
     const vit = (await c.query("SELECT precio_venta::text AS p, total_linea::text AS t FROM acaihouse.ventas_items WHERE id=$1", [itemId])).rows[0];
     if (Number(vit.p) !== 16000) throw new Error(`precio_venta=${vit.p}, esperaba 16000 (base 14000 + adicional 2000, SIN variante)`);
@@ -216,7 +226,7 @@ async function newClient() { const c = new pg.Client({ connectionString: url });
       // El cliente envía SOLO grupo_id + opcion_id. La RPC extrae el resto.
       variantes: [{ grupo_id: grupoId, opcion_id: opNegro }],
     }];
-    const r = await c.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1)", [JSON.stringify(payload)]);
+    const r = await c.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1::jsonb)", [JSON.stringify(payload)]);
     const ventaId = r.rows[0].venta_id;
     const vv = (await c.query(
       "SELECT cantidad::text AS c, unidad_medida AS u, costo_unitario_snapshot::text AS cu, opcion_etiqueta AS eo, grupo_codigo AS gc, insumo_sku AS sk FROM acaihouse.venta_item_variantes WHERE venta_item_id=$1",
@@ -243,7 +253,7 @@ async function newClient() { const c = new pg.Client({ connectionString: url });
       adicionales: [], variantes: [{ grupo_id: grupoId, opcion_id: opNegro }],
     }];
     const stockAntes = Number((await c.query("SELECT stock_actual::text AS s FROM acaihouse.productos WHERE id=$1", [INS_CHOCO_NEGRO])).rows[0].s);
-    const r = await c.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1)", [JSON.stringify(payload)]);
+    const r = await c.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1::jsonb)", [JSON.stringify(payload)]);
     const ventaId = r.rows[0].venta_id;
     // Sin stock_deltas → el stock del insumo NO debe haber cambiado.
     const stockDespues = Number((await c.query("SELECT stock_actual::text AS s FROM acaihouse.productos WHERE id=$1", [INS_CHOCO_NEGRO])).rows[0].s);
@@ -271,7 +281,7 @@ async function newClient() { const c = new pg.Client({ connectionString: url });
       { ...itemBase, id: i1, variantes: [{ grupo_id: grupoId, opcion_id: opBlanco }] },
       { ...itemBase, id: i2, variantes: [{ grupo_id: grupoId, opcion_id: opNegro }] },
     ];
-    await c.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1)", [JSON.stringify(payload)]);
+    await c.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1::jsonb)", [JSON.stringify(payload)]);
     const v1 = (await c.query("SELECT opcion_etiqueta AS e, costo_unitario_snapshot::text AS c FROM acaihouse.venta_item_variantes WHERE venta_item_id=$1", [i1])).rows[0];
     const v2 = (await c.query("SELECT opcion_etiqueta AS e, costo_unitario_snapshot::text AS c FROM acaihouse.venta_item_variantes WHERE venta_item_id=$1", [i2])).rows[0];
     if (v1.e !== "Chocolate blanco" || Number(v1.c) !== 120) throw new Error(`v1=${JSON.stringify(v1)}`);
@@ -294,7 +304,7 @@ async function newClient() { const c = new pg.Client({ connectionString: url });
     payload.stock_deltas = [{
       producto_id: PROD_REVENTA, delta_qty: 10, movimiento: { tipo: "SALIDA", origen: "venta", referencia: payload.venta.numero_control },
     }];
-    const r = await c.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1)", [JSON.stringify(payload)]);
+    const r = await c.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1::jsonb)", [JSON.stringify(payload)]);
     const ventaId = r.rows[0].venta_id;
     // Política corregida: stock puede quedar negativo. stockAntes=5 (del seed), delta=10 → resultado -5.
     const stockDespues = Number((await c.query("SELECT stock_actual::text AS s FROM acaihouse.productos WHERE id=$1", [PROD_REVENTA])).rows[0].s);
@@ -323,11 +333,9 @@ async function newClient() { const c = new pg.Client({ connectionString: url });
         subtotal: 14000, monto_iva: 0, total_linea: 14000, presentacion_id: null,
         adicionales: [], variantes: [],
       }];
-      let threw = false, errorCode = "";
-      try { await c.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1)", [JSON.stringify(payload)]); }
-      catch (e) { threw = true; errorCode = e.code ?? ""; }
-      if (!threw) throw new Error("esperaba 42501 permission denied");
-      if (errorCode !== "42501") throw new Error(`errcode=${errorCode}, esperaba 42501`);
+      const r = await trySp("sp_f6", () => c.query("SELECT venta_id FROM acaihouse.fn_crear_venta_atomica($1::jsonb)", [JSON.stringify(payload)]));
+      if (r.ok) throw new Error("esperaba 42501 permission denied");
+      if ((r.error.code ?? "") !== "42501") throw new Error(`errcode=${r.error.code}, esperaba 42501`);
     } finally {
       await c.query("RESET ROLE");
       await c.query("CREATE OR REPLACE FUNCTION acaihouse.puede_acceder_empresa(e uuid) RETURNS boolean LANGUAGE sql STABLE AS $$ SELECT true $$");
