@@ -22,20 +22,14 @@ export type AdicionalPayload = {
   cantidad?: number;
 };
 
+/**
+ * El cliente SOLO manda `grupo_id` y `opcion_id`. El resto del snapshot
+ * (etiquetas, cantidad, unidad, merma, costo_unitario_snapshot) lo rellena
+ * la RPC leyendo del server. Previene manipulación del cliente.
+ */
 export type VariantePayload = {
   grupo_id: string;
   opcion_id: string;
-  grupo_codigo: string;
-  grupo_etiqueta: string;
-  opcion_etiqueta: string;
-  insumo_producto_id: string;
-  insumo_sku: string;
-  insumo_nombre: string;
-  cantidad: number;
-  unidad_medida: string;
-  merma_pct: number;
-  /** Costo del insumo al momento de la venta. Snapshot inmutable. */
-  costo_unitario_snapshot?: number;
 };
 
 export type ItemPayload = {
@@ -85,18 +79,21 @@ export type CxCPayload = {
   fecha_vencimiento: string;        // YYYY-MM-DD
 } | null;
 
-export type StockUpdatePayload = {
+/**
+ * Delta atómico sobre un producto. El cliente envía `delta_qty` (siempre
+ * positivo, SALIDA); la RPC hace `UPDATE productos SET stock_actual =
+ * GREATEST(0, stock_actual - delta_qty) WHERE id=... FOR UPDATE` y
+ * valida permitir_sin_stock. Previene lost-update en ventas concurrentes.
+ * `costo_unitario` del movimiento lo captura la RPC leyendo productos
+ * dentro del mismo FOR UPDATE — NO se confía en el cliente.
+ */
+export type StockDeltaPayload = {
   producto_id: string;
-  nuevo_stock: number;
+  delta_qty: number;
   movimiento?: {
-    producto_nombre: string;
-    producto_sku: string;
-    tipo: "ENTRADA" | "SALIDA";
-    cantidad: number;
-    costo_unitario: number | null;
-    origen: "venta" | "merma" | "ajuste_manual" | "inventario_inicial" | "compra";
+    tipo?: "SALIDA";
+    origen?: "venta";
     referencia: string | null;
-    fecha?: string;
     created_by?: string | null;
     usuario_nombre?: string | null;
   };
@@ -104,11 +101,13 @@ export type StockUpdatePayload = {
 
 export type CrearVentaAtomicaPayload = {
   empresa_id: string;
+  /** Autoriza vender aunque falte stock (política existente). Default false. */
+  permitir_sin_stock?: boolean;
   venta: VentaHeaderPayload;
   items: ItemPayload[];
   cxc: CxCPayload;
-  /** Updates de stock + movimientos (productos controla_stock y/o insumos cuando consumo ON). */
-  stock_updates?: StockUpdatePayload[];
+  /** Deltas de stock (productos y/o insumos). RPC hace UPDATE atómico con FOR UPDATE. */
+  stock_deltas?: StockDeltaPayload[];
 };
 
 export async function crearVentaAtomica(
