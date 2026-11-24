@@ -196,8 +196,12 @@ export default function NuevaCompraPage() {
   // Materia prima / insumo NO vendible: no exigimos precio de venta (se compra para recetas).
   const esInsumoNoVendible = !!productoSel && productoSel.es_insumo === true && productoSel.es_vendible !== true;
   const requierePrecioVenta = !esInsumoNoVendible;
+  // Costo unitario es obligatorio solo para productos vendibles (reventa / menú
+  // facturable). Para materia prima / insumos la empresa compra por caja y no
+  // tiene costo unitario — si lo dejan vacío, el CPP previo se mantiene sin
+  // diluir (ver src/lib/inventario/cpp.ts).
   const lineaLista =
-    !!nl.producto_id && nlCant > 0 && nlCostoPYG > 0 && (!requierePrecioVenta || nlPrecio > 0);
+    !!nl.producto_id && nlCant > 0 && (esInsumoNoVendible || nlCostoPYG > 0) && (!requierePrecioVenta || nlPrecio > 0);
 
   // ── Totales de la compra ───────────────────────────────────────────────────
   const totales = useMemo(() => {
@@ -742,11 +746,18 @@ export default function NuevaCompraPage() {
                     placeholder="Ej: 50" className={inputSmClass} min={0} step="any" readOnly={usarEmpaque} />
                 </div>
                 <div>
-                  <label className={labelSmClass}>Costo unit. ({cab.moneda === "PYG" ? "Gs." : cab.moneda}) <span className="text-red-500">*</span></label>
+                  <label className={labelSmClass}>
+                    Costo unit. ({cab.moneda === "PYG" ? "Gs." : cab.moneda})
+                    {esInsumoNoVendible ? (
+                      <span className="font-normal text-gray-400"> (opcional)</span>
+                    ) : (
+                      <span className="text-red-500"> *</span>
+                    )}
+                  </label>
                   <MontoInput value={nl.costo_unitario_input}
                     onChange={(n) => setNl((p) => ({ ...p, costo_unitario_input: String(n) }))}
-                    placeholder={cab.moneda === "PYG" ? "Ej: 18000" : "Ej: 12"} className={inputSmClass}
-                    decimals={cab.moneda !== "PYG"} />
+                    placeholder={esInsumoNoVendible ? "Opcional (compra por caja)" : (cab.moneda === "PYG" ? "Ej: 18000" : "Ej: 12")}
+                    className={inputSmClass} decimals={cab.moneda !== "PYG"} />
                 </div>
                 <div>
                   <label className={labelSmClass}>IVA</label>
@@ -770,7 +781,7 @@ export default function NuevaCompraPage() {
 
               {esInsumoNoVendible && (
                 <p className="text-xs text-amber-600 bg-amber-50 border border-amber-100 rounded-lg px-3 py-2">
-                  Este producto es materia prima. La compra actualizará stock y costo promedio; el precio de venta no es necesario.
+                  Este producto es materia prima. La compra actualizará el stock. Precio de venta y costo unitario son opcionales — si no informás el costo (ej. compra por caja), el costo promedio anterior se mantiene sin cambios.
                 </p>
               )}
 

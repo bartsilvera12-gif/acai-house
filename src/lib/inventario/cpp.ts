@@ -30,6 +30,10 @@ export function calcularNuevoCostoPromedio(
   const cn = Number.isFinite(costoNuevo) && costoNuevo >= 0 ? costoNuevo : 0;
 
   if (cr <= 0) return ca > 0 ? ca : cn;           // no entra nada nuevo
+  // Compra sin costo informado (ej. materia prima comprada por caja sin
+  // desglose por unidad): mantener el CPP previo. Nunca "diluir" con 0
+  // porque "no sé el costo" ≠ "el costo es 0".
+  if (cn <= 0) return ca > 0 ? ca : 0;
   if (sa <= 0 || ca <= 0) return cn;              // sin stock previo o costo previo desconocido
   const denom = sa + cr;
   if (denom <= 0) return cn;                      // seguridad
