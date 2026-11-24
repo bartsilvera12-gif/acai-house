@@ -53,7 +53,7 @@ CREATE SCHEMA IF NOT EXISTS acaihouse;
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 CREATE TABLE IF NOT EXISTS acaihouse.productos (
-  id uuid PRIMARY KEY,
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   empresa_id uuid NOT NULL,
   sku text NOT NULL,
   nombre text NOT NULL,
