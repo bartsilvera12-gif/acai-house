@@ -394,14 +394,17 @@ export async function createVentaTransaccionalPg(
   //  - Si la línea NO envía presentacion_id → usa receta base (presentacion_id IS NULL).
   //    Si el producto tiene recetas por presentación activas pero la venta no indica cuál,
   //    NO se descuenta (evita descontar la receta equivocada).
-  const recetasQ = consumoInsumosActivo
-    ? await sb
-        .from("recetas")
-        .select("id, producto_id, presentacion_id, rendimiento_cantidad")
-        .eq("empresa_id", params.empresaId)
-        .eq("activa", true)
-        .in("producto_id", ids)
-    : { data: [] as unknown[], error: null };
+  // Fase 2.2 Parte 4: cargar recetas SIEMPRE (no solo cuando el consumo auto
+  // está activo). La validación de variantes obligatorias y la persistencia de
+  // su snapshot (venta_item_variantes) son parte del REGISTRO de la venta y
+  // deben ocurrir con independencia del flag. Solo el DESCUENTO de stock de
+  // insumos queda gateado por `consumoInsumosActivo` (ver bloques más abajo).
+  const recetasQ = await sb
+    .from("recetas")
+    .select("id, producto_id, presentacion_id, rendimiento_cantidad")
+    .eq("empresa_id", params.empresaId)
+    .eq("activa", true)
+    .in("producto_id", ids);
   if (recetasQ.error) throw new Error(recetasQ.error.message);
   const recetaRows = (recetasQ.data ?? []) as unknown as Array<{
     id: string;
@@ -517,54 +520,51 @@ export async function createVentaTransaccionalPg(
       }
     }
 
-    // Agregar consumo POR LÍNEA (no por producto agregado): cada línea aporta su presentacion_id
-    // si está presente. Esto evita descontar la receta equivocada para presentaciones distintas
-    // del mismo producto. CONVIRTIENDO la cantidad del ítem a la unidad del insumo.
-    const recetasSinCobertura: string[] = []; // líneas que no encontraron receta para su presentación
-    for (const line of params.items) {
-      const pid = line.producto_id;
-      const idx = recetasByProducto.get(pid);
-      if (!idx) continue; // sin recetas para ese producto → cae en descuento de stock propio (3a)
-      let rec: RecetaIdx | undefined;
-      if (line.presentacion_id) {
-        rec = idx.byPresentacion.get(line.presentacion_id);
-        if (!rec) {
-          // La presentación vendida no tiene receta propia Y hay presentaciones con receta
-          // activa → NO caemos a la base (sería la receta equivocada). Dejamos sin descuento
-          // y avisamos. Si no hay NADA de presentaciones (byPresentacion vacío), usaremos base.
+    // Agregar consumo POR LÍNEA. Fase 2.2 Parte 4: el descuento de insumos por
+    // receta BASE queda gateado por el flag; la validación de variantes y el
+    // snapshot (bloque siguiente) NO dependen del flag.
+    if (consumoInsumosActivo) {
+      const recetasSinCobertura: string[] = []; // líneas que no encontraron receta para su presentación
+      for (const line of params.items) {
+        const pid = line.producto_id;
+        const idx = recetasByProducto.get(pid);
+        if (!idx) continue;
+        let rec: RecetaIdx | undefined;
+        if (line.presentacion_id) {
+          rec = idx.byPresentacion.get(line.presentacion_id);
+          if (!rec) {
+            if (idx.byPresentacion.size === 0 && idx.base) rec = idx.base;
+          }
+        } else {
           if (idx.byPresentacion.size === 0 && idx.base) rec = idx.base;
         }
-      } else {
-        // Sin presentacion_id en la línea: solo se usa la base si el producto NO tiene
-        // recetas por presentación. Si las tiene, el vendedor debió elegir tamaño → no descontar.
-        if (idx.byPresentacion.size === 0 && idx.base) rec = idx.base;
-      }
-      if (!rec) {
-        const nombre = stockMap.get(pid)?.nombre ?? pid;
-        if (!recetasSinCobertura.includes(nombre)) recetasSinCobertura.push(nombre);
-        continue;
-      }
-      const qtySold = Number(line.cantidad) || 0;
-      if (!(qtySold > 0)) continue;
-      for (const ri of itemsByReceta.get(rec.id) ?? []) {
-        const meta = insumoMeta.get(ri.insumo_producto_id);
-        const unidadInsumo = meta?.unidad ?? null;
-        const cantConv = (ri.unidad_item == null || unidadInsumo == null)
-          ? ri.cantidad
-          : convertirCantidad(ri.cantidad, ri.unidad_item, unidadInsumo);
-        if (cantConv == null) {
-          const nombre = meta?.nombre ?? ri.insumo_producto_id;
-          if (!insumosIncompatibles.includes(nombre)) insumosIncompatibles.push(nombre);
+        if (!rec) {
+          const nombre = stockMap.get(pid)?.nombre ?? pid;
+          if (!recetasSinCobertura.includes(nombre)) recetasSinCobertura.push(nombre);
           continue;
         }
-        const consumo = (qtySold * cantConv * (1 + ri.merma_pct)) / rec.rendimiento;
-        if (!(consumo > 0)) continue;
-        insumoNeed.set(ri.insumo_producto_id, (insumoNeed.get(ri.insumo_producto_id) ?? 0) + consumo);
+        const qtySold = Number(line.cantidad) || 0;
+        if (!(qtySold > 0)) continue;
+        for (const ri of itemsByReceta.get(rec.id) ?? []) {
+          const meta = insumoMeta.get(ri.insumo_producto_id);
+          const unidadInsumo = meta?.unidad ?? null;
+          const cantConv = (ri.unidad_item == null || unidadInsumo == null)
+            ? ri.cantidad
+            : convertirCantidad(ri.cantidad, ri.unidad_item, unidadInsumo);
+          if (cantConv == null) {
+            const nombre = meta?.nombre ?? ri.insumo_producto_id;
+            if (!insumosIncompatibles.includes(nombre)) insumosIncompatibles.push(nombre);
+            continue;
+          }
+          const consumo = (qtySold * cantConv * (1 + ri.merma_pct)) / rec.rendimiento;
+          if (!(consumo > 0)) continue;
+          insumoNeed.set(ri.insumo_producto_id, (insumoNeed.get(ri.insumo_producto_id) ?? 0) + consumo);
+        }
       }
-    }
-    if (recetasSinCobertura.length > 0) {
-      console.warn("[create-venta-pg] presentaciones vendidas sin receta específica (no descuentan insumos):",
-        recetasSinCobertura.join(", "));
+      if (recetasSinCobertura.length > 0) {
+        console.warn("[create-venta-pg] presentaciones vendidas sin receta específica (no descuentan insumos):",
+          recetasSinCobertura.join(", "));
+      }
     }
   }
 
@@ -591,6 +591,8 @@ export async function createVentaTransaccionalPg(
     cantidad: number;
     unidad_medida: string;
     merma_pct: number;
+    /** Costo histórico del insumo al momento de la venta (snapshot inmutable). */
+    costo_unitario_snapshot: number;
   };
   const gruposPorReceta = new Map<string, Array<GrupoRow & { opciones: Map<string, OpcionRow> }>>();
   const variantesSnapshotPorLinea: VarianteSnapshot[][] = params.items.map(() => []);
@@ -725,6 +727,10 @@ export async function createVentaTransaccionalPg(
             cantidad: op.cantidad,
             unidad_medida: op.unidad_medida,
             merma_pct: op.merma_pct,
+            // Capturamos costo del insumo al momento de la venta. Es el costo
+            // histórico — si después cambia productos.costo_promedio, esta
+            // fila queda con el valor del día de la venta.
+            costo_unitario_snapshot: meta.costo,
           });
           if (consumoInsumosActivo && qtySold > 0) {
             const unidadInsumo = meta.unidad;
@@ -1058,6 +1064,7 @@ export async function createVentaTransaccionalPg(
           cantidad: snap.cantidad,
           unidad_medida: snap.unidad_medida,
           merma_pct: snap.merma_pct,
+          costo_unitario_snapshot: snap.costo_unitario_snapshot,
         });
       }
     });

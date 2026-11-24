@@ -34,6 +34,8 @@ export type VariantePayload = {
   cantidad: number;
   unidad_medida: string;
   merma_pct: number;
+  /** Costo del insumo al momento de la venta. Snapshot inmutable. */
+  costo_unitario_snapshot?: number;
 };
 
 export type ItemPayload = {
@@ -83,11 +85,30 @@ export type CxCPayload = {
   fecha_vencimiento: string;        // YYYY-MM-DD
 } | null;
 
+export type StockUpdatePayload = {
+  producto_id: string;
+  nuevo_stock: number;
+  movimiento?: {
+    producto_nombre: string;
+    producto_sku: string;
+    tipo: "ENTRADA" | "SALIDA";
+    cantidad: number;
+    costo_unitario: number | null;
+    origen: "venta" | "merma" | "ajuste_manual" | "inventario_inicial" | "compra";
+    referencia: string | null;
+    fecha?: string;
+    created_by?: string | null;
+    usuario_nombre?: string | null;
+  };
+};
+
 export type CrearVentaAtomicaPayload = {
   empresa_id: string;
   venta: VentaHeaderPayload;
   items: ItemPayload[];
   cxc: CxCPayload;
+  /** Updates de stock + movimientos (productos controla_stock y/o insumos cuando consumo ON). */
+  stock_updates?: StockUpdatePayload[];
 };
 
 export async function crearVentaAtomica(

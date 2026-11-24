@@ -119,23 +119,29 @@ CREATE TRIGGER tg_rgo_check
 
 -- ============ 3) venta_item_variantes (snapshot inmutable) ============
 CREATE TABLE IF NOT EXISTS acaihouse.venta_item_variantes (
-  id                 uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
-  empresa_id         uuid        NOT NULL,
-  venta_item_id      uuid        NOT NULL REFERENCES acaihouse.ventas_items(id) ON DELETE CASCADE,
-  grupo_id           uuid        NULL REFERENCES acaihouse.receta_grupos_variante(id) ON DELETE SET NULL,
-  opcion_id          uuid        NULL REFERENCES acaihouse.receta_grupo_opciones(id) ON DELETE SET NULL,
-  grupo_codigo       text        NOT NULL,
-  grupo_etiqueta     text        NOT NULL,
-  opcion_etiqueta    text        NOT NULL,
-  insumo_producto_id uuid        NOT NULL REFERENCES acaihouse.productos(id) ON DELETE RESTRICT,
-  insumo_sku         text        NOT NULL,
-  insumo_nombre      text        NOT NULL,
-  cantidad           numeric     NOT NULL,
-  unidad_medida      text        NOT NULL,
-  merma_pct          numeric     NOT NULL DEFAULT 0,
-  created_at         timestamptz NOT NULL DEFAULT now(),
+  id                      uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+  empresa_id              uuid        NOT NULL,
+  venta_item_id           uuid        NOT NULL REFERENCES acaihouse.ventas_items(id) ON DELETE CASCADE,
+  grupo_id                uuid        NULL REFERENCES acaihouse.receta_grupos_variante(id) ON DELETE SET NULL,
+  opcion_id               uuid        NULL REFERENCES acaihouse.receta_grupo_opciones(id) ON DELETE SET NULL,
+  grupo_codigo            text        NOT NULL,
+  grupo_etiqueta          text        NOT NULL,
+  opcion_etiqueta         text        NOT NULL,
+  insumo_producto_id      uuid        NOT NULL REFERENCES acaihouse.productos(id) ON DELETE RESTRICT,
+  insumo_sku              text        NOT NULL,
+  insumo_nombre           text        NOT NULL,
+  cantidad                numeric     NOT NULL,
+  unidad_medida           text        NOT NULL,
+  merma_pct               numeric     NOT NULL DEFAULT 0,
+  -- Costo histórico por unidad de insumo al momento de la venta. Snapshot
+  -- inmutable: cambios posteriores de productos.costo_promedio no afectan.
+  -- Permite reconstruir el costo total de la venta aun con consumo auto OFF
+  -- (cuando no hay movimientos_inventario que capturen costo_unitario).
+  costo_unitario_snapshot numeric     NULL,
+  created_at              timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT viv_una_por_grupo UNIQUE (venta_item_id, grupo_codigo),
-  CONSTRAINT viv_cantidad_pos  CHECK (cantidad > 0)
+  CONSTRAINT viv_cantidad_pos  CHECK (cantidad > 0),
+  CONSTRAINT viv_costo_nonneg  CHECK (costo_unitario_snapshot IS NULL OR costo_unitario_snapshot >= 0)
 );
 CREATE INDEX IF NOT EXISTS viv_by_venta_item_idx ON acaihouse.venta_item_variantes(empresa_id, venta_item_id);
 CREATE INDEX IF NOT EXISTS viv_by_insumo_idx     ON acaihouse.venta_item_variantes(empresa_id, insumo_producto_id);

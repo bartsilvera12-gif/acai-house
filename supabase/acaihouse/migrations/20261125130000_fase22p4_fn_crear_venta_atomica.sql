@@ -71,33 +71,32 @@ BEGIN
     RAISE EXCEPTION 'items debe ser array no vacío' USING ERRCODE = '22P02';
   END IF;
 
-  -- 1) INSERT ventas (header)
+  -- 1) INSERT ventas (header). Columnas reales de acaihouse.ventas:
+  --   numero_control, fecha, total, subtotal, monto_iva, estado, tipo_venta,
+  --   plazo_dias, fecha_vencimiento, moneda, tipo_cambio, cliente_id,
+  --   observaciones, metodo_pago, caja_id, genera_nota_remision, nota_remision_numero.
   INSERT INTO acaihouse.ventas (
-    empresa_id, numero_comprobante, numero_control, fecha, total, subtotal, monto_iva,
-    tipo_iva, tipo_venta, plazo_dias, fecha_vencimiento, moneda, tipo_cambio,
-    cliente_id, observaciones, metodo_pago, caja_id, created_by, usuario_nombre,
+    empresa_id, numero_control, fecha, total, subtotal, monto_iva, estado,
+    tipo_venta, plazo_dias, moneda, tipo_cambio,
+    cliente_id, observaciones, metodo_pago, caja_id,
     genera_nota_remision
   )
   VALUES (
     v_empresa_id,
     v_venta_header->>'numero_control',
-    v_venta_header->>'numero_control',
     (v_venta_header->>'fecha')::timestamptz,
     (v_venta_header->>'total')::numeric,
     (v_venta_header->>'subtotal')::numeric,
     (v_venta_header->>'monto_iva')::numeric,
-    v_venta_header->>'tipo_iva_resumen',
+    'completada',
     v_venta_header->>'tipo_venta',
     NULLIF((v_venta_header->>'plazo_dias')::text,'')::int,
-    NULLIF((v_venta_header->>'fecha_vencimiento')::text,'')::date,
     v_venta_header->>'moneda',
     (v_venta_header->>'tipo_cambio')::numeric,
     NULLIF((v_venta_header->>'cliente_id')::text,'')::uuid,
     v_venta_header->>'observaciones',
     v_venta_header->>'metodo_pago',
     NULLIF((v_venta_header->>'caja_id')::text,'')::uuid,
-    NULLIF((v_venta_header->>'created_by')::text,'')::uuid,
-    v_venta_header->>'usuario_nombre',
     COALESCE((v_venta_header->>'genera_nota_remision')::boolean, false)
   )
   RETURNING id INTO v_venta_id;
@@ -154,7 +153,7 @@ BEGIN
           empresa_id, venta_item_id, grupo_id, opcion_id,
           grupo_codigo, grupo_etiqueta, opcion_etiqueta,
           insumo_producto_id, insumo_sku, insumo_nombre,
-          cantidad, unidad_medida, merma_pct
+          cantidad, unidad_medida, merma_pct, costo_unitario_snapshot
         )
         VALUES (
           v_empresa_id, v_item_id,
@@ -168,7 +167,8 @@ BEGIN
           v_var->>'insumo_nombre',
           (v_var->>'cantidad')::numeric,
           v_var->>'unidad_medida',
-          COALESCE((v_var->>'merma_pct')::numeric, 0)
+          COALESCE((v_var->>'merma_pct')::numeric, 0),
+          NULLIF((v_var->>'costo_unitario_snapshot')::text,'')::numeric
         );
       END LOOP;
     END IF;
@@ -189,9 +189,55 @@ BEGIN
     );
   END IF;
 
-  -- Devolver el id del header. Si cualquier INSERT anterior violó constraint,
-  -- este RETURN nunca se alcanza: PostgreSQL ya hizo rollback de la función
-  -- (y de la transacción implícita), devolviendo el error al caller.
+  -- 4) UPDATE productos.stock_actual + INSERT movimientos_inventario (SALIDA).
+  --    Procesa stock_updates (productos controla_stock=true y, cuando el flag
+  --    de consumo está activo, insumos consumidos por receta/adicional/variante).
+  --    Si falla cualquier UPDATE/INSERT, toda la operación hace rollback.
+  DECLARE
+    v_stock_updates jsonb := p_payload->'stock_updates';
+    v_upd jsonb;
+    v_prod_id uuid;
+    v_nuevo_stock numeric;
+    v_mov jsonb;
+  BEGIN
+    IF jsonb_typeof(v_stock_updates) = 'array' THEN
+      FOR v_upd IN SELECT * FROM jsonb_array_elements(v_stock_updates)
+      LOOP
+        v_prod_id := (v_upd->>'producto_id')::uuid;
+        v_nuevo_stock := (v_upd->>'nuevo_stock')::numeric;
+        UPDATE acaihouse.productos
+           SET stock_actual = v_nuevo_stock
+         WHERE id = v_prod_id AND empresa_id = v_empresa_id;
+        IF NOT FOUND THEN
+          RAISE EXCEPTION 'Producto % no existe para esta empresa', v_prod_id USING ERRCODE = '23503';
+        END IF;
+        v_mov := v_upd->'movimiento';
+        IF v_mov IS NOT NULL AND v_mov <> 'null'::jsonb THEN
+          INSERT INTO acaihouse.movimientos_inventario (
+            empresa_id, producto_id, producto_nombre, producto_sku,
+            tipo, cantidad, costo_unitario, origen, referencia, fecha,
+            venta_id, created_by, usuario_nombre
+          )
+          VALUES (
+            v_empresa_id, v_prod_id,
+            v_mov->>'producto_nombre', v_mov->>'producto_sku',
+            v_mov->>'tipo',
+            (v_mov->>'cantidad')::numeric,
+            NULLIF((v_mov->>'costo_unitario')::text,'')::numeric,
+            v_mov->>'origen',
+            v_mov->>'referencia',
+            COALESCE((v_mov->>'fecha')::timestamptz, now()),
+            v_venta_id,
+            NULLIF((v_mov->>'created_by')::text,'')::uuid,
+            v_mov->>'usuario_nombre'
+          );
+        END IF;
+      END LOOP;
+    END IF;
+  END;
+
+  -- Devolver el id del header. Si cualquier INSERT/UPDATE anterior violó
+  -- constraint, este RETURN nunca se alcanza: PostgreSQL ya hizo rollback.
   RETURN QUERY SELECT v_venta_id;
 END;
 $$;
