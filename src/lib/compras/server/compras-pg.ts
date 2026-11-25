@@ -261,14 +261,27 @@ export async function insertComprasConImpacto(
       let pesoRealRecibido = it.peso_real_recibido != null && it.peso_real_recibido > 0 ? Number(it.peso_real_recibido) : null;
 
       if (esPesoVar) {
-        // Peso variable: EXIGE peso_real_recibido y cantidad_compra. factor_aplicado se deriva.
-        if (cantidadCompra == null || pesoRealRecibido == null) {
-          throw new Error(`"${it.producto_nombre}" es un insumo de peso variable: cargá cantidad de empaques y peso real recibido.`);
+        // Peso variable (ej: frutas): la casa compra por caja y, a veces, no
+        // pesa el contenido. Siempre exigimos cantidad_compra (cuántas cajas).
+        // El peso real es OPCIONAL — si no vino, se registra la compra solo
+        // como "entraron N cajas" y el stock en unidad base (gramos) no se
+        // incrementa en esta línea. Si vino, lo usamos para el stock y para
+        // derivar el factor real de esta compra.
+        if (cantidadCompra == null) {
+          throw new Error(`"${it.producto_nombre}" es un insumo de peso variable: cargá la cantidad de empaques recibidos.`);
         }
-        factorAplicado = pesoRealRecibido / cantidadCompra;
-        // Coherencia: cantidad guardada en inventario debe ser el peso real total.
-        if (Math.abs(Number(it.cantidad) - pesoRealRecibido) > 0.01) {
-          throw new Error(`"${it.producto_nombre}": la cantidad de inventario (${it.cantidad}) debe coincidir con el peso real recibido (${pesoRealRecibido}).`);
+        if (pesoRealRecibido != null) {
+          factorAplicado = pesoRealRecibido / cantidadCompra;
+          if (Math.abs(Number(it.cantidad) - pesoRealRecibido) > 0.01) {
+            throw new Error(`"${it.producto_nombre}": la cantidad de inventario (${it.cantidad}) debe coincidir con el peso real recibido (${pesoRealRecibido}).`);
+          }
+        } else {
+          // Sin peso: no hay factor derivado y la cantidad base debe ser 0
+          // (no sabemos cuánto entró en gramos). El UI envía cantidad=0.
+          factorAplicado = null;
+          if (Number(it.cantidad) !== 0) {
+            throw new Error(`"${it.producto_nombre}": sin peso real recibido, la cantidad de inventario debe ser 0 (se registra solo el nro de empaques).`);
+          }
         }
       } else if (cantidadCompra != null) {
         // Peso fijo con empaque declarado: factor_aplicado debe matchear producto.factor_compra_receta.

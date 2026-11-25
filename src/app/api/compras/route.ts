@@ -76,8 +76,16 @@ export async function POST(request: NextRequest) {
       const label = `Producto ${i + 1}`;
       if (it.producto_id == null || String(it.producto_id).trim() === "")
         return NextResponse.json(errorResponse(`${label}: falta el producto.`), { status: 400 });
-      if (!(Number(it.cantidad) > 0))
-        return NextResponse.json(errorResponse(`${label}: la cantidad debe ser mayor a 0.`), { status: 400 });
+      // La cantidad (en unidad base del inventario) puede venir en 0 cuando se
+      // compra por caja/empaque sin pesar — en ese caso basta con que haya
+      // cantidad_compra > 0 (ej: 3 cajas de frutas sin kg declarado). Rechazamos
+      // solo valores negativos y el caso "0 sin cantidad_compra".
+      const _qty = Number(it.cantidad);
+      const _qtyCompra = Number(it.cantidad_compra);
+      if (!Number.isFinite(_qty) || _qty < 0)
+        return NextResponse.json(errorResponse(`${label}: la cantidad no puede ser negativa.`), { status: 400 });
+      if (_qty <= 0 && !(_qtyCompra > 0))
+        return NextResponse.json(errorResponse(`${label}: cargá la cantidad (o la cantidad de empaques recibidos).`), { status: 400 });
       // El costo unitario puede venir en 0 cuando es materia prima comprada por
       // caja sin desglose por unidad. El UI solo lo exige para productos
       // vendibles; en el backend solo rechazamos valores negativos. Si llega 0,

@@ -245,8 +245,17 @@ export default function NuevaCompraPage() {
   function handleAgregarLinea() {
     setErrorLinea(null);
     if (!nl.producto_id) return setErrorLinea("Elegí un producto.");
-    if (nlCant <= 0) return setErrorLinea("La cantidad debe ser mayor a 0.");
-    if (nlCostoPYG <= 0) return setErrorLinea("El costo unitario debe ser mayor a 0.");
+    if (!cantidadOk) {
+      return setErrorLinea(
+        usarEmpaque
+          ? `Ingresá la cantidad de ${pluralEmpaque(pSelUnidadCompra)}.`
+          : "La cantidad debe ser mayor a 0."
+      );
+    }
+    // Costo: obligatorio solo para productos vendibles. Para insumos (materia
+    // prima) puede quedar vacío — el CPP previo se mantiene sin alterarse.
+    if (!esInsumoNoVendible && nlCostoPYG <= 0)
+      return setErrorLinea("El costo unitario debe ser mayor a 0.");
     if (requierePrecioVenta && nlPrecio <= 0)
       return setErrorLinea("El precio de venta debe ser mayor a 0.");
     if (cab.moneda !== "PYG" && tipoCambioNum <= 0)
