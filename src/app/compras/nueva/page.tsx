@@ -21,6 +21,26 @@ function margenColor(m: number) {
   if (m >= 20) return "text-yellow-600";
   return "text-red-600";
 }
+// Pluraliza unidades de empaque comunes (caja -> cajas, bidón -> bidones, ...).
+// El admin suele registrar la unidad en singular; la UI del cajero la muestra
+// en plural cuando se habla de "cantidad de X".
+function pluralEmpaque(u: string | null | undefined): string {
+  if (!u) return "empaques";
+  const w = u.trim();
+  if (!w) return "empaques";
+  const low = w.toLowerCase();
+  const manual: Record<string, string> = {
+    caja: "cajas", bidon: "bidones", "bidón": "bidones", saco: "sacos",
+    bolsa: "bolsas", pack: "packs", unidad: "unidades", paquete: "paquetes",
+    fardo: "fardos", tambor: "tambores", balde: "baldes",
+    galon: "galones", "galón": "galones", botella: "botellas", lata: "latas",
+  };
+  if (manual[low]) return manual[low];
+  if (/s$/.test(low)) return low;
+  if (/[aeiou]$/.test(low)) return low + "s";
+  return low + "es";
+}
+
 function ivaMonto(subtotal: number, iva: TipoIva): number {
   if (iva === "exenta") return 0;
   if (iva === "5") return subtotal * 0.05;
@@ -698,13 +718,15 @@ export default function NuevaCompraPage() {
                     <span>
                       <strong>Empaque de compra:</strong>{" "}
                       {pSelPesoVar
-                        ? `Peso variable — cargá cantidad de empaques y peso real recibido.`
-                        : `${pSelUnidadCompra ?? "Empaque"} · 1 empaque = ${pSelFactor} ${productoSel?.unidad_receta ?? productoSel?.unidad_medida ?? ""}`}
+                        ? `Peso variable — cargá la cantidad de ${pluralEmpaque(pSelUnidadCompra)} y, opcional, el peso real recibido.`
+                        : `${pSelUnidadCompra ?? "Empaque"} · 1 ${(pSelUnidadCompra ?? "empaque").toLowerCase()} = ${pSelFactor} ${productoSel?.unidad_receta ?? productoSel?.unidad_medida ?? ""}`}
                     </span>
                   </div>
                   <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <label className={labelSmClass}>Cant. empaques</label>
+                      <label className={labelSmClass}>
+                        Cantidad de {pluralEmpaque(pSelUnidadCompra)} <span className="text-red-500">*</span>
+                      </label>
                       <input
                         type="number"
                         value={nl.cantidad_compra}
@@ -739,7 +761,7 @@ export default function NuevaCompraPage() {
                   </div>
                   {pSelPesoVar && nlCantCompra > 0 && nlPesoReal > 0 && (
                     <div className="text-xs text-slate-600">
-                      Factor de esta compra: <strong>{(nlPesoReal / nlCantCompra).toFixed(2)}</strong> {productoSel?.unidad_medida ?? "g"}/empaque · Ingresa al inventario: <strong>{nlPesoReal.toLocaleString("es-PY")} {productoSel?.unidad_medida ?? "g"}</strong>
+                      Factor de esta compra: <strong>{(nlPesoReal / nlCantCompra).toFixed(2)}</strong> {productoSel?.unidad_medida ?? "g"}/{(pSelUnidadCompra ?? "empaque").toLowerCase()} · Ingresa al inventario: <strong>{nlPesoReal.toLocaleString("es-PY")} {productoSel?.unidad_medida ?? "g"}</strong>
                     </div>
                   )}
                 </div>
