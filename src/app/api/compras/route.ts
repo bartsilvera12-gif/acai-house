@@ -113,6 +113,11 @@ export async function POST(request: NextRequest) {
         unidad_compra_snapshot: it.unidad_compra_snapshot != null && String(it.unidad_compra_snapshot).trim() !== "" ? String(it.unidad_compra_snapshot).trim() : null,
         factor_aplicado: it.factor_aplicado != null && Number(it.factor_aplicado) > 0 ? Number(it.factor_aplicado) : null,
         peso_real_recibido: it.peso_real_recibido != null && Number(it.peso_real_recibido) > 0 ? Number(it.peso_real_recibido) : null,
+        // Fase 2.2 — pérdida del stock previo al recibir. En unidad base del
+        // producto. El servidor valida que no exceda el stock_actual del producto
+        // y genera un movimiento SALIDA (merma) en la misma transacción.
+        cantidad_perdida_previa: it.cantidad_perdida_previa != null && Number(it.cantidad_perdida_previa) > 0 ? Number(it.cantidad_perdida_previa) : null,
+        motivo_perdida_previa: it.motivo_perdida_previa != null && String(it.motivo_perdida_previa).trim() !== "" ? String(it.motivo_perdida_previa).trim() : null,
       });
     }
 

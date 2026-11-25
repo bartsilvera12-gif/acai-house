@@ -196,6 +196,11 @@ export interface CompraItemInput {
   unidad_compra_snapshot?: string | null;
   factor_aplicado?: number | null;
   peso_real_recibido?: number | null;
+  // Fase 2.2 — pérdida del stock previo al recibir (cajas sin usar de la
+  // semana pasada). En unidad base del producto. Si > 0 genera un movimiento
+  // SALIDA (merma) en la misma TX ANTES de sumar la nueva entrada.
+  cantidad_perdida_previa?: number | null;
+  motivo_perdida_previa?: string | null;
 }
 
 export interface ComprasMultiResult {
@@ -297,6 +302,48 @@ export async function insertComprasConImpacto(
         pesoRealRecibido = null;
       }
 
+      // Fase 2.2 — pérdida del stock previo al recibir esta compra (ciclo
+      // semanal: las cajas sin usar quedan como merma). Se registra ANTES de
+      // sumar la entrada: movimiento SALIDA tipo 'merma' por la cantidad
+      // informada, valorizada al costo promedio ACTUAL del producto, y stock
+      // bajado por ese monto. El CPP de la nueva entrada se calcula sobre
+      // stock post-pérdida para no diluir indebidamente.
+      const perdidaPreviaCant = it.cantidad_perdida_previa != null && Number(it.cantidad_perdida_previa) > 0
+        ? Number(it.cantidad_perdida_previa)
+        : 0;
+      const motivoPerdidaPrevia = it.motivo_perdida_previa && String(it.motivo_perdida_previa).trim() !== ""
+        ? String(it.motivo_perdida_previa).trim()
+        : "No usadas al recibir compra";
+
+      let stockPostPerdida = stockPrev;
+      if (perdidaPreviaCant > 0) {
+        if (perdidaPreviaCant > stockPrev + 1e-6) {
+          throw new Error(`"${it.producto_nombre}": la pérdida informada (${perdidaPreviaCant}) no puede superar el stock actual (${stockPrev}).`);
+        }
+        await client.query(
+          `INSERT INTO ${tM} (
+             empresa_id, producto_id, producto_nombre, producto_sku,
+             tipo, cantidad, costo_unitario, origen, referencia, fecha,
+             created_by, usuario_nombre
+           )
+           SELECT $1::uuid, $2::uuid, $3, COALESCE(p.sku, ''),
+                  'SALIDA', $4::numeric, $5::numeric, 'merma', $6, now(),
+                  $7::uuid, $8
+             FROM ${tP} p WHERE p.id = $2::uuid`,
+          [empresaId, it.producto_id, it.producto_nombre, perdidaPreviaCant,
+           costoPrev, `Pérdida al recibir compra ${numero}: ${motivoPerdidaPrevia}`,
+           header.created_by, header.usuario_nombre]
+        );
+        await client.query(
+          `UPDATE ${tP}
+              SET stock_actual = stock_actual - $1::numeric,
+                  updated_at = now()
+            WHERE id = $2::uuid AND empresa_id = $3::uuid`,
+          [perdidaPreviaCant, it.producto_id, empresaId]
+        );
+        stockPostPerdida = stockPrev - perdidaPreviaCant;
+      }
+
       const { rows: compraRows } = await client.query<CompraRow>(
         `INSERT INTO ${tC} (
            empresa_id, proveedor_id, proveedor_nombre, producto_id, producto_nombre,
@@ -359,7 +406,8 @@ export async function insertComprasConImpacto(
       // precio_venta SOLO se actualiza si la compra trae un precio > 0 (productos
       // vendibles). Para materia prima / insumos sin precio (0 o vacío) mantenemos
       // el precio actual: nunca lo pisamos con 0 ni con un valor inventado.
-      const nuevoCPP = calcularNuevoCostoPromedio(stockPrev, costoPrev, Number(it.cantidad), Number(it.costo_unitario));
+      // stockPostPerdida == stockPrev si no hubo pérdida previa, o stockPrev - perdidaPreviaCant si sí.
+      const nuevoCPP = calcularNuevoCostoPromedio(stockPostPerdida, costoPrev, Number(it.cantidad), Number(it.costo_unitario));
       await client.query(
         `UPDATE ${tP}
             SET stock_actual = stock_actual + $1::numeric,
