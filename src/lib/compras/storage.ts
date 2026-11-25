@@ -88,6 +88,11 @@ export interface CompraItemPayload {
   unidad_compra_snapshot?: string | null;
   factor_aplicado?: number | null;
   peso_real_recibido?: number | null;
+  // Fase 2.2 — pérdida del stock previo al recibir esta compra (ciclo
+  // semanal: cajas que quedaron sin usar antes de que llegue la nueva).
+  // En unidad base del producto (unidad_medida), no en cajas.
+  cantidad_perdida_previa?: number | null;
+  motivo_perdida_previa?: string | null;
 }
 export interface CompraHeaderPayload {
   proveedor_id: string;

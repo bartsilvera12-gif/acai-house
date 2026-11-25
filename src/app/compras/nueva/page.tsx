@@ -75,7 +75,19 @@ type LineaCompra = {
   unidad_compra_snapshot: string | null;
   factor_aplicado: number | null;
   peso_real_recibido: number | null;
+  // Fase 2.2 — pérdida del stock previo (cajas que quedaron sin usar de la
+  // semana pasada y se marcan como merma al recibir esta compra).
+  cantidad_perdida_previa: number | null;
+  motivo_perdida_previa: string | null;
 };
+
+// Motivos predefinidos para "cajas que quedaron sin usar al recibir compra nueva".
+const MOTIVOS_PERDIDA_PREVIA = [
+  "No usadas de la semana anterior",
+  "Vencidas",
+  "Dañadas / mal estado",
+  "Otro",
+] as const;
 
 // ── SegmentedControl ───────────────────────────────────────────────────────────
 
@@ -132,6 +144,10 @@ export default function NuevaCompraPage() {
     precio_venta: "",
     cantidad_compra: "",      // Fase 2.1 — cuántos empaques
     peso_real_recibido: "",   // Fase 2.1 — solo si peso_variable
+    // Fase 2.2 — pérdida al recibir (cajas viejas sin usar).
+    marcar_perdida_previa: false,
+    perdida_previa: "",       // cantidad en unidad base del producto
+    motivo_perdida_previa: "No usadas de la semana anterior",
   });
 
   // Inline crear proveedor / producto
@@ -226,8 +242,17 @@ export default function NuevaCompraPage() {
   const cantidadOk = usarEmpaque
     ? nlCantCompra > 0           // al menos 1 caja
     : nlCant > 0;                // modo clásico: cantidad > 0
+
+  // Fase 2.2 — pérdida del stock previo al recibir esta compra.
+  const stockPrevio = productoSel?.stock_actual ?? 0;
+  const unidadBase = productoSel?.unidad_medida ?? "u.";
+  const nlPerdidaPrevia = parseFloat(nl.perdida_previa) || 0;
+  const perdidaPreviaExcede = nlPerdidaPrevia > stockPrevio + 1e-6;
+  const perdidaPreviaOk = !nl.marcar_perdida_previa
+    || (nlPerdidaPrevia > 0 && !perdidaPreviaExcede);
+
   const lineaLista =
-    !!nl.producto_id && cantidadOk && (esInsumoNoVendible || nlCostoPYG > 0) && (!requierePrecioVenta || nlPrecio > 0);
+    !!nl.producto_id && cantidadOk && (esInsumoNoVendible || nlCostoPYG > 0) && (!requierePrecioVenta || nlPrecio > 0) && perdidaPreviaOk;
 
   // ── Totales de la compra ───────────────────────────────────────────────────
   const totales = useMemo(() => {
@@ -260,6 +285,13 @@ export default function NuevaCompraPage() {
       return setErrorLinea("El precio de venta debe ser mayor a 0.");
     if (cab.moneda !== "PYG" && tipoCambioNum <= 0)
       return setErrorLinea(`Cargá el tipo de cambio (${cab.moneda} → Gs.) en la cabecera.`);
+    // Si marcó pérdida previa, exigir cantidad > 0 y que no exceda el stock.
+    if (nl.marcar_perdida_previa) {
+      if (nlPerdidaPrevia <= 0)
+        return setErrorLinea("Indicá cuánto del stock anterior se perdió.");
+      if (perdidaPreviaExcede)
+        return setErrorLinea(`La pérdida (${nlPerdidaPrevia}) no puede superar el stock actual (${stockPrevio} ${unidadBase}).`);
+    }
     const prod = productos.find((p) => p.id === nl.producto_id);
     if (!prod) return setErrorLinea("Producto no encontrado. Recargá e intentá de nuevo.");
 
@@ -285,9 +317,17 @@ export default function NuevaCompraPage() {
         unidad_compra_snapshot: usarEmpaque ? (pSelUnidadCompra ?? "Empaque") : null,
         factor_aplicado: usarEmpaque && factorAplicadoLinea != null && factorAplicadoLinea > 0 ? factorAplicadoLinea : null,
         peso_real_recibido: pSelPesoVar ? nlPesoReal : null,
+        // Fase 2.2 — pérdida al recibir
+        cantidad_perdida_previa: nl.marcar_perdida_previa && nlPerdidaPrevia > 0 ? nlPerdidaPrevia : null,
+        motivo_perdida_previa: nl.marcar_perdida_previa && nlPerdidaPrevia > 0 ? (nl.motivo_perdida_previa || null) : null,
       },
     ]);
-    setNl({ producto_id: "", cantidad: "", costo_unitario_input: "", iva_tipo: "10", precio_venta: "", cantidad_compra: "", peso_real_recibido: "" });
+    setNl({
+      producto_id: "", cantidad: "", costo_unitario_input: "", iva_tipo: "10",
+      precio_venta: "", cantidad_compra: "", peso_real_recibido: "",
+      marcar_perdida_previa: false, perdida_previa: "",
+      motivo_perdida_previa: "No usadas de la semana anterior",
+    });
     setProductoCreado(null);
   }
 
@@ -324,6 +364,8 @@ export default function NuevaCompraPage() {
       unidad_compra_snapshot: l.unidad_compra_snapshot,
       factor_aplicado: l.factor_aplicado,
       peso_real_recibido: l.peso_real_recibido,
+      cantidad_perdida_previa: l.cantidad_perdida_previa,
+      motivo_perdida_previa: l.motivo_perdida_previa,
     }));
 
     setSubmitting(true);
@@ -720,6 +762,67 @@ export default function NuevaCompraPage() {
                   </InlineFormBox>
                 )}
               </div>
+
+              {productoSel && stockPrevio > 0 && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2 text-xs text-slate-700 space-y-2">
+                  <label className="flex items-start gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={nl.marcar_perdida_previa}
+                      onChange={(e) => setNl((p) => ({
+                        ...p,
+                        marcar_perdida_previa: e.target.checked,
+                        perdida_previa: e.target.checked ? String(stockPrevio) : "",
+                      }))}
+                      className="mt-0.5"
+                    />
+                    <span>
+                      <strong>¿Quedaron {pSelUnidadCompra ? pluralEmpaque(pSelUnidadCompra) : "unidades"} sin usar de la semana anterior?</strong>{" "}
+                      <span className="text-slate-500">
+                        Stock actual: <strong>{stockPrevio.toLocaleString("es-PY")} {unidadBase}</strong>
+                        {pSelFactor && pSelFactor > 1 ? ` (~${(stockPrevio / pSelFactor).toFixed(1)} ${pluralEmpaque(pSelUnidadCompra)})` : ""}.
+                        Si marcás esta opción, se dan de baja como pérdida antes de sumar la compra nueva.
+                      </span>
+                    </span>
+                  </label>
+                  {nl.marcar_perdida_previa && (
+                    <div className="grid grid-cols-2 gap-2 pt-1">
+                      <div>
+                        <label className={labelSmClass}>
+                          Cantidad a dar de baja ({unidadBase}) <span className="text-red-500">*</span>
+                        </label>
+                        <input
+                          type="number"
+                          value={nl.perdida_previa}
+                          onChange={(e) => setNl((p) => ({ ...p, perdida_previa: e.target.value }))}
+                          placeholder={`Máx ${stockPrevio}`}
+                          className={`${inputSmClass} ${perdidaPreviaExcede ? "border-red-300 bg-red-50" : ""}`}
+                          min={0}
+                          max={stockPrevio}
+                          step="any"
+                        />
+                        {perdidaPreviaExcede && (
+                          <p className="mt-1 text-[11px] text-red-600">
+                            No puede superar el stock actual ({stockPrevio} {unidadBase}).
+                          </p>
+                        )}
+                      </div>
+                      <div>
+                        <label className={labelSmClass}>Motivo</label>
+                        <select
+                          value={nl.motivo_perdida_previa}
+                          onChange={(e) => setNl((p) => ({ ...p, motivo_perdida_previa: e.target.value }))}
+                          className={inputSmClass}
+                        >
+                          {MOTIVOS_PERDIDA_PREVIA.map((m) => (
+                            <option key={m} value={m}>{m}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {usarEmpaque && (
                 <div className="rounded-lg border border-sky-200 bg-sky-50/60 px-3 py-2 text-xs text-slate-700 space-y-2">
