@@ -763,12 +763,13 @@ export default function NuevaCompraPage() {
                 )}
               </div>
 
-              {productoSel && stockPrevio > 0 && (
-                <div className="rounded-lg border border-amber-200 bg-amber-50/60 px-3 py-2 text-xs text-slate-700 space-y-2">
-                  <label className="flex items-start gap-2 cursor-pointer">
+              {productoSel && (
+                <div className={`rounded-lg border px-3 py-2 text-xs text-slate-700 space-y-2 ${stockPrevio > 0 ? "border-amber-200 bg-amber-50/60" : "border-slate-200 bg-slate-50"}`}>
+                  <label className={`flex items-start gap-2 ${stockPrevio > 0 ? "cursor-pointer" : "cursor-not-allowed opacity-70"}`}>
                     <input
                       type="checkbox"
                       checked={nl.marcar_perdida_previa}
+                      disabled={stockPrevio <= 0}
                       onChange={(e) => setNl((p) => ({
                         ...p,
                         marcar_perdida_previa: e.target.checked,
@@ -778,14 +779,20 @@ export default function NuevaCompraPage() {
                     />
                     <span>
                       <strong>¿Quedaron {pSelUnidadCompra ? pluralEmpaque(pSelUnidadCompra) : "unidades"} sin usar de la semana anterior?</strong>{" "}
-                      <span className="text-slate-500">
-                        Stock actual: <strong>{stockPrevio.toLocaleString("es-PY")} {unidadBase}</strong>
-                        {pSelFactor && pSelFactor > 1 ? ` (~${(stockPrevio / pSelFactor).toFixed(1)} ${pluralEmpaque(pSelUnidadCompra)})` : ""}.
-                        Si marcás esta opción, se dan de baja como pérdida antes de sumar la compra nueva.
-                      </span>
+                      {stockPrevio > 0 ? (
+                        <span className="text-slate-500">
+                          Stock actual: <strong>{stockPrevio.toLocaleString("es-PY")} {unidadBase}</strong>
+                          {pSelFactor && pSelFactor > 1 ? ` (~${(stockPrevio / pSelFactor).toFixed(1)} ${pluralEmpaque(pSelUnidadCompra)})` : ""}.
+                          Si marcás esta opción, se dan de baja como pérdida antes de sumar la compra nueva.
+                        </span>
+                      ) : (
+                        <span className="text-slate-500">
+                          Este producto no tiene stock previo cargado. La opción se habilita cuando quede stock remanente (ej. desde la próxima compra).
+                        </span>
+                      )}
                     </span>
                   </label>
-                  {nl.marcar_perdida_previa && (
+                  {nl.marcar_perdida_previa && stockPrevio > 0 && (
                     <div className="grid grid-cols-2 gap-2 pt-1">
                       <div>
                         <label className={labelSmClass}>
