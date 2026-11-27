@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { createServiceRoleClientWithDbSchema } from "@/lib/supabase/empresa-data-schema";
 import { convertirCantidad } from "@/lib/unidades/convert";
 import { consumoAutoInsumosActivo } from "@/lib/inventario/consumo-auto-flag";
+import { crearVentaAtomica, type CrearVentaAtomicaPayload } from "./rpc-crear-venta-atomica";
 
 /** Un faltante de stock detectado al validar la venta. */
 export interface FaltanteStock {
@@ -39,6 +40,13 @@ export interface CreateVentaItemAdicionalInput {
   cantidad?: number;
 }
 
+export interface CreateVentaItemVarianteInput {
+  /** FK a receta_grupos_variante.id — identifica el grupo (chocolate/bis/oreo) */
+  grupo_id: string;
+  /** FK a receta_grupo_opciones.id — la opción elegida por el cliente (snapshot aparte) */
+  opcion_id: string;
+}
+
 export interface CreateVentaItemInput {
   producto_id: string;
   producto_nombre: string;
@@ -57,6 +65,13 @@ export interface CreateVentaItemInput {
   presentacion_id?: string | null;
   /** Adicionales aplicados a esta línea (se insertan como filas hijas en venta_item_adicionales). */
   adicionales?: CreateVentaItemAdicionalInput[];
+  /**
+   * Fase 2.2 Parte 4: variantes elegidas por el cliente en los grupos obligatorios
+   * de la receta activa. La selección NO modifica el precio. Se persiste snapshot
+   * inmutable en venta_item_variantes y se descuenta stock del insumo elegido
+   * cuando el consumo automático está activo.
+   */
+  variantes_elegidas?: CreateVentaItemVarianteInput[];
 }
 
 export interface CreateVentaPedidoCocinaInput {
@@ -380,14 +395,17 @@ export async function createVentaTransaccionalPg(
   //  - Si la línea NO envía presentacion_id → usa receta base (presentacion_id IS NULL).
   //    Si el producto tiene recetas por presentación activas pero la venta no indica cuál,
   //    NO se descuenta (evita descontar la receta equivocada).
-  const recetasQ = consumoInsumosActivo
-    ? await sb
-        .from("recetas")
-        .select("id, producto_id, presentacion_id, rendimiento_cantidad")
-        .eq("empresa_id", params.empresaId)
-        .eq("activa", true)
-        .in("producto_id", ids)
-    : { data: [] as unknown[], error: null };
+  // Fase 2.2 Parte 4: cargar recetas SIEMPRE (no solo cuando el consumo auto
+  // está activo). La validación de variantes obligatorias y la persistencia de
+  // su snapshot (venta_item_variantes) son parte del REGISTRO de la venta y
+  // deben ocurrir con independencia del flag. Solo el DESCUENTO de stock de
+  // insumos queda gateado por `consumoInsumosActivo` (ver bloques más abajo).
+  const recetasQ = await sb
+    .from("recetas")
+    .select("id, producto_id, presentacion_id, rendimiento_cantidad")
+    .eq("empresa_id", params.empresaId)
+    .eq("activa", true)
+    .in("producto_id", ids);
   if (recetasQ.error) throw new Error(recetasQ.error.message);
   const recetaRows = (recetasQ.data ?? []) as unknown as Array<{
     id: string;
@@ -503,54 +521,241 @@ export async function createVentaTransaccionalPg(
       }
     }
 
-    // Agregar consumo POR LÍNEA (no por producto agregado): cada línea aporta su presentacion_id
-    // si está presente. Esto evita descontar la receta equivocada para presentaciones distintas
-    // del mismo producto. CONVIRTIENDO la cantidad del ítem a la unidad del insumo.
-    const recetasSinCobertura: string[] = []; // líneas que no encontraron receta para su presentación
-    for (const line of params.items) {
-      const pid = line.producto_id;
-      const idx = recetasByProducto.get(pid);
-      if (!idx) continue; // sin recetas para ese producto → cae en descuento de stock propio (3a)
-      let rec: RecetaIdx | undefined;
-      if (line.presentacion_id) {
-        rec = idx.byPresentacion.get(line.presentacion_id);
-        if (!rec) {
-          // La presentación vendida no tiene receta propia Y hay presentaciones con receta
-          // activa → NO caemos a la base (sería la receta equivocada). Dejamos sin descuento
-          // y avisamos. Si no hay NADA de presentaciones (byPresentacion vacío), usaremos base.
+    // Agregar consumo POR LÍNEA. Fase 2.2 Parte 4: el descuento de insumos por
+    // receta BASE queda gateado por el flag; la validación de variantes y el
+    // snapshot (bloque siguiente) NO dependen del flag.
+    if (consumoInsumosActivo) {
+      const recetasSinCobertura: string[] = []; // líneas que no encontraron receta para su presentación
+      for (const line of params.items) {
+        const pid = line.producto_id;
+        const idx = recetasByProducto.get(pid);
+        if (!idx) continue;
+        let rec: RecetaIdx | undefined;
+        if (line.presentacion_id) {
+          rec = idx.byPresentacion.get(line.presentacion_id);
+          if (!rec) {
+            if (idx.byPresentacion.size === 0 && idx.base) rec = idx.base;
+          }
+        } else {
           if (idx.byPresentacion.size === 0 && idx.base) rec = idx.base;
         }
-      } else {
-        // Sin presentacion_id en la línea: solo se usa la base si el producto NO tiene
-        // recetas por presentación. Si las tiene, el vendedor debió elegir tamaño → no descontar.
-        if (idx.byPresentacion.size === 0 && idx.base) rec = idx.base;
-      }
-      if (!rec) {
-        const nombre = stockMap.get(pid)?.nombre ?? pid;
-        if (!recetasSinCobertura.includes(nombre)) recetasSinCobertura.push(nombre);
-        continue;
-      }
-      const qtySold = Number(line.cantidad) || 0;
-      if (!(qtySold > 0)) continue;
-      for (const ri of itemsByReceta.get(rec.id) ?? []) {
-        const meta = insumoMeta.get(ri.insumo_producto_id);
-        const unidadInsumo = meta?.unidad ?? null;
-        const cantConv = (ri.unidad_item == null || unidadInsumo == null)
-          ? ri.cantidad
-          : convertirCantidad(ri.cantidad, ri.unidad_item, unidadInsumo);
-        if (cantConv == null) {
-          const nombre = meta?.nombre ?? ri.insumo_producto_id;
-          if (!insumosIncompatibles.includes(nombre)) insumosIncompatibles.push(nombre);
+        if (!rec) {
+          const nombre = stockMap.get(pid)?.nombre ?? pid;
+          if (!recetasSinCobertura.includes(nombre)) recetasSinCobertura.push(nombre);
           continue;
         }
-        const consumo = (qtySold * cantConv * (1 + ri.merma_pct)) / rec.rendimiento;
-        if (!(consumo > 0)) continue;
-        insumoNeed.set(ri.insumo_producto_id, (insumoNeed.get(ri.insumo_producto_id) ?? 0) + consumo);
+        const qtySold = Number(line.cantidad) || 0;
+        if (!(qtySold > 0)) continue;
+        for (const ri of itemsByReceta.get(rec.id) ?? []) {
+          const meta = insumoMeta.get(ri.insumo_producto_id);
+          const unidadInsumo = meta?.unidad ?? null;
+          const cantConv = (ri.unidad_item == null || unidadInsumo == null)
+            ? ri.cantidad
+            : convertirCantidad(ri.cantidad, ri.unidad_item, unidadInsumo);
+          if (cantConv == null) {
+            const nombre = meta?.nombre ?? ri.insumo_producto_id;
+            if (!insumosIncompatibles.includes(nombre)) insumosIncompatibles.push(nombre);
+            continue;
+          }
+          const consumo = (qtySold * cantConv * (1 + ri.merma_pct)) / rec.rendimiento;
+          if (!(consumo > 0)) continue;
+          insumoNeed.set(ri.insumo_producto_id, (insumoNeed.get(ri.insumo_producto_id) ?? 0) + consumo);
+        }
+      }
+      if (recetasSinCobertura.length > 0) {
+        console.warn("[create-venta-pg] presentaciones vendidas sin receta específica (no descuentan insumos):",
+          recetasSinCobertura.join(", "));
       }
     }
-    if (recetasSinCobertura.length > 0) {
-      console.warn("[create-venta-pg] presentaciones vendidas sin receta específica (no descuentan insumos):",
-        recetasSinCobertura.join(", "));
+  }
+
+  // ───────── Fase 2.2 Parte 4: variantes obligatorias de receta ─────────
+  // Carga de grupos de variantes + opciones para todas las recetas que aplican
+  // a alguna línea. Valida:
+  //   · toda receta con grupos obligatorios recibe la selección completa en la línea;
+  //   · grupos no duplicados por línea; opción pertenece al grupo declarado;
+  //   · ningún grupo-opción "cruzado" (otro producto/presentación).
+  // Agrega al `insumoNeed` el consumo de la opción elegida (misma lógica de
+  // conversión y merma que los items base). Guarda `variantesSnapshotPorLinea`
+  // para persistirlo como snapshot inmutable después del INSERT de ventas_items.
+  type GrupoRow = { id: string; receta_id: string; codigo: string; etiqueta: string; obligatorio: boolean; orden: number };
+  type OpcionRow = { id: string; grupo_id: string; insumo_producto_id: string; cantidad: number; unidad_medida: string; merma_pct: number; etiqueta: string };
+  type VarianteSnapshot = {
+    grupo_id: string;
+    opcion_id: string;
+    grupo_codigo: string;
+    grupo_etiqueta: string;
+    opcion_etiqueta: string;
+    insumo_producto_id: string;
+    insumo_sku: string;
+    insumo_nombre: string;
+    cantidad: number;
+    unidad_medida: string;
+    merma_pct: number;
+    /** Costo histórico del insumo al momento de la venta (snapshot inmutable). */
+    costo_unitario_snapshot: number;
+  };
+  const gruposPorReceta = new Map<string, Array<GrupoRow & { opciones: Map<string, OpcionRow> }>>();
+  const variantesSnapshotPorLinea: VarianteSnapshot[][] = params.items.map(() => []);
+  if (recetaRows.length) {
+    const recetaIdsForGrupos = recetaRows.map((r) => r.id);
+    const gq = await sb
+      .from("receta_grupos_variante")
+      .select("id, receta_id, codigo, etiqueta, obligatorio, orden")
+      .eq("empresa_id", params.empresaId)
+      .in("receta_id", recetaIdsForGrupos);
+    if (gq.error) throw new Error(gq.error.message);
+    const grupos = (gq.data ?? []) as unknown as GrupoRow[];
+    if (grupos.length > 0) {
+      const grupoIds = grupos.map((g) => g.id);
+      const oq = await sb
+        .from("receta_grupo_opciones")
+        .select("id, grupo_id, insumo_producto_id, cantidad, unidad_medida, merma_pct, etiqueta")
+        .eq("empresa_id", params.empresaId)
+        .in("grupo_id", grupoIds);
+      if (oq.error) throw new Error(oq.error.message);
+      const opcionesPorGrupo = new Map<string, Map<string, OpcionRow>>();
+      for (const row of (oq.data ?? []) as unknown as OpcionRow[]) {
+        const rowNorm: OpcionRow = {
+          ...row,
+          cantidad: Number(row.cantidad),
+          merma_pct: Number(row.merma_pct ?? 0),
+        };
+        const mp = opcionesPorGrupo.get(row.grupo_id) ?? new Map<string, OpcionRow>();
+        mp.set(row.id, rowNorm);
+        opcionesPorGrupo.set(row.grupo_id, mp);
+      }
+      for (const g of grupos) {
+        const arr = gruposPorReceta.get(g.receta_id) ?? [];
+        arr.push({ ...g, opciones: opcionesPorGrupo.get(g.id) ?? new Map() });
+        gruposPorReceta.set(g.receta_id, arr);
+      }
+      // Cargar meta de los insumos de variantes (puede haber ids nuevos no incluidos
+      // en insumoMeta — los que solo aparecen como opción, no como receta_item).
+      const varInsumoIds = new Set<string>();
+      for (const mp of opcionesPorGrupo.values()) for (const op of mp.values()) {
+        if (!insumoMeta.has(op.insumo_producto_id)) varInsumoIds.add(op.insumo_producto_id);
+      }
+      if (varInsumoIds.size > 0) {
+        const insQV = await sb
+          .from("productos")
+          .select("id, stock_actual, costo_promedio, nombre, sku, unidad_medida")
+          .eq("empresa_id", params.empresaId)
+          .in("id", [...varInsumoIds]);
+        if (insQV.error) throw new Error(insQV.error.message);
+        for (const r of (insQV.data ?? []) as unknown as Array<{
+          id: string; stock_actual: number | string; costo_promedio: number | string;
+          nombre: string; sku: string; unidad_medida: string | null;
+        }>) {
+          insumoMeta.set(r.id, {
+            stock: Number(r.stock_actual), costo: Number(r.costo_promedio),
+            nombre: r.nombre, sku: r.sku, unidad: r.unidad_medida ?? null,
+          });
+        }
+      }
+
+      // Validación por línea + consumo + snapshot.
+      for (let i = 0; i < params.items.length; i++) {
+        const line = params.items[i]!;
+        const pid = line.producto_id;
+        const idx = recetasByProducto.get(pid);
+        if (!idx) {
+          if ((line.variantes_elegidas ?? []).length > 0) {
+            throw new Error(`Línea ${i + 1} (${line.producto_nombre}): no tiene receta, no debe enviar variantes.`);
+          }
+          continue;
+        }
+        let rec: RecetaIdx | undefined;
+        if (line.presentacion_id) {
+          rec = idx.byPresentacion.get(line.presentacion_id) ?? (idx.byPresentacion.size === 0 ? idx.base : undefined);
+        } else if (idx.byPresentacion.size === 0) {
+          rec = idx.base;
+        }
+        if (!rec) {
+          if ((line.variantes_elegidas ?? []).length > 0) {
+            throw new Error(`Línea ${i + 1}: la presentación vendida no tiene receta, no se pueden mandar variantes.`);
+          }
+          continue;
+        }
+        const gruposDeReceta = gruposPorReceta.get(rec.id) ?? [];
+        const obligatorios = gruposDeReceta.filter((g) => g.obligatorio);
+        const seleccion = line.variantes_elegidas ?? [];
+
+        // Grupos duplicados en la misma línea.
+        const seenGrupo = new Set<string>();
+        for (const v of seleccion) {
+          if (seenGrupo.has(v.grupo_id)) {
+            throw new Error(`Línea ${i + 1}: grupo repetido en la selección de variantes.`);
+          }
+          seenGrupo.add(v.grupo_id);
+        }
+        // Toda selección debe apuntar a un grupo+opción de ESTA receta.
+        const grupoById = new Map(gruposDeReceta.map((g) => [g.id, g]));
+        for (const v of seleccion) {
+          const g = grupoById.get(v.grupo_id);
+          if (!g) {
+            throw new Error(`Línea ${i + 1}: grupo ${v.grupo_id} no pertenece a la receta "${rec.id}".`);
+          }
+          const op = g.opciones.get(v.opcion_id);
+          if (!op) {
+            throw new Error(`Línea ${i + 1} (${g.etiqueta}): opción ${v.opcion_id} no pertenece al grupo.`);
+          }
+        }
+        // Todos los grupos obligatorios tienen que estar presentes.
+        for (const g of obligatorios) {
+          const hit = seleccion.find((v) => v.grupo_id === g.id);
+          if (!hit) {
+            throw new Error(`Línea ${i + 1} (${line.producto_nombre}): falta elegir "${g.etiqueta}".`);
+          }
+        }
+
+        // Consumo + snapshot.
+        const qtySold = Number(line.cantidad) || 0;
+        for (const v of seleccion) {
+          const g = grupoById.get(v.grupo_id)!;
+          const op = g.opciones.get(v.opcion_id)!;
+          const meta = insumoMeta.get(op.insumo_producto_id);
+          if (!meta) throw new Error(`Línea ${i + 1} (${g.etiqueta}): insumo de la opción no existe o no es accesible.`);
+          variantesSnapshotPorLinea[i]!.push({
+            grupo_id: g.id,
+            opcion_id: op.id,
+            grupo_codigo: g.codigo,
+            grupo_etiqueta: g.etiqueta,
+            opcion_etiqueta: op.etiqueta,
+            insumo_producto_id: op.insumo_producto_id,
+            insumo_sku: meta.sku,
+            insumo_nombre: meta.nombre,
+            cantidad: op.cantidad,
+            unidad_medida: op.unidad_medida,
+            merma_pct: op.merma_pct,
+            // Capturamos costo del insumo al momento de la venta. Es el costo
+            // histórico — si después cambia productos.costo_promedio, esta
+            // fila queda con el valor del día de la venta.
+            costo_unitario_snapshot: meta.costo,
+          });
+          if (consumoInsumosActivo && qtySold > 0) {
+            const unidadInsumo = meta.unidad;
+            const cantConv = (unidadInsumo == null || !op.unidad_medida)
+              ? op.cantidad
+              : convertirCantidad(op.cantidad, op.unidad_medida, unidadInsumo);
+            if (cantConv == null) {
+              if (!insumosIncompatibles.includes(meta.nombre)) insumosIncompatibles.push(meta.nombre);
+              continue;
+            }
+            const consumo = (qtySold * cantConv * (1 + op.merma_pct)) / rec.rendimiento;
+            if (consumo > 0) {
+              insumoNeed.set(op.insumo_producto_id, (insumoNeed.get(op.insumo_producto_id) ?? 0) + consumo);
+            }
+          }
+        }
+      }
+    } else {
+      // No hay grupos declarados para ninguna receta activa — las líneas no deben traer variantes.
+      for (let i = 0; i < params.items.length; i++) {
+        if ((params.items[i]!.variantes_elegidas ?? []).length > 0) {
+          throw new Error(`Línea ${i + 1}: la receta no define grupos de variante.`);
+        }
+      }
     }
   }
 
@@ -710,76 +915,75 @@ export async function createVentaTransaccionalPg(
     notaRemisionNumero = `NR-${String(nextNr).padStart(6, "0")}`;
   }
 
-  // 5) Insertar venta
-  const insVenta = await sb
-    .from("ventas")
-    .insert({
-      empresa_id: params.empresaId,
-      cliente_id: params.clienteId,
-      numero_control: numeroControl,
-      moneda: params.moneda,
-      tipo_cambio: params.tipoCambio,
-      subtotal: calc.subtotal,
-      monto_iva: calc.montoIva,
-      total: calc.total,
-      estado: "completada",
-      tipo_venta: params.tipoVenta,
-      plazo_dias: params.plazoDias,
-      metodo_pago: params.metodoPago,
-      genera_nota_remision: generaNota,
-      nota_remision_numero: notaRemisionNumero,
-      fecha: fechaIso,
-      observaciones: observacionesFinal,
-      caja_id: params.cajaId ?? null,
-    })
-    .select("id")
-    .single();
-  if (insVenta.error) throw new Error(insVenta.error.message);
-  const ventaId = String((insVenta.data as { id: string }).id);
-
-  // Helper de rollback best-effort.
-  // IMPORTANTE: borramos venta_item_adicionales explícitamente antes que ventas_items
-  // (el CASCADE lo cubriría igual, pero preferimos borrado dirigido por si en el
-  // futuro la FK cambia de modo).
-  const rollback = async () => {
-    try {
-      await sb.from("cuentas_por_cobrar").delete().eq("venta_id", ventaId).eq("empresa_id", params.empresaId);
-    } catch {}
-    try {
-      await sb.from("movimientos_inventario").delete().eq("venta_id", ventaId).eq("empresa_id", params.empresaId);
-    } catch {}
-    // Hijos de ventas_items: usamos los ids pre-generados (orden-independiente
-    // y disponibles aunque el insert haya fallado a mitad de camino).
-    try {
-      if (preGeneratedItemIds.length > 0) {
-        await sb
-          .from("venta_item_adicionales")
-          .delete()
-          .eq("empresa_id", params.empresaId)
-          .in("venta_item_id", preGeneratedItemIds);
-      }
-    } catch {}
-    try {
-      await sb.from("ventas_items").delete().eq("venta_id", ventaId).eq("empresa_id", params.empresaId);
-    } catch {}
-    try {
-      await sb.from("ventas").delete().eq("id", ventaId).eq("empresa_id", params.empresaId);
-    } catch {}
-  };
-
-  // Pre-generar los UUIDs de ventas_items.id ANTES del insert. De esta forma:
-  //   1) la asociación línea → item_id es inequívoca (no dependemos del orden
-  //      en que PostgREST devuelve filas, que no está garantizado);
-  //   2) el rollback puede borrar venta_item_adicionales por venta_item_id aun
-  //      si el insert falló antes de responder.
+  // 5) VENTA ATÓMICA. Reemplaza inserts secuenciales + rollback best-effort
+  //    por una única llamada a fn_crear_venta_atomica (PL/pgSQL): ventas +
+  //    ventas_items + venta_item_adicionales + venta_item_variantes +
+  //    cuentas_por_cobrar + stock_deltas (UPDATE productos + INSERT
+  //    movimientos_inventario con FOR UPDATE). Si CUALQUIER paso falla,
+  //    PostgreSQL hace rollback automático; no hay estado parcial.
+  //
+  //    Lo que queda FUERA de la atomicidad (por diseño existente): la tarjeta
+  //    de pedido_cocina en `proyectos`, que es visibilidad para cocina y no
+  //    integridad de la venta — se inserta después del COMMIT.
   const preGeneratedItemIds: string[] = items.map(() => randomUUID());
 
-  try {
-    // 6) Insertar items (bulk) con id explícito por línea.
-    const itemsRows = items.map((line, i) => ({
-      id: preGeneratedItemIds[i],
-      empresa_id: params.empresaId,
-      venta_id: ventaId,
+  // Preparar stock_deltas: productos controla_stock=true SIN receta siempre
+  // descuentan; los insumos (insumoNeed) descuentan solo si consumo auto ON.
+  const stockDeltas: CrearVentaAtomicaPayload["stock_deltas"] = [];
+  for (const line of items) {
+    const p = stockMap.get(line.producto_id)!;
+    if (recetasByProducto.has(line.producto_id)) continue;
+    if (!p.controlaStock && p.modo !== "produccion_previa") continue;
+    stockDeltas.push({
+      producto_id: line.producto_id,
+      delta_qty: Number(line.cantidad),
+      movimiento: {
+        tipo: "SALIDA", origen: "venta", referencia: numeroControl,
+        created_by: params.createdBy ?? null, usuario_nombre: params.usuarioNombre ?? null,
+      },
+    });
+  }
+  if (consumoInsumosActivo) {
+    for (const [insId, need] of insumoNeed) {
+      if (!(need > 0)) continue;
+      stockDeltas.push({
+        producto_id: insId,
+        delta_qty: need,
+        movimiento: {
+          tipo: "SALIDA", origen: "venta", referencia: numeroControl,
+          created_by: params.createdBy ?? null, usuario_nombre: params.usuarioNombre ?? null,
+        },
+      });
+    }
+  }
+
+  // Armar payload de items (snapshot de adicionales con precio del catálogo,
+  // y variantes como SOLO {grupo_id, opcion_id} — el resto del snapshot lo
+  // calcula la RPC server-side para evitar inyección).
+  const payloadItems: CrearVentaAtomicaPayload["items"] = items.map((line, i) => {
+    const adicionales = (line.adicionales ?? []).map((ad) => {
+      const cat = ad.adicional_id ? adicionalById.get(ad.adicional_id) : null;
+      const nombre = (cat?.nombre ?? ad.nombre ?? "").trim();
+      const precio = cat ? cat.precio : Number(ad.precio_unitario);
+      if (!nombre || !Number.isFinite(precio) || precio < 0) {
+        throw new Error(`Adicional inválido en la línea ${i + 1}.`);
+      }
+      return {
+        adicional_id: ad.adicional_id || null,
+        adicional_nombre: nombre.slice(0, 120),
+        precio_unitario: precio,
+        cantidad: ad.cantidad && ad.cantidad > 0 ? Math.floor(ad.cantidad) : 1,
+      };
+    });
+    // Variantes: solo grupo_id + opcion_id. La RPC verifica la correspondencia
+    // y rellena cantidad/unidad/merma/costo del server. variantesSnapshotPorLinea
+    // está pre-validado en TS para dar errores HTTP claros antes del RPC.
+    const variantes = (variantesSnapshotPorLinea[i] ?? []).map((snap) => ({
+      grupo_id: snap.grupo_id,
+      opcion_id: snap.opcion_id,
+    }));
+    return {
+      id: preGeneratedItemIds[i]!,
       producto_id: line.producto_id,
       producto_nombre: line.producto_nombre,
       sku: line.sku,
@@ -793,114 +997,77 @@ export async function createVentaTransaccionalPg(
       total_linea: line.total_linea,
       nota: line.nota ?? null,
       presentacion_id: line.presentacion_id ?? null,
-    }));
-    const insItems = await sb.from("ventas_items").insert(itemsRows);
-    if (insItems.error) throw new Error(insItems.error.message);
+      adicionales,
+      variantes,
+    };
+  });
 
-    // 6.b) Insertar adicionales por línea. BLOQUEANTE: si falla, re-lanzamos
-    //      para que el catch externo ejecute `rollback()` y la venta no quede
-    //      persistida con adicionales faltantes.
-    const adicionalesRows: Array<Record<string, unknown>> = [];
-    items.forEach((line, i) => {
-      const itemId = preGeneratedItemIds[i];
-      for (const ad of line.adicionales ?? []) {
-        // Snapshot (nombre+precio): si vino adicional_id, usamos nombre/precio
-        // del catálogo (ya cargado y validado en el pre-flight). Si no, usamos
-        // los valores del cliente (compatibilidad con adicionales ad-hoc).
-        const cat = ad.adicional_id ? adicionalById.get(ad.adicional_id) : null;
-        const nombre = (cat?.nombre ?? ad.nombre ?? "").trim();
-        const precio = cat ? cat.precio : Number(ad.precio_unitario);
-        if (!nombre || !Number.isFinite(precio) || precio < 0) {
-          throw new Error(`Adicional inválido en la línea ${i + 1}.`);
-        }
-        adicionalesRows.push({
-          empresa_id: params.empresaId,
-          venta_item_id: itemId,
-          adicional_id: ad.adicional_id || null,
-          adicional_nombre: nombre.slice(0, 120),
-          precio_unitario: precio,
-          cantidad: ad.cantidad && ad.cantidad > 0 ? Math.floor(ad.cantidad) : 1,
-        });
-      }
-    });
-    if (adicionalesRows.length > 0) {
-      const insAd = await sb.from("venta_item_adicionales").insert(adicionalesRows);
-      if (insAd.error) {
-        throw new Error(`No se pudieron registrar los adicionales: ${insAd.error.message}`);
-      }
+  // Preparar CxC si aplica.
+  let cxcPayload: CrearVentaAtomicaPayload["cxc"] = null;
+  if (params.tipoVenta === "CREDITO" && params.clienteId) {
+    let fechaVencimiento: string | null = null;
+    if (params.fechaVencimiento) fechaVencimiento = params.fechaVencimiento;
+    else if (params.plazoDias && params.plazoDias > 0) {
+      const d = new Date(fechaIso);
+      d.setDate(d.getDate() + params.plazoDias);
+      fechaVencimiento = d.toISOString().slice(0, 10);
     }
+    if (!fechaVencimiento) fechaVencimiento = fechaIso.slice(0, 10);
+    cxcPayload = {
+      numero_cuota: 1, monto: calc.total, saldo: calc.total,
+      fecha_vencimiento: fechaVencimiento,
+    };
+  }
 
-    // 7) Descuento de stock + movimientos solo para productos con controla_stock=true SIN receta.
-    for (const line of items) {
-      const p = stockMap.get(line.producto_id)!;
-      // Fase 2.2: cualquier receta activa (base o por presentación) → stock vía insumos.
-      if (recetasByProducto.has(line.producto_id)) continue;
-      // produccion_previa: descuenta su propio stock del terminado aunque controla_stock=false.
-      if (!p.controlaStock && p.modo !== "produccion_previa") continue;
-      // El stock nunca baja de 0: si se vendió sin stock, queda en 0 (la cantidad real
-      // vendida queda registrada en el movimiento SALIDA, así no se pierde trazabilidad).
-      const nuevoStock = Math.max(0, p.stock - line.cantidad);
-      const upd = await sb
-        .from("productos")
-        .update({ stock_actual: nuevoStock })
-        .eq("id", line.producto_id)
-        .eq("empresa_id", params.empresaId);
-      if (upd.error) throw new Error(upd.error.message);
-      p.stock = nuevoStock;
+  // Resumen de tipo_iva a nivel venta: usamos el del primer item o calc.
+  const tipoIvaResumen = items[0]?.tipo_iva ?? "EXENTA";
+  const rpcPayload: CrearVentaAtomicaPayload = {
+    empresa_id: params.empresaId,
+    permitir_sin_stock: !!params.permitirSinStock,
+    venta: {
+      numero_control: numeroControl,
+      fecha: fechaIso,
+      total: calc.total,
+      subtotal: calc.subtotal,
+      monto_iva: calc.montoIva,
+      tipo_iva_resumen: tipoIvaResumen,
+      tipo_venta: params.tipoVenta,
+      plazo_dias: params.plazoDias ?? null,
+      fecha_vencimiento: null,
+      moneda: params.moneda,
+      tipo_cambio: params.tipoCambio,
+      cliente_id: params.clienteId ?? null,
+      observaciones: observacionesFinal,
+      metodo_pago: params.metodoPago ?? null,
+      caja_id: params.cajaId ?? null,
+      created_by: params.createdBy ?? null,
+      usuario_nombre: params.usuarioNombre ?? null,
+      genera_nota_remision: generaNota,
+    },
+    items: payloadItems,
+    cxc: cxcPayload,
+    stock_deltas: stockDeltas,
+  };
+  const rpcResult = await crearVentaAtomica(sb, rpcPayload);
+  const ventaId = rpcResult.venta_id;
 
-      const mov = await sb.from("movimientos_inventario").insert({
-        empresa_id: params.empresaId,
-        producto_id: line.producto_id,
-        producto_nombre: line.producto_nombre,
-        producto_sku: line.sku,
-        tipo: "SALIDA",
-        cantidad: line.cantidad,
-        costo_unitario: p.costo,
-        origen: "venta",
-        referencia: numeroControl,
-        fecha: fechaIso,
-        venta_id: ventaId,
-        created_by: params.createdBy ?? null,
-        usuario_nombre: params.usuarioNombre ?? null,
-      });
-      if (mov.error) throw new Error(mov.error.message);
-    }
+  // Para compatibilidad con el response legacy: el nota_remision_numero y la
+  // cuenta_por_cobrar quedaron creados dentro de la RPC. Recuperamos el id de
+  // la CxC si era crédito (lectura simple, no afecta atomicidad).
+  let cuentaPorCobrarId: string | null = null;
+  if (cxcPayload) {
+    const cxcQ = await sb.from("cuentas_por_cobrar").select("id").eq("venta_id", ventaId).eq("empresa_id", params.empresaId).maybeSingle();
+    if (!cxcQ.error && cxcQ.data) cuentaPorCobrarId = String((cxcQ.data as { id: string }).id);
+  }
 
-    // 7b) Descontar materia prima (insumos) por explosión de receta + movimiento SALIDA por insumo.
-    for (const [insId, need] of insumoNeed) {
-      const m = insumoMeta.get(insId)!;
-      // Igual que productos: el stock de insumos nunca baja de 0 (la salida real
-      // queda registrada en el movimiento SALIDA del insumo).
-      const nuevoStock = Math.max(0, m.stock - need);
-      const upd = await sb
-        .from("productos")
-        .update({ stock_actual: nuevoStock })
-        .eq("id", insId)
-        .eq("empresa_id", params.empresaId);
-      if (upd.error) throw new Error(upd.error.message);
-      m.stock = nuevoStock;
+  // Avisar incompatibilidades como warning (no bloqueante).
+  if (insumosIncompatibles.length > 0) {
+    console.warn("[create-venta-pg] insumos con unidades incompatibles:", insumosIncompatibles.join(", "));
+  }
 
-      const mov = await sb.from("movimientos_inventario").insert({
-        empresa_id: params.empresaId,
-        producto_id: insId,
-        producto_nombre: m.nombre,
-        producto_sku: m.sku,
-        tipo: "SALIDA",
-        cantidad: need,
-        costo_unitario: m.costo,
-        // origen restringido por CHECK a compra|venta|ajuste_manual|inventario_inicial.
-        // El consumo de insumo lo causa una venta → 'venta' (se distingue por venta_id + producto insumo).
-        origen: "venta",
-        referencia: numeroControl,
-        fecha: fechaIso,
-        venta_id: ventaId,
-        created_by: params.createdBy ?? null,
-        usuario_nombre: params.usuarioNombre ?? null,
-      });
-      if (mov.error) throw new Error(mov.error.message);
-    }
-
-    // 8) Pedido cocina (tarjeta en proyectos)
+  try {
+    // 8) Pedido cocina (tarjeta en proyectos). Queda FUERA de la atomicidad
+    //    de la venta — si falla se registra como warning y la venta igual queda.
     if (params.pedidoCocina) {
       const tipoQ = await sb
         .from("proyecto_tipos")
@@ -977,46 +1144,17 @@ export async function createVentaTransaccionalPg(
         brief_data: briefData,
         metadata,
       });
-      if (insProy.error) throw new Error(insProy.error.message);
-    }
-
-    // 9) Cuenta por cobrar (solo CRÉDITO con cliente). El saldo inicial = total de la venta;
-    //    estado 'pendiente'. NO afecta stock ni movimientos: es cobranza. Un índice único
-    //    sobre venta_id impide CxC duplicada si la venta se reintentara.
-    let cuentaPorCobrarId: string | null = null;
-    if (params.tipoVenta === "CREDITO" && params.clienteId) {
-      const fechaEmision = fechaIso.slice(0, 10);
-      let fechaVencimiento: string | null = null;
-      if (params.fechaVencimiento) {
-        fechaVencimiento = params.fechaVencimiento;
-      } else if (params.plazoDias && params.plazoDias > 0) {
-        const d = new Date(fechaIso);
-        d.setDate(d.getDate() + params.plazoDias);
-        fechaVencimiento = d.toISOString().slice(0, 10);
+      if (insProy.error) {
+        // El pedido_cocina NO es parte de la atomicidad de la venta. Si falla,
+        // dejamos warning y continuamos — la venta ya está persistida y correcta.
+        console.warn(`[create-venta-pg] pedido_cocina insert falló: ${insProy.error.message}`);
       }
-      const insCxc = await sb
-        .from("cuentas_por_cobrar")
-        .insert({
-          empresa_id: params.empresaId,
-          cliente_id: params.clienteId,
-          venta_id: ventaId,
-          numero_venta: numeroControl,
-          fecha_emision: fechaEmision,
-          fecha_vencimiento: fechaVencimiento,
-          moneda: params.moneda === "USD" ? "USD" : "PYG",
-          total: calc.total,
-          saldo: calc.total,
-          estado: "pendiente",
-        })
-        .select("id")
-        .single();
-      if (insCxc.error) throw new Error(insCxc.error.message);
-      cuentaPorCobrarId = String((insCxc.data as { id: string }).id);
     }
-
-    return { ventaId, numeroControl, fechaIso, notaRemisionNumero, cuentaPorCobrarId };
   } catch (err) {
-    await rollback();
-    throw err;
+    // pedido_cocina es best-effort post-RPC. La venta ya está persistida.
+    console.warn(`[create-venta-pg] post-RPC error (no bloqueante):`, err instanceof Error ? err.message : err);
   }
+
+  // La cuenta_por_cobrar ya fue creada DENTRO de fn_crear_venta_atomica.
+  return { ventaId, numeroControl, fechaIso, notaRemisionNumero, cuentaPorCobrarId };
 }

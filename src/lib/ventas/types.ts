@@ -14,6 +14,17 @@ export interface AdicionalLinea {
   precio: number;
 }
 
+/** Variante obligatoria elegida por el cliente (Fase 2.2 Parte 4 Açaí House).
+ *  grupo_id apunta a receta_grupos_variante; opcion_id a receta_grupo_opciones.
+ *  La selección NO modifica el precio. */
+export interface VarianteElegida {
+  grupo_id: string;
+  opcion_id: string;
+  /** Snapshot visible — solo para render en el carrito. Se re-arma en backend al snapshot DB. */
+  grupo_etiqueta?: string;
+  opcion_etiqueta?: string;
+}
+
 /** Un ítem dentro de una venta (una línea de producto). */
 export interface LineaVenta {
   producto_id:           string;
@@ -35,6 +46,8 @@ export interface LineaVenta {
   presentacion_nombre?:  string | null;
   /** Adicionales sumados al precio de la línea. */
   adicionales?:          AdicionalLinea[];
+  /** Variantes obligatorias elegidas (chocolate/bis/oreo…). No modifican precio. */
+  variantes_elegidas?:   VarianteElegida[];
 }
 
 /** Cabecera de venta: condiciones comerciales + totales consolidados. */

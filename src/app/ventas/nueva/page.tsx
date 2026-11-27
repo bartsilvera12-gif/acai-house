@@ -6,8 +6,10 @@ import MontoInput from "@/components/ui/MontoInput";
 import ProductPickerModal, { type ProductoPickerItem, type AgregarVentaPayload } from "@/components/inventario/ProductPickerModal";
 import { saveVenta, type FaltanteStock } from "@/lib/ventas/storage";
 import { getProductos } from "@/lib/inventario/storage";
-import type { TipoIvaVenta, TipoVenta, MonedaVenta, LineaVenta, MetodoPago, TipoPrecioVenta } from "@/lib/ventas/types";
+import type { TipoIvaVenta, TipoVenta, MonedaVenta, LineaVenta, MetodoPago, TipoPrecioVenta, VarianteElegida } from "@/lib/ventas/types";
 import type { Producto } from "@/lib/inventario/types";
+import VariantesObligatoriasModal from "@/components/ventas/VariantesObligatoriasModal";
+import type { GrupoUi, Seleccion } from "@/components/ventas/RecetaVariantesPicker";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -111,6 +113,31 @@ export default function NuevaVentaPage() {
   // ── Estado global ──────────────────────────────────────────────────────────
   const [productos, setProductos]   = useState<Producto[]>([]);
   const [items, setItems]           = useState<LineaVenta[]>([]);
+  // Fase 2.2 Parte 4: modal de variantes obligatorias. Se abre cuando:
+  //   - el usuario intenta agregar una línea cuyo producto+presentación tiene
+  //     grupos obligatorios de variante (modo "nuevo"), o
+  //   - el usuario clickea "Editar variante" en una línea del carrito (modo "editar").
+  const [variantesModal, setVariantesModal] = useState<
+    | { open: false }
+    | {
+        open: true;
+        mode: "nuevo";
+        grupos: GrupoUi[];
+        productoNombre: string;
+        presentacionNombre: string | null;
+        payloadPendiente: AgregarVentaPayload;
+        seleccionInicial: Seleccion[];
+      }
+    | {
+        open: true;
+        mode: "editar";
+        grupos: GrupoUi[];
+        productoNombre: string;
+        presentacionNombre: string | null;
+        indexLinea: number;
+        seleccionInicial: Seleccion[];
+      }
+  >({ open: false });
   const [errorLinea, setErrorLinea] = useState<string | null>(null);
   const [errorVenta, setErrorVenta] = useState<string | null>(null);
   // Venta sin stock: faltantes devueltos por el backend + modal de confirmación.
@@ -202,12 +229,145 @@ export default function NuevaVentaPage() {
     setPickerOpen(false);
   }
 
+  // Fase 2.2 Parte 4: fetch de grupos obligatorios para un (producto, presentación).
+  // Devuelve [] si el combo no tiene receta o si la receta no declara grupos.
+  async function fetchGruposVariante(
+    productoId: string,
+    presentacionId: string | null,
+  ): Promise<GrupoUi[]> {
+    const qs = new URLSearchParams({ producto_id: productoId });
+    if (presentacionId) qs.set("presentacion_id", presentacionId);
+    const r = await fetch(`/api/recetas/grupos-por-producto?${qs}`, { credentials: "include" });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || !j?.success) return [];
+    return (j.data?.grupos ?? []) as GrupoUi[];
+  }
+
+  function armarLineaVenta(payload: AgregarVentaPayload, variantes: VarianteElegida[]): LineaVenta {
+    const { producto: p, cantidad, precio_input, iva, tipo_precio, presentacion, adicionales } = payload;
+    const adicionalesUnit = (adicionales ?? []).reduce((acc, a) => acc + a.precio, 0);
+    const precioPyg = precio_input + adicionalesUnit;
+    const totalLinea = cantidad * precioPyg;
+    const montoIva = calcIva(iva, totalLinea);
+    const subtotal = totalLinea - montoIva;
+    const nombreMostrado = presentacion ? `${p.nombre} — ${presentacion.nombre}` : p.nombre;
+    const nombresAdi = (adicionales ?? []).map((a) => a.nombre);
+    const nombresVar = variantes.map((v) => `${v.grupo_etiqueta ?? ""}: ${v.opcion_etiqueta ?? ""}`).filter((s) => s.trim());
+    const nota = [...nombresAdi, ...nombresVar].length > 0 ? `+ ${[...nombresAdi, ...nombresVar].join(", ")}` : null;
+    return {
+      producto_id: p.id,
+      producto_nombre: nombreMostrado,
+      sku: p.sku,
+      cantidad,
+      precio_venta_original: precio_input + adicionalesUnit,
+      precio_venta: precioPyg,
+      tipo_iva: iva,
+      tipo_precio,
+      subtotal,
+      monto_iva: montoIva,
+      total_linea: totalLinea,
+      presentacion_id: presentacion?.id ?? null,
+      presentacion_nombre: presentacion?.nombre ?? null,
+      adicionales: adicionales ?? [],
+      variantes_elegidas: variantes,
+      nota,
+    };
+  }
+
   /**
    * Agregado directo desde el modal: arma la LineaVenta usando la misma
    * logica que handleAgregarLinea pero con datos del modal, sin pasar
    * por el form inline. Mantiene el modal abierto si todo OK.
+   *
+   * Si el combo tiene grupos de variante obligatoria, abre un modal para
+   * que el cajero elija. La línea se agrega SOLO si la selección es completa.
    */
+  async function handleAgregarDesdePickerAsync(payload: AgregarVentaPayload): Promise<boolean> {
+    const grupos = await fetchGruposVariante(payload.producto.id, payload.presentacion?.id ?? null);
+    const obligatorios = grupos.filter((g) => g.obligatorio);
+    if (obligatorios.length > 0) {
+      // Abrir modal de variantes; cerrar el picker de productos.
+      setPickerOpen(false);
+      setVariantesModal({
+        open: true,
+        mode: "nuevo",
+        grupos,
+        productoNombre: payload.producto.nombre,
+        presentacionNombre: payload.presentacion?.nombre ?? null,
+        payloadPendiente: payload,
+        seleccionInicial: [],
+      });
+      return true;
+    }
+    // Sin variantes → agregar directo.
+    setItems((prev) => [...prev, armarLineaVenta(payload, [])]);
+    setErrorVenta(null);
+    return true;
+  }
+
   function handleAgregarDesdePicker(payload: AgregarVentaPayload): boolean {
+    // Mantener compatibilidad de la firma síncrona esperada por ProductPickerModal:
+    // disparamos el flujo asincrónico y devolvemos true (la línea se agregará cuando
+    // el modal de variantes se confirme, o inmediatamente si no hay variantes).
+    void handleAgregarDesdePickerAsync(payload);
+    return true;
+  }
+
+  function handleConfirmarVariantes(seleccion: Seleccion[]) {
+    if (!variantesModal.open) return;
+    // Mapear a VarianteElegida con snapshot visible (etiquetas) para el carrito.
+    const porGrupo = new Map(variantesModal.grupos.map((g) => [g.id, g]));
+    const variantes: VarianteElegida[] = seleccion.map((s) => {
+      const g = porGrupo.get(s.grupo_id);
+      const op = g?.opciones.find((o) => o.id === s.opcion_id);
+      return {
+        grupo_id: s.grupo_id,
+        opcion_id: s.opcion_id,
+        grupo_etiqueta: g?.etiqueta,
+        opcion_etiqueta: op?.etiqueta,
+      };
+    });
+    if (variantesModal.mode === "nuevo") {
+      setItems((prev) => [...prev, armarLineaVenta(variantesModal.payloadPendiente, variantes)]);
+    } else {
+      const idx = variantesModal.indexLinea;
+      setItems((prev) => prev.map((it, i) => {
+        if (i !== idx) return it;
+        const nombresAdi = (it.adicionales ?? []).map((a) => a.nombre);
+        const nombresVar = variantes.map((v) => `${v.grupo_etiqueta ?? ""}: ${v.opcion_etiqueta ?? ""}`).filter((s) => s.trim());
+        const nota = [...nombresAdi, ...nombresVar].length > 0 ? `+ ${[...nombresAdi, ...nombresVar].join(", ")}` : null;
+        return { ...it, variantes_elegidas: variantes, nota };
+      }));
+    }
+    setVariantesModal({ open: false });
+    setErrorVenta(null);
+  }
+
+  async function handleEditarVariantes(idx: number) {
+    const it = items[idx];
+    if (!it) return;
+    const grupos = await fetchGruposVariante(it.producto_id, it.presentacion_id ?? null);
+    if (grupos.length === 0) return;
+    const seleccionInicial: Seleccion[] = (it.variantes_elegidas ?? []).map((v) => ({
+      grupo_id: v.grupo_id,
+      opcion_id: v.opcion_id,
+    }));
+    setVariantesModal({
+      open: true,
+      mode: "editar",
+      grupos,
+      productoNombre: it.producto_nombre,
+      presentacionNombre: it.presentacion_nombre ?? null,
+      indexLinea: idx,
+      seleccionInicial,
+    });
+  }
+
+  // Versión legacy (reemplazada por handleAgregarDesdePickerAsync). Se conserva
+  // temporalmente para referencia durante la migración a variantes obligatorias.
+  // Elegible para remover en el próximo commit si la integración queda estable.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  function _oldHandleAgregarDesdePicker(payload: AgregarVentaPayload): boolean {
     const { producto: p, cantidad, precio_input, iva, tipo_precio, presentacion, adicionales } = payload;
     // Precio unitario = precio base (presentación o minorista) + suma de adicionales (siempre en GS).
     const adicionalesUnit = (adicionales ?? []).reduce((acc, a) => acc + a.precio, 0);
@@ -855,6 +1015,28 @@ export default function NuevaVentaPage() {
                             maxLength={300}
                             className="mt-1.5 w-full max-w-xs rounded-md border border-slate-200 px-2 py-1 text-xs text-gray-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#3F8E91]"
                           />
+                          {/* Fase 2.2 Parte 4: chips de variantes elegidas + botón "Editar variante" */}
+                          {(item.variantes_elegidas ?? []).length > 0 && (
+                            <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                              {(item.variantes_elegidas ?? []).map((v) => (
+                                <span
+                                  key={v.grupo_id}
+                                  className="inline-flex items-center rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-medium px-2 py-0.5 border border-emerald-200"
+                                  data-testid={`linea-variante-${idx}-${v.grupo_id}`}
+                                >
+                                  {v.grupo_etiqueta ?? "Variante"}: {v.opcion_etiqueta ?? "—"}
+                                </span>
+                              ))}
+                              <button
+                                type="button"
+                                onClick={() => handleEditarVariantes(idx)}
+                                className="text-[10px] text-gray-500 hover:text-emerald-700 underline"
+                                data-testid={`editar-variante-${idx}`}
+                              >
+                                Editar
+                              </button>
+                            </div>
+                          )}
                         </td>
                         <td className="hidden py-3 pr-3 font-mono text-xs text-gray-500 lg:table-cell">
                           {item.sku}
@@ -1030,6 +1212,20 @@ export default function NuevaVentaPage() {
         tipoCambio={tipoCambioNum}
         ivaDefault={lineaIva}
       />
+
+      {/* Fase 2.2 Parte 4: modal de variantes obligatorias (se abre al agregar
+          o al editar una línea cuya receta activa declara grupos). */}
+      {variantesModal.open && (
+        <VariantesObligatoriasModal
+          abierto={variantesModal.open}
+          productoNombre={variantesModal.productoNombre}
+          presentacionNombre={variantesModal.presentacionNombre}
+          grupos={variantesModal.grupos}
+          seleccionInicial={variantesModal.seleccionInicial}
+          onConfirmar={handleConfirmarVariantes}
+          onCancelar={() => setVariantesModal({ open: false })}
+        />
+      )}
 
       {/* Modal de cobro (transferencia / tarjeta-débito) */}
       {cobroModalOpen && (metodoPago === "transferencia" || metodoPago === "tarjeta") && (

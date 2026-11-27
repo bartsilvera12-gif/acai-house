@@ -1,0 +1,68 @@
+name: test-fase22p4-atomicidad
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/acaihouse/migrations/20261125120000_fase22p4_variantes_recetas.sql'
+      - 'supabase/acaihouse/migrations/20261125130000_fase22p4_fn_crear_venta_atomica.sql'
+      - 'src/lib/ventas/server/**'
+      - 'src/lib/recetas/**'
+      - 'scripts/test-fase22p4-**.cjs'
+      - '.github/workflows/test-fase22p4-atomicidad.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/acaihouse/migrations/20261125120000_fase22p4_variantes_recetas.sql'
+      - 'supabase/acaihouse/migrations/20261125130000_fase22p4_fn_crear_venta_atomica.sql'
+      - 'src/lib/ventas/server/**'
+
+jobs:
+  integracion-atomicidad:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        # Postgres efímero. Esta instancia vive solo para el job; al terminar
+        # se destruye con todos sus datos. 100% aislada de producción.
+        image: postgres:15-alpine
+        env:
+          POSTGRES_PASSWORD: ci
+          POSTGRES_USER: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      STAGING_PG_URL: postgres://postgres:ci@127.0.0.1:55432/postgres
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies (prod + dev)
+        run: npm ci
+
+      - name: TypeScript check
+        run: npx tsc --noEmit
+
+      - name: Tests unitarios (sin DB)
+        run: |
+          node scripts/test-fase22p4-variantes.cjs
+          node scripts/test-fase22p4-picker-ui.cjs
+          node scripts/test-fase22p4-costeo.cjs
+
+      - name: Tests integración (Postgres efímero)
+        run: node scripts/test-fase22p4-atomicidad.cjs
+
+      - name: Tests flujo real de venta (Postgres efímero)
+        run: node scripts/test-fase22p4-flujo-venta.cjs

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthWithRol } from "@/lib/middleware/auth";
 import { fetchDataSchemaForEmpresaId } from "@/lib/supabase/empresa-data-schema";
 import { createVentaTransaccionalPg, StockInsuficienteError } from "@/lib/ventas/server/create-venta-pg";
-import type { CreateVentaItemInput, CreateVentaItemAdicionalInput } from "@/lib/ventas/server/create-venta-pg";
+import type { CreateVentaItemInput, CreateVentaItemAdicionalInput, CreateVentaItemVarianteInput } from "@/lib/ventas/server/create-venta-pg";
 import { insertVentaPagoDetalle } from "@/lib/ventas/server/pago-detalle-pg";
 import { successResponse, errorResponse } from "@/lib/api/response";
 import { API_ERRORS } from "@/lib/api/errors";
@@ -72,9 +72,24 @@ function asItems(body: unknown): CreateVentaItemInput[] | null {
         ? r.presentacion_id
         : null,
       adicionales: asAdicionales(r.adicionales),
+      variantes_elegidas: asVariantes(r.variantes_elegidas),
     });
   }
   if (out.some((i) => !i.producto_id || !(i.cantidad > 0))) return null;
+  return out;
+}
+
+function asVariantes(raw: unknown): CreateVentaItemVarianteInput[] {
+  if (!Array.isArray(raw)) return [];
+  const out: CreateVentaItemVarianteInput[] = [];
+  for (const x of raw) {
+    if (!x || typeof x !== "object") continue;
+    const r = x as Record<string, unknown>;
+    const grupo_id = typeof r.grupo_id === "string" ? r.grupo_id : "";
+    const opcion_id = typeof r.opcion_id === "string" ? r.opcion_id : "";
+    if (!grupo_id || !opcion_id) continue;
+    out.push({ grupo_id, opcion_id });
+  }
   return out;
 }
 
